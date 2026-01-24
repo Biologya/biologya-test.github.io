@@ -7,53 +7,164 @@
   <link rel="stylesheet" href="style.css">
   <style>
     /* ====== Вертикальная панель слева ====== */
-    #questionPanelWrapper { position: fixed; top: 50px; left: 0; width: 60px; height: 90%; background: #f5f5f5; padding: 5px; border-right: 1px solid #ccc; display: flex; flex-direction: column; align-items: center; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 100; transition: width 0.3s; }
+    #questionPanelWrapper {
+      position: fixed;
+      top: 50px;
+      left: 0;
+      width: 60px;
+      height: 90%;
+      background: #f5f5f5;
+      padding: 5px;
+      border-right: 1px solid #ccc;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+      z-index: 100;
+      transition: width 0.3s;
+    }
+
     #questionPanelWrapper.collapsed { width: 20px; }
-    #togglePanelBtn { margin-bottom: 10px; cursor: pointer; padding: 3px 6px; font-size: 14px; }
-    #questionPanel { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex-grow: 1; text-align: center; width: 100%; }
-    #questionPanel button { flex: 0 0 auto; width: 45px; height: 45px; min-width: 45px; min-height: 45px; max-width: 45px; max-height: 45px; border-radius: 50%; border: 1px solid #ccc; cursor: pointer; background: #eee; color: #000; font-size: 14px; transition: background 0.2s; }
+
+    #togglePanelBtn {
+      margin-bottom: 10px;
+      cursor: pointer;
+      padding: 3px 6px;
+      font-size: 14px;
+    }
+
+    #questionPanel {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow-y: auto;  /* вертикальный скролл */
+      flex-grow: 1;
+      text-align: center;
+      width: 100%;
+    }
+
+    #questionPanel button {
+      flex: 0 0 auto;       /* не растягиваться */
+      width: 45px;
+      height: 45px;
+      min-width: 45px;
+      min-height: 45px;
+      max-width: 45px;
+      max-height: 45px;
+      border-radius: 50%;
+      border: 1px solid #ccc;
+      cursor: pointer;
+      background: #eee;
+      color: #000;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+
     #questionPanel button.correct { background: green; color: #fff; }
     #questionPanel button.wrong { background: red; color: #fff; }
-    #pageNav { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; width: 100%; }
-    #pageNav button { padding: 3px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #ccc; background: #eee; font-size: 12px; }
+
+    #pageNav {
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: center;
+      width: 100%;
+    }
+
+    #pageNav button {
+      padding: 3px 6px;
+      cursor: pointer;
+      border-radius: 3px;
+      border: 1px solid #ccc;
+      background: #eee;
+      font-size: 12px;
+    }
+
     #pageNav button.active { background: #007bff; color: #fff; }
-    #resetWrapper { margin-top: 8px; }
-    #resetBtn { width: 50px; padding: 3px 5px; cursor: pointer; border-radius: 3px; border: 1px solid #f00; background: #ff4d4d; color: #fff; font-size: 12px; }
+
+    #resetWrapper {
+      margin-top: 8px;
+    }
+
+    #resetBtn {
+      width: 50px;
+      padding: 3px 5px;
+      cursor: pointer;
+      border-radius: 3px;
+      border: 1px solid #f00;
+      background: #ff4d4d;
+      color: #fff;
+      font-size: 12px;
+    }
 
     /* ====== Основной контент ====== */
-    .app { margin-left:70px; padding:15px; max-width: 1000px; }
-    .header { margin-bottom: 15px; }
-    .card { margin-bottom: 15px; }
-    .controls button { margin-right: 6px; padding: 8px 12px; font-size: 16px; }
+    .app {
+      margin-left:70px;
+      padding:15px;
+      max-width: 1000px;
+    }
 
-    /* ====== OTP overlay ====== */
-    #otpOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.85); display:flex; justify-content:center; align-items:center; z-index:9999; flex-direction: column; color: #fff; font-family: sans-serif; }
-    #otpOverlay input { padding: 10px 15px; font-size: 18px; border-radius: 5px; border:none; margin-bottom: 10px; width: 250px; text-align:center; }
-    #otpOverlay button { padding: 8px 16px; font-size: 16px; border-radius: 5px; border:none; background:#4caf50; color:#fff; cursor:pointer; }
-    #otpMessage { margin-top: 10px; font-size: 16px; color: #ff6666; }
+    .header {
+      margin-bottom: 15px;
+    }
+
+    .card {
+      margin-bottom: 15px;
+    }
+
+    .controls button {
+      margin-right: 6px;
+      padding: 8px 12px;
+      font-size: 16px;
+    }
 
     /* ====== Адаптивность для телефонов ====== */
     @media (max-width: 600px) {
-      #questionPanelWrapper { width: 50px; padding: 4px; }
-      #questionPanel button { width: 40px; height: 40px; font-size: 13px; }
-      #pageNav button { padding: 2px 4px; font-size: 11px; }
-      #resetBtn { width: 45px; font-size: 11px; padding: 2px 4px; }
-      .app { margin-left:60px; padding: 10px; }
-      .controls button { padding: 6px 10px; font-size: 14px; }
-      #questionText { font-size: 18px; }
-      .answer { font-size: 16px; padding: 8px; }
+      #questionPanelWrapper {
+        width: 50px;
+        padding: 4px;
+      }
+
+      #questionPanel button {
+        width: 40px;
+        height: 40px;
+        font-size: 13px;
+      }
+
+      #pageNav button {
+        padding: 2px 4px;
+        font-size: 11px;
+      }
+
+      #resetBtn {
+        width: 45px;
+        font-size: 11px;
+        padding: 2px 4px;
+      }
+
+      .app {
+        margin-left:60px;
+        padding: 10px;
+      }
+
+      .controls button {
+        padding: 6px 10px;
+        font-size: 14px;
+      }
+
+      #questionText {
+        font-size: 18px;
+      }
+
+      .answer {
+        font-size: 16px;
+        padding: 8px;
+      }
     }
   </style>
 </head>
 <body>
-
-<!-- ====== OTP overlay ====== -->
-<div id="otpOverlay">
-  <div>Введите одноразовый код:</div>
-  <input type="text" id="otpInput" placeholder="12 символов" maxlength="12">
-  <button id="otpSubmit">Подтвердить</button>
-  <div id="otpMessage"></div>
-</div>
 
 <!-- ====== Вертикальная панель вопросов ====== -->
 <div id="questionPanelWrapper">
@@ -73,16 +184,19 @@
       <div id="progressFill"></div>
     </div>
   </div>
+
   <div class="card">
     <h2 id="questionText"></h2>
     <div id="answers"></div>
   </div>
+
   <div class="controls">
     <button id="prevBtn">Предыдущий</button>
     <button id="submitBtn">Ответить</button>
     <button id="nextBtn">Следующий вопрос</button>
     <button id="exitErrorsBtn" style="display:none">Выйти из ошибок</button>
   </div>
+
   <div class="footer">
     <button id="errorsBtn">Работа над ошибками</button>
     <div id="stats"></div>
@@ -95,36 +209,6 @@
   const wrapper = document.getElementById("questionPanelWrapper");
   const toggleBtn = document.getElementById("togglePanelBtn");
   toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
-
-  // ====== OTP для одного устройства с localStorage ======
-  const otpCodes = ["A1B2C3D4E5F6"]; // твои коды
-  const usedCodesKey = "usedOtpCodes"; // ключ localStorage для сохранённых кодов
-
-  const otpOverlay = document.getElementById("otpOverlay");
-  const otpInput = document.getElementById("otpInput");
-  const otpSubmit = document.getElementById("otpSubmit");
-  const otpMessage = document.getElementById("otpMessage");
-
-  // Проверяем, есть ли уже правильный код в localStorage
-  let usedCodes = JSON.parse(localStorage.getItem(usedCodesKey) || "[]");
-  if (usedCodes.some(code => otpCodes.includes(code))) {
-    otpOverlay.style.display = "none";
-  }
-
-  otpSubmit.onclick = () => {
-    const code = otpInput.value.trim();
-    if (otpCodes.includes(code)) {
-      // Сохраняем код в localStorage
-      if (!usedCodes.includes(code)) usedCodes.push(code);
-      localStorage.setItem(usedCodesKey, JSON.stringify(usedCodes));
-      otpOverlay.style.display = "none";
-    } else {
-      otpMessage.innerText = "Неверный пароль!";
-      otpInput.value = "";
-    }
-  };
 </script>
 </body>
 </html>
-
-
