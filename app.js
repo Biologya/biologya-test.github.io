@@ -1,3 +1,11 @@
+<script>
+  const supabaseUrl = 'sb_publishable_txbkLZsGJl0lZTXWR5Tjwg_cuq9O8ud';   // берём из Supabase
+  const supabaseKey = 'sb_secret_0YW2EkwtY07k81BoFCKBtw_zqXUHK7F';       // берём из Supabase
+  const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+
+  console.log('Supabase подключен!', supabase);
+</script>
+
 // ================== Состояние ==================
 const state = JSON.parse(localStorage.getItem("bioState")) || {
   queueType: "main",
@@ -383,4 +391,5 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
