@@ -162,10 +162,6 @@
         padding: 8px;
       }
     }
-
-    /* ====== Блок регистрации и входа ====== */
-    #authWrapper { margin-bottom: 15px; }
-    #authWrapper button { margin-right: 6px; padding: 6px 10px; font-size: 14px; }
   </style>
 </head>
 <body>
@@ -182,14 +178,6 @@
 
 <!-- ====== Основное окно теста ====== -->
 <div class="app">
-
-  <!-- ====== Блок регистрации / входа / OTP (добавлен) ====== -->
-  <div id="authWrapper">
-    <button onclick="signUp()">Регистрация</button>
-    <button onclick="signIn()">Вход</button>
-    <button onclick="checkOTP()">Одноразовый пароль</button>
-  </div>
-
   <div class="header">
     <div id="progressText">Вопрос 1 из 1</div>
     <div class="progress-bar">
@@ -215,17 +203,12 @@
   </div>
 </div>
 
-<!-- ====== Скрипты ====== -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="script.js"></script> <!-- JS для регистрации/входа/OTP -->
-<script src="app.js"></script>    <!-- Логика теста -->
-
+<script src="app.js"></script>
 <script>
   // ====== Кнопка открыть/закрыть панель ======
   const wrapper = document.getElementById("questionPanelWrapper");
   const toggleBtn = document.getElementById("togglePanelBtn");
   toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
 </script>
-
 </body>
 </html>
