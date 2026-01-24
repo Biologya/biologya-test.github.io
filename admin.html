@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Админка – Добавление вопросов</title>
+<style>
+  body {font-family: Arial, sans-serif; max-width: 600px; margin: 30px auto;}
+  label {display:block; margin-top:15px;}
+  input, textarea {width:100%; padding:5px; font-size:1rem;}
+  button {margin-top:20px; padding:10px 20px; font-size:1rem; cursor:pointer;}
+</style>
+</head>
+<body>
+
+<h2>Добавить новый вопрос</h2>
+
+<label for="qText">Текст вопроса:</label>
+<input id="qText" type="text" placeholder="Например: Какой цвет не является основным?">
+
+<label for="answers">Ответы (каждый вариант с новой строки):</label>
+<textarea id="answers" rows="5" placeholder="Вариант 1&#10;Вариант 2&#10;Вариант 3"></textarea>
+
+<label for="correct">Правильный индекс ответа (0,1,2…)</label>
+<input id="correct" type="number" min="0" placeholder="0">
+
+<button onclick="addQuestion()">Добавить вопрос</button>
+
+<script>
+const PASSWORD = "admin123"; // простой пароль
+const pass = prompt("Введите пароль для админки:");
+if(pass !== PASSWORD){
+  document.body.innerHTML = "Доступ запрещён!";
+}
+
+// Функция добавления вопроса
+async function addQuestion(){
+  const textEl = document.getElementById("qText");
+  const ansEl = document.getElementById("answers");
+  const corrEl = document.getElementById("correct");
+
+  const text = textEl.value.trim();
+  if(!text) return alert("Введите текст вопроса!");
+
+  const answersArr = ansEl.value.split("\n").filter(Boolean);
+  if(answersArr.length < 2) return alert("Должно быть минимум 2 варианта ответа.");
+
+  const correctIndex = Number(corrEl.value);
+  if(isNaN(correctIndex) || correctIndex < 0 || correctIndex >= answersArr.length){
+    return alert(`Правильный индекс должен быть от 0 до ${answersArr.length - 1}`);
+  }
+
+  // Загружаем текущие вопросы из JSON
+  let questions = [];
+  try{
+    const res = await fetch("questions.json");
+    questions = await res.json();
+  } catch(err){
+    console.warn("JSON не найден, создаем новый массив вопросов");
+  }
+
+  // Добавляем новый вопрос
+  questions.push({text, answers: answersArr, correct: correctIndex});
+
+  // Отправляем на сервер через Netlify Function
+  try{
+    const res = await fetch("/.netlify/functions/saveQuestions", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(questions)
+    });
+    if(res.ok){
+      alert("Вопрос успешно добавлен!");
+      textEl.value = "";
+      ansEl.value = "";
+      corrEl.value = "";
+    } else {
+      alert("Ошибка при сохранении: " + res.statusText);
+    }
+  } catch(err){
+    console.error(err);
+    alert("Ошибка при отправке на сервер: " + err.message);
+  }
+}
+</script>
+
+</body>
+</html>

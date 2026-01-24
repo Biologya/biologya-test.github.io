@@ -1,0 +1,150 @@
+:root {
+  --bg:#eaf5ea;
+  --card:#fff;
+  --text:#1b3d1b;
+  --primary:#4caf50;
+  --wrong:#e53935;
+}
+
+body {
+  margin:0;
+  min-height:100vh;
+  background:var(--bg);
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  font-family:Segoe UI,sans-serif;
+}
+
+body.dark {
+  --bg:#121212;
+  --card:#1e1e1e;
+  --text:#e0e0e0;
+}
+
+.app {
+  width:100%;
+  max-width:480px;
+  padding:16px;
+}
+
+.fade {
+  animation: fade .3s ease;
+}
+
+@keyframes fade {
+  from {opacity:0; transform:translateY(8px)}
+  to {opacity:1; transform:none}
+}
+
+.card {
+  background:var(--card);
+  padding:20px;
+  border-radius:16px;
+  box-shadow:0 8px 20px rgba(0,0,0,.1);
+}
+
+#answers {
+  margin-top:16px;
+  display:grid;
+  gap:10px;
+}
+
+.answer {
+  position:relative;
+  padding:12px 16px;
+  border-radius:12px;
+  border:2px solid #cfe8cf;
+  cursor:pointer;
+  transition:.25s;
+}
+
+.answer:hover {
+  background:#dff3df;
+}
+
+/* ===== ИЗМЕНЕНИЕ ПО ЗАПРОСУ ===== */
+.answer.selected { 
+  background:#c8e6c9; 
+}
+
+.answer.correct {
+  border-color:var(--primary);
+  background:#c8e6c9;
+}
+
+.answer.wrong {
+  border-color:var(--wrong);
+  background:#ffcdd2;
+}
+
+/* FIX: correct / wrong сильнее selected */
+.answer.correct.selected,
+.answer.wrong.selected {
+  background: inherit;
+}
+/* ===== КОНЕЦ ИЗМЕНЕНИЯ ===== */
+
+.arrow {
+  position:absolute;
+  left:-18px;
+  top:50%;
+  transform:translateY(-50%);
+  font-size:18px;
+  color:var(--primary);
+}
+
+.controls, .footer {
+  display:flex;
+  gap:10px;
+  margin-top:12px;
+}
+
+button {
+  flex:1;
+  padding:10px;
+  border:none;
+  border-radius:14px;
+  background:var(--primary);
+  color:#fff;
+  cursor:pointer;
+}
+
+button.secondary { background:#81c784; }
+
+.progress-bar {
+  height:8px;
+  background:#cfe8cf;
+  border-radius:4px;
+  overflow:hidden;
+}
+
+#progressFill {
+  height:100%;
+  background:var(--primary);
+  transition:.3s;
+}
+
+#themeToggle {
+  position:fixed;
+  right:16px;
+  top:50%;
+  cursor:pointer;
+}
+
+#resetBtn {
+  padding: 5px 10px;
+  background: #ff4d4d;
+  color: #fff;
+  border: 2px solid #ff0000;
+  border-radius: 5px;
+  cursor: pointer;
+  width: 50px;
+  font-size: 12px;
+  text-align: center;
+  transition: background 0.2s;
+}
+
+#resetBtn:hover {
+  background: #ff1a1a;
+}
