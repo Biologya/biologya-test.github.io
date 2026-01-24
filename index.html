@@ -1,75 +1,49 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
-<title>Биология — тест</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="style.css">
-<style>
-/* ====== Вертикальная панель слева ====== */
-#questionPanelWrapper { position: fixed; top: 50px; left: 0; width: 60px; height: 90%; background: #f5f5f5; padding: 5px; border-right: 1px solid #ccc; display: flex; flex-direction: column; align-items: center; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 100; transition: width 0.3s; }
-#questionPanelWrapper.collapsed { width: 20px; }
-#togglePanelBtn { margin-bottom: 10px; cursor: pointer; padding: 3px 6px; font-size: 14px; }
-#questionPanel { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex-grow: 1; text-align: center; width: 100%; }
-#questionPanel button { flex: 0 0 auto; width: 45px; height: 45px; border-radius: 50%; border: 1px solid #ccc; cursor: pointer; background: #eee; color: #000; font-size: 14px; transition: background 0.2s; }
-#questionPanel button.correct { background: green; color: #fff; }
-#questionPanel button.wrong { background: red; color: #fff; }
-#pageNav { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; width: 100%; }
-#pageNav button { padding: 3px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #ccc; background: #eee; font-size: 12px; }
-#pageNav button.active { background: #007bff; color: #fff; }
-#resetWrapper { margin-top: 8px; }
-#resetBtn { width: 50px; padding: 3px 5px; cursor: pointer; border-radius: 3px; border: 1px solid #f00; background: #ff4d4d; color: #fff; font-size: 12px; }
+  <meta charset="UTF-8">
+  <title>Биология — тест</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* ====== Вертикальная панель слева ====== */
+    #questionPanelWrapper { position: fixed; top: 50px; left: 0; width: 60px; height: 90%; background: #f5f5f5; padding: 5px; border-right: 1px solid #ccc; display: flex; flex-direction: column; align-items: center; box-shadow: 2px 0 5px rgba(0,0,0,0.1); z-index: 100; transition: width 0.3s; }
+    #questionPanelWrapper.collapsed { width: 20px; }
+    #togglePanelBtn { margin-bottom: 10px; cursor: pointer; padding: 3px 6px; font-size: 14px; }
+    #questionPanel { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex-grow: 1; text-align: center; width: 100%; }
+    #questionPanel button { flex: 0 0 auto; width: 45px; height: 45px; min-width: 45px; min-height: 45px; max-width: 45px; max-height: 45px; border-radius: 50%; border: 1px solid #ccc; cursor: pointer; background: #eee; color: #000; font-size: 14px; transition: background 0.2s; }
+    #questionPanel button.correct { background: green; color: #fff; }
+    #questionPanel button.wrong { background: red; color: #fff; }
+    #pageNav { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; width: 100%; }
+    #pageNav button { padding: 3px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #ccc; background: #eee; font-size: 12px; }
+    #pageNav button.active { background: #007bff; color: #fff; }
+    #resetWrapper { margin-top: 8px; }
+    #resetBtn { width: 50px; padding: 3px 5px; cursor: pointer; border-radius: 3px; border: 1px solid #f00; background: #ff4d4d; color: #fff; font-size: 12px; }
 
-/* ====== Основной контент ====== */
-.app { margin-left:70px; padding:15px; max-width: 1000px; }
-.header { margin-bottom: 15px; }
-.card { margin-bottom: 15px; }
-.controls button { margin-right: 6px; padding: 8px 12px; font-size: 16px; }
+    /* ====== Основной контент ====== */
+    .app { margin-left:70px; padding:15px; max-width: 1000px; }
+    .header { margin-bottom: 15px; }
+    .card { margin-bottom: 15px; }
+    .controls button { margin-right: 6px; padding: 8px 12px; font-size: 16px; }
 
-/* ====== OTP overlay ====== */
-#otpOverlay {
-  position: fixed;
-  top:0; left:0; width:100%; height:100%;
-  background: rgba(0,0,0,0.85);
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  z-index:9999;
-  flex-direction: column;
-  color: #fff;
-  font-family: sans-serif;
-}
-#otpOverlay input {
-  padding: 10px 15px;
-  font-size: 18px;
-  border-radius: 5px;
-  border:none;
-  margin-bottom: 10px;
-  text-align:center;
-}
-#otpOverlay button {
-  padding: 8px 16px;
-  font-size: 16px;
-  border-radius: 5px;
-  border:none;
-  background:#4caf50;
-  color:#fff;
-  cursor:pointer;
-}
-#otpMessage { margin-top: 10px; font-size: 16px; color: #ff6666; }
+    /* ====== OTP overlay ====== */
+    #otpOverlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.85); display:flex; justify-content:center; align-items:center; z-index:9999; flex-direction: column; color: #fff; font-family: sans-serif; }
+    #otpOverlay input { padding: 10px 15px; font-size: 18px; border-radius: 5px; border:none; margin-bottom: 10px; width: 250px; text-align:center; }
+    #otpOverlay button { padding: 8px 16px; font-size: 16px; border-radius: 5px; border:none; background:#4caf50; color:#fff; cursor:pointer; }
+    #otpMessage { margin-top: 10px; font-size: 16px; color: #ff6666; }
 
-/* ====== Адаптивность ====== */
-@media (max-width: 600px) {
-  #questionPanelWrapper { width: 50px; padding: 4px; }
-  #questionPanel button { width: 40px; height: 40px; font-size: 13px; }
-  #pageNav button { padding: 2px 4px; font-size: 11px; }
-  #resetBtn { width: 45px; font-size: 11px; padding: 2px 4px; }
-  .app { margin-left:60px; padding: 10px; }
-  .controls button { padding: 6px 10px; font-size: 14px; }
-  #questionText { font-size: 18px; }
-  .answer { font-size: 16px; padding: 8px; }
-}
-</style>
+    /* ====== Адаптивность для телефонов ====== */
+    @media (max-width: 600px) {
+      #questionPanelWrapper { width: 50px; padding: 4px; }
+      #questionPanel button { width: 40px; height: 40px; font-size: 13px; }
+      #pageNav button { padding: 2px 4px; font-size: 11px; }
+      #resetBtn { width: 45px; font-size: 11px; padding: 2px 4px; }
+      .app { margin-left:60px; padding: 10px; }
+      .controls button { padding: 6px 10px; font-size: 14px; }
+      #questionText { font-size: 18px; }
+      .answer { font-size: 16px; padding: 8px; }
+    }
+  </style>
 </head>
 <body>
 
@@ -122,31 +96,33 @@
   const toggleBtn = document.getElementById("togglePanelBtn");
   toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
 
-  // ====== OTP ======
-  const otpCodes = ["123456789012","A1B2C3D4E5F6"];
-  const usedKey = "usedOtp";
+  // ====== OTP для одного устройства с localStorage ======
+  const otpCodes = ["123456789012","A1B2C3D4E5F6","987654321098"]; // твои коды
+  const usedCodesKey = "usedOtpCodes"; // ключ localStorage для сохранённых кодов
 
   const otpOverlay = document.getElementById("otpOverlay");
   const otpInput = document.getElementById("otpInput");
   const otpSubmit = document.getElementById("otpSubmit");
   const otpMessage = document.getElementById("otpMessage");
 
-  // Скрываем overlay, если код уже использован
-  if (localStorage.getItem(usedKey)) {
+  // Проверяем, есть ли уже правильный код в localStorage
+  let usedCodes = JSON.parse(localStorage.getItem(usedCodesKey) || "[]");
+  if (usedCodes.some(code => otpCodes.includes(code))) {
     otpOverlay.style.display = "none";
   }
 
   otpSubmit.onclick = () => {
     const code = otpInput.value.trim();
     if (otpCodes.includes(code)) {
-      localStorage.setItem(usedKey, code);
-      otpOverlay.style.display = "none"; // скрываем экран
+      // Сохраняем код в localStorage
+      if (!usedCodes.includes(code)) usedCodes.push(code);
+      localStorage.setItem(usedCodesKey, JSON.stringify(usedCodes));
+      otpOverlay.style.display = "none";
     } else {
-      otpMessage.innerText = "Неверный код!";
+      otpMessage.innerText = "Неверный пароль!";
       otpInput.value = "";
     }
   };
 </script>
 </body>
 </html>
-
