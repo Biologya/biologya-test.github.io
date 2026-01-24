@@ -102,51 +102,76 @@ prevBtn.onclick = () => {
   }
 };
 
-// ================== Рендер панели вопросов ==================
-function renderQuestionPanel(page = 0) {
+// ================== Рендер панели вопросов с динамичной пагинацией ==================
+function renderQuestionPanel() {
   const queue = currentQueue();
   const questionsPerPage = 50;
+  const currentPage = Math.floor(state.index / questionsPerPage);
+
+  if (state.queueType === "main") currentPanelPage = currentPage;
+  else currentPanelPageErrors = currentPage;
+
+  const page = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
   const start = page * questionsPerPage;
   const end = Math.min(start + questionsPerPage, queue.length);
 
+  // Панель вопросов
   questionPanel.innerHTML = "";
-
   for (let idx = start; idx < end; idx++) {
-    const qId = queue[idx];
-    const btn = document.createElement("button");
-    btn.innerText = idx + 1;
+  const qId = queue[idx];
+  const btn = document.createElement("button");
+  btn.innerText = idx + 1;
 
-    if (state.history[qId]?.checked) {
-      const sel = state.history[qId].selected || [];
-      const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
-      const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
-      btn.style.background = ok ? "green" : "red";
-      btn.style.color = "#fff";
-    } else {
-      btn.style.background = "#eee";
-      btn.style.color = "#000";
-    }
+  // Статус правильного/неправильного
+  if (state.history[qId]?.checked) {
+    const sel = state.history[qId].selected || [];
+    const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
+    const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
 
-    btn.onclick = () => {
-      state.index = idx;
-      render();
-    };
-
-    questionPanel.appendChild(btn);
+    btn.style.background = ok ? "#4caf50" : "#e53935"; // цвет фона
+    btn.style.color = "#fff"; // белый текст
+    btn.style.borderColor = btn.style.background; // рамка совпадает
+  } else {
+    btn.style.background = "#fff"; // ещё не отвечено
+    btn.style.color = "#000";
+    btn.style.borderColor = "#ccc";
   }
 
+  // Подсветка текущего вопроса
+  if (idx === state.index) {
+    btn.style.border = "2px solid blue"; // рамка текущего
+    btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
+  }
+
+  btn.onclick = () => {
+    state.index = idx;
+    render();
+  };
+
+  questionPanel.appendChild(btn);
+}
+
+  // Панель страниц
   pageNav.innerHTML = "";
   const totalPages = Math.ceil(queue.length / questionsPerPage);
-  for (let p = 0; p < totalPages; p++) {
+  const startPage = Math.max(page - 1, 0);
+  const endPage = Math.min(page + 1, totalPages - 1);
+
+  for (let p = startPage; p <= endPage; p++) {
     const navBtn = document.createElement("button");
     navBtn.innerText = p + 1;
+
     const activePage = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
-    navBtn.className = p === activePage ? "active" : "";
+    if (p === activePage) navBtn.classList.add("active");
+    else navBtn.classList.remove("active");
+
     navBtn.onclick = () => {
       if (state.queueType === "main") currentPanelPage = p;
       else currentPanelPageErrors = p;
-      renderQuestionPanel(p);
+      state.index = p * questionsPerPage;
+      render();
     };
+
     pageNav.appendChild(navBtn);
   }
 }
@@ -159,14 +184,8 @@ function highlightAnswers(qId) {
 
   answerEls.forEach((el, i) => {
     el.classList.remove("correct", "wrong");
-
-    // Зеленый для правильного ответа
     if (correctIndexes.includes(i)) el.classList.add("correct");
-
-    // Красный для выбранного неправильного
-    if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) {
-      el.classList.add("wrong");
-    }
+    if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) el.classList.add("wrong");
   });
 }
 
@@ -189,13 +208,19 @@ function render() {
 
   const qId = queue[state.index];
   const q = questions[qId];
-  const multi = Array.isArray(q.correct) ? q.correct.length > 1 : false;
+  const multi = Array.isArray(q.correct);
+
+  qText.classList.remove("fade");
+  answersDiv.classList.remove("fade");
+  setTimeout(() => {
+    qText.classList.add("fade");
+    answersDiv.classList.add("fade");
+  }, 10);
 
   qText.innerText = q.text;
   answersDiv.innerHTML = "";
 
-  // Показываем кнопку submit только для множественного выбора
-   submitBtn.style.display = multi ? "inline-block" : "none";
+  submitBtn.style.display = multi ? "inline-block" : "none";
   submitBtn.disabled = false;
 
   renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
@@ -205,48 +230,49 @@ function render() {
   checked = !!state.history[qId]?.checked;
   selected = new Set(state.history[qId]?.selected || []);
 
-  // ======= Создаем варианты ответа =======
-q.answers.forEach((text, i) => {
-  const el = document.createElement("div");
-  el.className = "answer";
-  el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
+  q.answers.forEach((text, i) => {
+    const el = document.createElement("div");
+    el.className = "answer";
+    el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
+    if (selected.has(i)) el.classList.add("selected");
 
-  // Убираем серый фон при наведении/отведении
-  // el.onmouseover и el.onmouseout больше не нужны
+    el.onclick = () => {
+      if (state.queueType === "errors" || checked) return;
+      if (!multi) {
+        selected.clear();
+        selected.add(i);
+        checkAnswers();
+        render();
+      } else {
+        if (selected.has(i)) {
+          selected.delete(i);
+          el.classList.remove("selected");
+          el.style.transition = "transform 0.2s ease";
+          el.style.transform = "scale(1)";
+        } else {
+          selected.add(i);
+          el.classList.add("selected");
+          el.style.transition = "transform 0.2s ease";
+          el.style.transform = "scale(1.1)";
+          setTimeout(() => {
+            if (selected.has(i)) el.style.transform = "scale(1.05)";
+          }, 150);
+        }
+      }
+    };
 
-  if (selected.has(i)) el.classList.add("selected");
+    answersDiv.appendChild(el);
+  });
 
-  el.onclick = () => {
-    // Блокировка после ответа
-    if (state.queueType === "errors" || checked) return;
-
-    if (!multi) {
-      // одиночный выбор — сразу проверяем и блокируем
-      selected.clear();
-      selected.add(i);
-      checkAnswers();
-      render();
-    } else {
-      // множественный выбор — можно выбрать/снять до нажатия submit
-      selected.has(i) ? selected.delete(i) : selected.add(i);
-      el.classList.toggle("selected");
-    }
-  };
-
-  answersDiv.appendChild(el);
-});
-
-  // Подсветка сразу, если в режиме ошибок или вопрос уже проверен
   if (checked || state.queueType === "errors") highlightAnswers(qId);
-
-  // Блокируем клик на submit, если уже проверено
   submitBtn.disabled = checked;
 
   updateUI();
 }
-// ================== Проверка ответа (для кнопки submit и режима ошибок) ==================
+
+// ================== Проверка ответа ==================
 submitBtn.onclick = () => {
-  if (checked) return; // блокировка повторного нажатия
+  if (checked) return;
   checkAnswers();
   render();
 };
@@ -264,19 +290,13 @@ function checkAnswers() {
   state.history[qId].selected = [...selected];
   state.history[qId].checked = true;
 
-  // Проверка полного совпадения выбранных с правильными
   const selectedSet = new Set(selected);
   const isCorrect = [...correct].every(c => selectedSet.has(c)) && selectedSet.size === correct.size;
 
-  // Подсветка ответов сразу
   highlightAnswers(qId);
 
-  // Добавляем в ошибки только если есть неверные или пропущенные правильные
-  if (!isCorrect) {
-    if (!state.errors.includes(qId)) state.errors.push(qId);
-  }
+  if (!isCorrect && !state.errors.includes(qId)) state.errors.push(qId);
 
-  // Подсчет очков только в основном режиме
   if (!state.history[qId]?.counted && state.queueType !== "errors") {
     if (isCorrect) state.stats.correct++;
     else state.stats.wrong++;
@@ -309,7 +329,7 @@ nextBtn.onclick = () => {
   }
 };
 
-// ================== Работа над ошибками ==================
+// ================== Режим ошибок ==================
 document.getElementById("errorsBtn").onclick = () => {
   if (!state.errors.length) return alert("Ошибок пока нет 👍");
   if (state.queueType !== "errors") state.mainIndex = state.index;
@@ -363,3 +383,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
