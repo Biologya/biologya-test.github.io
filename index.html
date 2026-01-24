@@ -1,11 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <!-- Подключаем библиотеку Supabase -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="script.js"></script> <!-- здесь будет JS для регистрации/OTP -->
-<script src="app.js"></script>   <!-- твоя логика теста -->
-
   <meta charset="UTF-8">
   <title>Биология — тест</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -167,6 +162,10 @@
         padding: 8px;
       }
     }
+
+    /* ====== Блок регистрации и входа ====== */
+    #authWrapper { margin-bottom: 15px; }
+    #authWrapper button { margin-right: 6px; padding: 6px 10px; font-size: 14px; }
   </style>
 </head>
 <body>
@@ -183,6 +182,14 @@
 
 <!-- ====== Основное окно теста ====== -->
 <div class="app">
+
+  <!-- ====== Блок регистрации / входа / OTP (добавлен) ====== -->
+  <div id="authWrapper">
+    <button onclick="signUp()">Регистрация</button>
+    <button onclick="signIn()">Вход</button>
+    <button onclick="checkOTP()">Одноразовый пароль</button>
+  </div>
+
   <div class="header">
     <div id="progressText">Вопрос 1 из 1</div>
     <div class="progress-bar">
@@ -208,15 +215,17 @@
   </div>
 </div>
 
-<script src="app.js"></script>
+<!-- ====== Скрипты ====== -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="script.js"></script> <!-- JS для регистрации/входа/OTP -->
+<script src="app.js"></script>    <!-- Логика теста -->
+
 <script>
   // ====== Кнопка открыть/закрыть панель ======
   const wrapper = document.getElementById("questionPanelWrapper");
   const toggleBtn = document.getElementById("togglePanelBtn");
   toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
 </script>
+
 </body>
 </html>
-
-
-
