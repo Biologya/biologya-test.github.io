@@ -58,81 +58,86 @@ function loadQuestions() {
   fetch("questions.json")
     .then(r => r.json())
     .then(data => {
+
       questions = data;
 
       const answered = [];
       const unanswered = [];
 
-      // Делим вопросы
       data.forEach((q, qId) => {
         if (state.history[qId]?.checked) answered.push(qId);
         else unanswered.push(qId);
       });
 
-      // Перемешиваем ТОЛЬКО неотвеченные
-      shuffleArray(unanswered);
+      // ===== FIRST LOAD or RESET =====
+      if (answered.length === 0) {
 
-      // Итоговый порядок
-      mainQueue = [...answered, ...unanswered];
+        mainQueue = [...Array(data.length).keys()];
+        shuffleArray(mainQueue);
+
+        state.answersOrder = {};
+
+      }
+
+      // ===== NORMAL MODE =====
+      else {
+
+        shuffleArray(unanswered);
+
+        mainQueue = [...answered, ...unanswered];
+
+      }
+
       state.mainQueue = mainQueue.slice();
 
-      // ===== ВАРИАНТЫ =====
+      // ===== ANSWERS LOGIC =====
       mainQueue.forEach(qId => {
+
         const q = questions[qId];
-        const originalAnswers = q.answers.map((a, i) => ({
+
+        const original = q.answers.map((a, i) => ({
           text: a,
           index: i
         }));
 
-        // ===== ОТВЕЧЕННЫЕ — ФИКС =====
+        // ANSWERED — FIX
         if (state.history[qId]?.checked) {
 
-          // если еще нет сохранённого порядка — создаём
-          state.answersOrder = state.answersOrder || {};
-
           if (!state.answersOrder[qId]) {
-            const fixedOrder = originalAnswers.map(a => a.index);
-            shuffleArray(fixedOrder);
-            state.answersOrder[qId] = fixedOrder.slice();
+            const order = original.map(a => a.index);
+            shuffleArray(order);
+            state.answersOrder[qId] = order;
           }
 
           const order = state.answersOrder[qId];
 
-          q.answers = order.map(i =>
-            originalAnswers.find(a => a.index === i).text
-          );
+          q.answers = order.map(i => original.find(a => a.index === i).text);
 
-          if (Array.isArray(q.correct))
-            q.correct = q.correct.map(c => order.indexOf(c));
-          else
-            q.correct = order.indexOf(q.correct);
+          q.correct = Array.isArray(q.correct)
+            ? q.correct.map(c => order.indexOf(c))
+            : order.indexOf(q.correct);
 
         }
 
-        // ===== НЕОТВЕЧЕННЫЕ — ВСЕГДА ПЕРЕМЕШИВАЕМ =====
+        // UNANSWERED — ALWAYS RANDOM
         else {
 
-          const order = originalAnswers.map(a => a.index);
+          const order = original.map(a => a.index);
           shuffleArray(order);
 
-          q.answers = order.map(i =>
-            originalAnswers.find(a => a.index === i).text
-          );
+          q.answers = order.map(i => original.find(a => a.index === i).text);
 
-          if (Array.isArray(q.correct))
-            q.correct = q.correct.map(c => order.indexOf(c));
-          else
-            q.correct = order.indexOf(q.correct);
+          q.correct = Array.isArray(q.correct)
+            ? q.correct.map(c => order.indexOf(c))
+            : order.indexOf(q.correct);
 
         }
 
       });
 
-      // Очередь ошибок
-      errorQueue = state.errors ? state.errors.slice() : [];
-
       saveState();
       render();
+
     })
     .catch(err => {
       console.error(err);
@@ -453,24 +458,16 @@ function showResult() {
 // ================== RESET ==================
 resetBtn.onclick = () => {
   if (confirm("Вы уверены? Это удалит весь прогресс!")) {
+
     localStorage.removeItem("bioState");
-    // также очищаем локальные переменные, затем перезагружаем вопросы
-    state.stats.correct = 0;
-    state.stats.wrong = 0;
-    state.errors = [];
-    state.history = {};
-    state.index = 0;
-    state.queueType = "main";
-    // удаляем дополнительные зафиксированные массивы (чтобы следующая загрузка снова перемешала всё)
-    delete state.mainQueue;
-    delete state.answersOrder;
-    delete state.errorQueue;
-    loadQuestions();
+
+    location.reload(); // 🔥 ВАЖНО
   }
 };
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
