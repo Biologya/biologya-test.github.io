@@ -72,20 +72,20 @@ mainQueue.forEach(qId => {
   // Преобразуем correct в Set для удобства
   const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
 
-  // Перемешиваем ответы с сохранением исходного индекса
+  // Перемешиваем ответы с привязкой к исходному индексу
   const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
   shuffleArray(originalAnswers);
 
   // Новые ответы
   q.answers = originalAnswers.map(a => a.text);
 
-  // Пересчёт правильных индексов
+  // Пересчёт правильных индексов после перемешивания
   const newCorrect = [];
   originalAnswers.forEach((a, i) => {
     if (correctSet.has(a.index)) newCorrect.push(i);
   });
 
-  // Сохраняем обратно: если был массив — массив, если число — число
+  // Если был массив — массив, если число — число
   q.correct = Array.isArray(q.correct) ? newCorrect : newCorrect[0];
 });
         
@@ -411,6 +411,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
