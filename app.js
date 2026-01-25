@@ -53,60 +53,34 @@ function shuffleArray(arr) {
 }
 
 // ================== Загрузка и перемешивание вопросов ==================
-// ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
   fetch("questions.json")
     .then(r => r.json())
     .then(data => {
       questions = data;
 
-      // Очередь всех вопросов
-      mainQueue = questions.map((_, i) => i);
+      mainQueue = Array.from({ length: questions.length }, (_, i) => i);
+      shuffleArray(mainQueue);
 
-      questions.forEach((q, i) => {
-        const h = state.history[i];
+      mainQueue.forEach(qId => {
+        const q = questions[qId];
+        const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
+        shuffleArray(originalAnswers);
+        q.answers = originalAnswers.map(a => a.text);
 
-        // ===================== ОТВЕЧЕННЫЕ ВОПРОСЫ =====================
-        if (h?.checked && h.answers && h.correct) {
-          q.answers = [...h.answers];
-          q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
-        } 
-        // ===================== НЕОТВЕЧЕННЫЕ, НО УЖЕ ПРОСМОТРЕННЫЕ =====================
-        else if (h?.answers && h?.correct && !h.checked) {
-          // Сохраняем прошлый порядок (статично)
-          q.answers = [...h.answers];
-          q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
-        } 
-        // ===================== НОВЫЕ ВОПРОСЫ =====================
-        else {
-          const original = q.answers.map((a, idx) => ({ text: a, index: idx }));
-          shuffleArray(original);
-          q.answers = original.map(a => a.text);
-
-          const newCorrect = Array.isArray(q.correct)
-            ? q.correct.map(c => original.findIndex(a => a.index === c))
-            : original.findIndex(a => a.index === q.correct);
-
-          q.correct = Array.isArray(newCorrect) ? newCorrect : [newCorrect];
-
-          // Сохраняем в историю, чтобы больше не перемешивать
-          if (!state.history[i]) state.history[i] = {};
-          state.history[i].answers = [...q.answers];
-          state.history[i].correct = Array.isArray(newCorrect) ? [...newCorrect] : [newCorrect];
-          // Убираем checked и selected, чтобы вопрос считался новым
-          delete state.history[i].checked;
-          delete state.history[i].selected;
+        if (Array.isArray(q.correct)) {
+          q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+        } else {
+          q.correct = originalAnswers.findIndex(a => a.index === q.correct);
         }
       });
 
-      // Очередь ошибок чистая
       errorQueue = state.errors || [];
-
       render();
     })
-    .catch(e => {
-      console.error(e);
-      qText.innerText = "Ошибка загрузки ❌";
+    .catch(err => {
+      console.error(err);
+      qText.innerText = "Не удалось загрузить вопросы ❌";
     });
 }
 
