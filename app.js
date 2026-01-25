@@ -62,32 +62,32 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // Если сохранён порядок вопросов — используем его, иначе перемешиваем и сохраняем
+      // ====== Порядок вопросов ======
       if (state.savedOrder && state.savedOrder.length === questions.length) {
         mainQueue = [...state.savedOrder];
       } else {
         mainQueue = Array.from({ length: questions.length }, (_, i) => i);
         shuffleArray(mainQueue);
-        state.savedOrder = [...mainQueue]; // сохраняем порядок
+        state.savedOrder = [...mainQueue]; // сохраняем порядок вопросов
       }
 
+      // ====== Порядок вариантов (не перемешивать после первого раза) ======
       mainQueue.forEach(qId => {
         const q = questions[qId];
 
-        // Проверка на сохранённый порядок ответов
         if (!q.savedAnswers) {
-          const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
-          shuffleArray(originalAnswers);
-          q.answers = originalAnswers.map(a => a.text);
+          // Сохраняем исходный порядок вариантов
+          q.savedAnswers = [...q.answers];
 
+          // Если correct был индексом, оставляем как есть
           if (Array.isArray(q.correct)) {
-            q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+            // correct остаётся как есть, без изменения индексов
+            q.correct = [...q.correct];
           } else {
-            q.correct = originalAnswers.findIndex(a => a.index === q.correct);
+            q.correct = q.correct;
           }
-
-          q.savedAnswers = [...q.answers]; // сохраняем порядок ответов
         } else {
+          // Восстанавливаем порядок вариантов из сохранённого
           q.answers = [...q.savedAnswers];
         }
       });
@@ -395,11 +395,12 @@ resetBtn.onclick = () => {
     state.history = {};
     state.index = 0;
     state.queueType = "main";
-    delete state.savedOrder; // сброс порядка
-    questions.forEach(q => delete q.savedAnswers); // сброс порядка ответов
+    delete state.savedOrder; // сброс порядка вопросов
+    questions.forEach(q => delete q.savedAnswers); // сброс порядка вариантов
     loadQuestions();
   }
 };
 
 // ================== Инициализация ==================
 loadQuestions();
+
