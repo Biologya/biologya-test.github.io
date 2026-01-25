@@ -59,28 +59,40 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // 1. Создаём массив всех индексов вопросов
-      const allIndexes = Array.from({ length: questions.length }, (_, i) => i);
+      // Если мы в режиме ошибок, всё статично
+      if (state.queueType === "errors") {
+        mainQueue = state.errors.slice(); // просто используем очередь ошибок
+        render();
+        return;
+      }
 
-      // 2. Определяем отвеченные и неотвеченные
-      const answered = allIndexes.filter(i => state.history[i]?.checked);
-      const unanswered = allIndexes.filter(i => !state.history[i]?.checked);
+      // Создаём массив для финальной очереди с фиксированными позициями
+      const finalQueue = new Array(questions.length).fill(null);
 
-      // 3. Перемешиваем только неотвеченные
-      shuffleArray(unanswered);
-
-      // 4. Формируем итоговую очередь с закреплением отвеченных
-      mainQueue = [];
-      let u = 0; // индекс по перемешанным неотвеченным
+      // 1️⃣ Закрепляем все отвеченные вопросы на их индексах
       for (let i = 0; i < questions.length; i++) {
-        if (answered.includes(i)) {
-          mainQueue.push(i); // отвеченный остаётся на своём месте
-        } else {
-          mainQueue.push(unanswered[u++]); // перемешанный неотвеченный
+        if (state.history[i]?.checked) {
+          finalQueue[i] = i; // отвеченный вопрос остаётся на месте
         }
       }
 
-      // 5. Перемешивание вариантов только для неотвеченных вопросов
+      // 2️⃣ Собираем все неотвеченные
+      const unanswered = [];
+      for (let i = 0; i < questions.length; i++) {
+        if (!state.history[i]?.checked) unanswered.push(i);
+      }
+
+      // 3️⃣ Перемешиваем неотвеченные
+      shuffleArray(unanswered);
+
+      // 4️⃣ Заполняем пустые слоты перемешанными неотвеченными
+      for (let i = 0; i < finalQueue.length; i++) {
+        if (finalQueue[i] === null) finalQueue[i] = unanswered.shift();
+      }
+
+      mainQueue = finalQueue;
+
+      // 5️⃣ Перемешивание вариантов только для неотвеченных вопросов
       mainQueue.forEach(qId => {
         const q = questions[qId];
 
@@ -91,7 +103,6 @@ function loadQuestions() {
         shuffleArray(originalAnswers);
         q.answers = originalAnswers.map(a => a.text);
 
-        // Обновляем индексы правильных ответов
         if (Array.isArray(q.correct)) {
           q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
         } else {
@@ -99,9 +110,7 @@ function loadQuestions() {
         }
       });
 
-      // Ошибки остаются как есть
       errorQueue = state.errors || [];
-
       render();
     })
     .catch(err => {
@@ -409,6 +418,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
