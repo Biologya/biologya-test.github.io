@@ -140,39 +140,46 @@ function renderQuestionPanel() {
   const start = page * questionsPerPage;
   const end = Math.min(start + questionsPerPage, queue.length);
 
-  // Панель вопросов
   questionPanel.innerHTML = "";
-  for (let idx = start; idx < end; idx++) {
-    const qId = queue[idx];
+
+  // Создаем отображаемый массив для панели: фиксируем порядок отвеченных, перемешиваем неотвеченные
+  const pageQuestions = queue.slice(start, end);
+  const answered = pageQuestions.filter(qId => state.history[qId]?.checked);
+  const unanswered = pageQuestions.filter(qId => !state.history[qId]?.checked);
+  shuffleArray(unanswered); // перемешка только неотвеченных
+
+  const displayQueue = [...answered, ...unanswered];
+
+  displayQueue.forEach((qId, idx) => {
     const btn = document.createElement("button");
-    btn.innerText = idx + 1;
+    btn.innerText = start + idx + 1; // номер вопроса
 
     // Статус правильного/неправильного
     if (state.history[qId]?.checked) {
       const sel = state.history[qId].selected || [];
       const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
       const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
-      btn.style.background = ok ? "#4caf50" : "#e53935"; // цвет фона
-      btn.style.color = "#fff"; // белый текст
-      btn.style.borderColor = btn.style.background; // рамка совпадает
+      btn.style.background = ok ? "#4caf50" : "#e53935";
+      btn.style.color = "#fff";
+      btn.style.borderColor = btn.style.background;
     } else {
-      btn.style.background = "#fff"; // ещё не отвечено
+      btn.style.background = "#fff";
       btn.style.color = "#000";
       btn.style.borderColor = "#ccc";
     }
 
     // Подсветка текущего вопроса
-    if (idx === state.index) {
-      btn.style.border = "2px solid blue"; // рамка текущего
+    if (qId === queue[state.index]) {
+      btn.style.border = "2px solid blue";
       btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
     }
 
     btn.onclick = () => {
-      state.index = idx;
+      state.index = queue.indexOf(qId);
       render();
     };
     questionPanel.appendChild(btn);
-  }
+  });
 
   // Панель страниц
   pageNav.innerHTML = "";
@@ -443,5 +450,6 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
