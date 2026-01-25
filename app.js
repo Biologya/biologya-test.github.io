@@ -44,14 +44,6 @@ let currentPanelPage = 0;
 let currentPanelPageErrors = 0;
 questionPanel.style.overflowY = "auto";
 
-// ================== Функция перемешивания ==================
-function shuffleArray(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-}
-
 // ================== "Умное" перемешивание очереди ==================
 function buildMainQueue() {
   if (state.queueType === "errors") {
@@ -439,4 +431,5 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
