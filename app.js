@@ -44,7 +44,14 @@ let currentPanelPage = 0;
 let currentPanelPageErrors = 0;
 questionPanel.style.overflowY = "auto";
 
-// ================== Загрузка и перемешивание вопросов ==================
+// ================== Функция перемешивания ==================
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+
 // ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
   fetch("questions.json")
@@ -52,36 +59,9 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // Если режим ошибок — всё статично
-      if (state.queueType === "errors") {
-        errorQueue = state.errors || [];
-        render();
-        return;
-      }
+      mainQueue = Array.from({ length: questions.length }, (_, i) => i);
+      shuffleArray(mainQueue);
 
-      // ======== "Умное" перемешивание ========
-      const answered = [];    // решенные вопросы
-      const unanswered = [];  // неотвеченные вопросы
-
-      for (let i = 0; i < questions.length; i++) {
-        if (state.history[i]?.checked) answered.push(i);
-        else unanswered.push(i);
-      }
-
-      shuffleArray(unanswered);
-
-      // Собираем mainQueue в строгом порядке: на месте остаются отвеченные, пустые слоты заполняем из перемешанных
-      mainQueue = Array(questions.length).fill(null);
-      let uIndex = 0;
-      for (let i = 0; i < questions.length; i++) {
-        if (state.history[i]?.checked) {
-          mainQueue[i] = i; // закрепляем ответ
-        } else {
-          mainQueue[i] = unanswered[uIndex++];
-        }
-      }
-
-      // Перемешивание ответов внутри вопросов
       mainQueue.forEach(qId => {
         const q = questions[qId];
         const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
@@ -102,14 +82,6 @@ function loadQuestions() {
       console.error(err);
       qText.innerText = "Не удалось загрузить вопросы ❌";
     });
-}
-
-// ================== Функция перемешивания ==================
-function shuffleArray(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
 }
 
 // ================== Очередь ==================
