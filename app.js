@@ -66,25 +66,26 @@ function loadQuestions() {
         shuffleArray(mainQueue);
 
         // Перемешиваем ответы для каждого вопроса
-        mainQueue.forEach(qId => {
+mainQueue.forEach(qId => {
   const q = questions[qId];
 
-  // Сохраняем старые индексы correct
+  // Преобразуем correct в Set для удобства
   const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
 
-  // Перемешиваем ответы с привязкой к исходному индексу
+  // Перемешиваем ответы с сохранением исходного индекса
   const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
   shuffleArray(originalAnswers);
 
   // Новые ответы
   q.answers = originalAnswers.map(a => a.text);
 
-  // Пересчитываем правильные индексы после перемешивания
+  // Пересчёт правильных индексов
   const newCorrect = [];
   originalAnswers.forEach((a, i) => {
     if (correctSet.has(a.index)) newCorrect.push(i);
   });
 
+  // Сохраняем обратно: если был массив — массив, если число — число
   q.correct = Array.isArray(q.correct) ? newCorrect : newCorrect[0];
 });
         
@@ -410,4 +411,5 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
