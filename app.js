@@ -64,32 +64,44 @@ function loadQuestions() {
       mainQueue.forEach(qId => {
         const q = questions[qId];
 
-        // Если вопрос уже отвечен, не трогаем порядок вариантов
-        if (state.history[qId]?.checked && state.history[qId].answers) {
-          q.answers = [...state.history[qId].answers]; // восстанавливаем порядок
-          q.correct = state.history[qId].correctIndexes; // корректные индексы
-        } else {
-          // Создаём массив объектов с индексами для перемешивания
-          const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
-          shuffleArray(originalAnswers);
-          q.answers = originalAnswers.map(a => a.text);
-
-          // Пересчёт индексов правильных ответов
+        // Если порядок ответов уже есть в state — используем его
+        if (state.history[qId]?.fixedOrder) {
+          q.answers = state.history[qId].fixedOrder.map(i => q.answers[i]);
+          // Правильные индексы тоже нужно восстановить
+          const savedOrder = state.history[qId].fixedOrder;
           if (Array.isArray(q.correct)) {
-            q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+            q.correct = q.correct.map(c => savedOrder.indexOf(c));
           } else {
-            q.correct = originalAnswers.findIndex(a => a.index === q.correct);
+            q.correct = savedOrder.indexOf(q.correct);
           }
+          return;
+        }
 
-          // Сохраняем в историю, чтобы порядок не менялся после перезагрузки
-          state.history[qId] = state.history[qId] || {};
-          state.history[qId].answers = [...q.answers];
-          state.history[qId].correctIndexes = Array.isArray(q.correct) ? [...q.correct] : q.correct;
+        // Иначе перемешиваем и сохраняем фиксированный порядок
+        const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
+        shuffleArray(originalAnswers);
+
+        q.answers = originalAnswers.map(a => a.text);
+
+        const fixedOrder = originalAnswers.map(a => a.index);
+        // Сохраняем порядок в state для этого вопроса
+        state.history[qId] = state.history[qId] || {};
+        state.history[qId].fixedOrder = fixedOrder;
+
+        // Правильные индексы тоже пересчитываем
+        if (Array.isArray(q.correct)) {
+          q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+        } else {
+          q.correct = originalAnswers.findIndex(a => a.index === q.correct);
         }
       });
 
+      // Восстанавливаем очередь ошибок
       errorQueue = state.errors || [];
+
+      // Сохраняем state, чтобы фиксированные порядки записались
       saveState();
+
       render();
     })
     .catch(err => {
@@ -397,3 +409,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
