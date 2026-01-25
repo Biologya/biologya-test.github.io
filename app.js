@@ -59,37 +59,38 @@ function loadQuestions() {
     .then(r => r.json())
     .then(data => {
       questions = data;
+      state.answersOrder = state.answersOrder || {};
 
-      // === Сначала формируем очередь с разделением отмеченных и неотмеченных вопросов ===
-      const answered = []; // уже отвеченные
-      const unanswered = []; // неотвеченные
+      // === Определяем отвеченные и неотвеченные ===
+      const answered = [];
+      const unanswered = [];
       data.forEach((q, qId) => {
         if (state.history[qId]?.checked) answered.push(qId);
         else unanswered.push(qId);
       });
 
-      // === Перемешиваем только неотвеченные ===
-      shuffleArray(unanswered);
+      // === Перемешиваем неотвеченные только если ещё не было panelOrder ===
+      if (!state.panelOrder) {
+        shuffleArray(unanswered);
+        state.panelOrder = [...answered, ...unanswered];
+      }
 
-      // === Основная очередь ===
-      mainQueue = [...answered, ...unanswered];
-      state.mainQueue = mainQueue.slice(); // сохраняем для стабильности
+      mainQueue = state.panelOrder.slice();
+      state.mainQueue = mainQueue.slice(); // для безопасности
 
-      // === Создаём или применяем порядок вариантов для каждого вопроса ===
-      state.answersOrder = state.answersOrder || {};
-
+      // === Создаём порядок вариантов для каждого вопроса ===
       mainQueue.forEach(qId => {
         const q = questions[qId];
         const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
 
-        // если уже есть порядок вариантов (для отвеченных или ранее сохранённых) — используем его
         if (state.answersOrder[qId]) {
+          // Используем зафиксированный порядок
           const order = state.answersOrder[qId];
           q.answers = order.map(i => originalAnswers.find(a => a.index === i).text);
           if (Array.isArray(q.correct)) q.correct = q.correct.map(c => order.indexOf(c));
           else q.correct = order.indexOf(q.correct);
         } else {
-          // для новых / неотвеченных вариантов — перемешиваем и сохраняем
+          // Новый порядок для неотвеченных
           const order = originalAnswers.map(a => a.index);
           shuffleArray(order);
           state.answersOrder[qId] = order.slice();
@@ -142,19 +143,12 @@ function renderQuestionPanel() {
 
   questionPanel.innerHTML = "";
 
-  // Создаем отображаемый массив для панели: фиксируем порядок отвеченных, перемешиваем неотвеченные
   const pageQuestions = queue.slice(start, end);
-  const answered = pageQuestions.filter(qId => state.history[qId]?.checked);
-  const unanswered = pageQuestions.filter(qId => !state.history[qId]?.checked);
-  shuffleArray(unanswered); // перемешка только неотвеченных
 
-  const displayQueue = [...answered, ...unanswered];
-
-  displayQueue.forEach((qId, idx) => {
+  pageQuestions.forEach((qId, idx) => {
     const btn = document.createElement("button");
-    btn.innerText = start + idx + 1; // номер вопроса
+    btn.innerText = start + idx + 1;
 
-    // Статус правильного/неправильного
     if (state.history[qId]?.checked) {
       const sel = state.history[qId].selected || [];
       const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
@@ -168,7 +162,6 @@ function renderQuestionPanel() {
       btn.style.borderColor = "#ccc";
     }
 
-    // Подсветка текущего вопроса
     if (qId === queue[state.index]) {
       btn.style.border = "2px solid blue";
       btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
@@ -178,6 +171,7 @@ function renderQuestionPanel() {
       state.index = queue.indexOf(qId);
       render();
     };
+
     questionPanel.appendChild(btn);
   });
 
@@ -450,6 +444,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
