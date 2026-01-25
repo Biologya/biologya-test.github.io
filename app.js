@@ -70,25 +70,38 @@ function loadQuestions() {
       });
 
       // ===== FIRST LOAD or RESET =====
-      if (answered.length === 0) {
+if (!state.mainQueue || state.mainQueue.length !== data.length) {
 
-        mainQueue = [...Array(data.length).keys()];
-        shuffleArray(mainQueue);
+  // first load OR reset
+  mainQueue = [...Array(data.length).keys()];
+  shuffleArray(mainQueue);
 
-        state.answersOrder = {};
+} else {
 
-      }
+  // reuse saved order
+  mainQueue = state.mainQueue.slice();
 
-      // ===== NORMAL MODE =====
-      else {
+  // find unanswered positions
+  const freeSlots = [];
+  const pool = [];
 
-        shuffleArray(unanswered);
+  mainQueue.forEach((qId, i) => {
+    if (!state.history[qId]?.checked) {
+      freeSlots.push(i);
+      pool.push(qId);
+    }
+  });
 
-        mainQueue = [...answered, ...unanswered];
+  // shuffle only unanswered
+  shuffleArray(pool);
 
-      }
+  // put back only unanswered
+  freeSlots.forEach((pos, i) => {
+    mainQueue[pos] = pool[i];
+  });
+}
 
-      state.mainQueue = mainQueue.slice();
+state.mainQueue = mainQueue.slice();
 
       // ===== ANSWERS LOGIC =====
       mainQueue.forEach(qId => {
@@ -467,6 +480,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
