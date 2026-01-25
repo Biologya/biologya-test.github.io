@@ -44,32 +44,7 @@ let currentPanelPage = 0;
 let currentPanelPageErrors = 0;
 questionPanel.style.overflowY = "auto";
 
-// ================== "Умное" перемешивание очереди ==================
-function buildMainQueue() {
-  if (state.queueType === "errors") {
-    mainQueue = state.errors.slice();
-    return;
-  }
-
-  const answered = [];
-  const unanswered = [];
-
-  for (let i = 0; i < questions.length; i++) {
-    if (state.history[i]?.checked) answered.push(i);
-    else unanswered.push(i);
-  }
-
-  shuffleArray(unanswered);
-
-  mainQueue = [];
-  let uaIndex = 0;
-  for (let i = 0; i < questions.length; i++) {
-    if (state.history[i]?.checked) mainQueue.push(i);
-    else mainQueue.push(unanswered[uaIndex++]);
-  }
-}
-
-// ================== Загрузка вопросов ==================
+// ================== Загрузка и перемешивание вопросов ==================
 // ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
   fetch("questions.json")
@@ -168,38 +143,43 @@ function renderQuestionPanel() {
   const start = page * questionsPerPage;
   const end = Math.min(start + questionsPerPage, queue.length);
 
+  // Панель вопросов
   questionPanel.innerHTML = "";
   for (let idx = start; idx < end; idx++) {
-    const qId = queue[idx];
-    const btn = document.createElement("button");
-    btn.innerText = idx + 1;
+  const qId = queue[idx];
+  const btn = document.createElement("button");
+  btn.innerText = idx + 1;
 
-    if (state.history[qId]?.checked) {
-      const sel = state.history[qId].selected || [];
-      const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
-      const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
-      btn.style.background = ok ? "#4caf50" : "#e53935";
-      btn.style.color = "#fff";
-      btn.style.borderColor = btn.style.background;
-    } else {
-      btn.style.background = "#fff";
-      btn.style.color = "#000";
-      btn.style.borderColor = "#ccc";
-    }
+  // Статус правильного/неправильного
+  if (state.history[qId]?.checked) {
+    const sel = state.history[qId].selected || [];
+    const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
+    const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
 
-    if (idx === state.index) {
-      btn.style.border = "2px solid blue";
-      btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
-    }
-
-    btn.onclick = () => {
-      state.index = idx;
-      render();
-    };
-
-    questionPanel.appendChild(btn);
+    btn.style.background = ok ? "#4caf50" : "#e53935"; // цвет фона
+    btn.style.color = "#fff"; // белый текст
+    btn.style.borderColor = btn.style.background; // рамка совпадает
+  } else {
+    btn.style.background = "#fff"; // ещё не отвечено
+    btn.style.color = "#000";
+    btn.style.borderColor = "#ccc";
   }
 
+  // Подсветка текущего вопроса
+  if (idx === state.index) {
+    btn.style.border = "2px solid blue"; // рамка текущего
+    btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
+  }
+
+  btn.onclick = () => {
+    state.index = idx;
+    render();
+  };
+
+  questionPanel.appendChild(btn);
+}
+
+  // Панель страниц
   pageNav.innerHTML = "";
   const totalPages = Math.ceil(queue.length / questionsPerPage);
   const startPage = Math.max(page - 1, 0);
@@ -271,7 +251,7 @@ function render() {
   submitBtn.style.display = multi ? "inline-block" : "none";
   submitBtn.disabled = false;
 
-  renderQuestionPanel();
+  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
 
   nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
 
@@ -356,7 +336,7 @@ function checkAnswers() {
   }
 
   saveState();
-  renderQuestionPanel();
+  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
 }
 
 // ================== Навигация ==================
@@ -431,5 +411,3 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
-
-
