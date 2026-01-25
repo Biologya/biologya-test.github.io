@@ -52,6 +52,64 @@ function shuffleArray(arr) {
   }
 }
 
+function fixQuestionsOrder() {
+  // Проверяем, есть ли уже сохранённый порядок
+  let savedOrder = JSON.parse(localStorage.getItem("bioFixedOrder")) || null;
+
+  if (!savedOrder) {
+    // Если нет — создаём
+    savedOrder = {
+      queue: new Array(questions.length).fill(null),
+      answers: {} // ключ: индекс вопроса, значение: массив ответов
+    };
+
+    const unanswered = [];
+
+    // Закрепляем отвеченные вопросы и их варианты
+    for (let i = 0; i < questions.length; i++) {
+      if (state.history[i]?.checked) {
+        savedOrder.queue[i] = i; // вопрос на месте
+        savedOrder.answers[i] = questions[i].answers.slice(); // варианты статичны
+      } else {
+        unanswered.push(i);
+      }
+    }
+
+    // Перемешиваем только неотвеченные
+    shuffleArray(unanswered);
+
+    // Заполняем пустые слоты перемешанными
+    let uIndex = 0;
+    for (let i = 0; i < savedOrder.queue.length; i++) {
+      if (savedOrder.queue[i] === null) {
+        const qId = unanswered[uIndex++];
+        savedOrder.queue[i] = qId;
+
+        // Перемешиваем варианты для нового вопроса
+        const originalAnswers = questions[qId].answers.map((a, i) => ({ text: a, index: i }));
+        shuffleArray(originalAnswers);
+        questions[qId].answers = originalAnswers.map(a => a.text);
+
+        if (Array.isArray(questions[qId].correct)) {
+          questions[qId].correct = questions[qId].correct.map(c => originalAnswers.findIndex(a => a.index === c));
+        } else {
+          questions[qId].correct = originalAnswers.findIndex(a => a.index === questions[qId].correct);
+        }
+
+        savedOrder.answers[qId] = questions[qId].answers.slice(); // сохраняем порядок
+      }
+    }
+
+    localStorage.setItem("bioFixedOrder", JSON.stringify(savedOrder));
+  }
+
+  // Применяем порядок из сохранённого
+  mainQueue = savedOrder.queue.slice();
+  mainQueue.forEach(qId => {
+    questions[qId].answers = savedOrder.answers[qId].slice();
+  });
+}
+
 // ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
   fetch("questions.json")
@@ -212,6 +270,20 @@ function renderQuestionPanel() {
     pageNav.appendChild(navBtn);
   }
 }
+
+// ================== /// ==================
+fetch("questions.json")
+  .then(r => r.json())
+  .then(data => {
+    questions = data;
+
+    // ✅ фиксируем порядок вопросов и вариантов
+    fixQuestionsOrder();
+
+    errorQueue = state.errors || [];
+    render();
+  });
+
 
 // ================== Функция подсветки всех ответов ==================
 function highlightAnswers(qId) {
@@ -420,6 +492,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
