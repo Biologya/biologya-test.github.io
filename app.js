@@ -59,23 +59,51 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
+      // Определяем индекс для каждой позиции
       mainQueue = Array.from({ length: questions.length }, (_, i) => i);
-      shuffleArray(mainQueue);
 
+      // Разделяем вопросы на отвеченные и неотвеченные
+      const answered = mainQueue.filter(qId => state.history[qId]?.checked);
+      const unanswered = mainQueue.filter(qId => !state.history[qId]?.checked);
+
+      // Перемешиваем только неотвеченные вопросы
+      shuffleArray(unanswered);
+
+      // Формируем итоговую очередь: закрепляем отвеченные на своих местах
+      let finalQueue = [];
+      let uIndex = 0;
+      for (let i = 0; i < questions.length; i++) {
+        if (answered.includes(i)) {
+          finalQueue.push(i); // оставляем отвеченный на месте
+        } else {
+          finalQueue.push(unanswered[uIndex++]); // добавляем перемешанный
+        }
+      }
+      mainQueue = finalQueue;
+
+      // Перемешивание вариантов ответов
       mainQueue.forEach(qId => {
         const q = questions[qId];
+
+        // Если вопрос уже отвечен, варианты статичны
+        if (state.history[qId]?.checked) return;
+
         const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
         shuffleArray(originalAnswers);
         q.answers = originalAnswers.map(a => a.text);
 
         if (Array.isArray(q.correct)) {
-          q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+          q.correct = originalAnswers.findIndex(a => a.index === q.correct[0]) !== -1
+            ? originalAnswers.filter(a => q.correct.includes(a.index)).map(a => a.index)
+            : q.correct;
         } else {
           q.correct = originalAnswers.findIndex(a => a.index === q.correct);
         }
       });
 
+      // Ошибки
       errorQueue = state.errors || [];
+
       render();
     })
     .catch(err => {
@@ -383,3 +411,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
