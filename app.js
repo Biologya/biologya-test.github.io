@@ -1,19 +1,16 @@
 // ================== Состояние ==================
 const state = JSON.parse(localStorage.getItem("bioState")) || {
-    queueType: "main",
-    index: 0,
-    mainIndex: 0,
-    stats: { correct: 0, wrong: 0 },
-    errors: [],
-    errorAttempts: {},
-    history: {}
+  queueType: "main",
+  index: 0,
+  mainIndex: 0,
+  stats: { correct: 0, wrong: 0 },
+  errors: [],
+  errorAttempts: {},
+  history: {}
 };
 
-let questions = []; // сюда подгружаются твои вопросы
-let mainQueue = [];
-let errorQueue = [];
-let selected = new Set();
-let checked = false;
+let questions = [], mainQueue = [], errorQueue = [];
+let selected = new Set(), checked = false;
 
 // ================== Элементы UI ==================
 const qText = document.getElementById("questionText");
@@ -62,38 +59,23 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // ====== Порядок вопросов ======
-      if (state.savedOrder && state.savedOrder.length === questions.length) {
-        mainQueue = [...state.savedOrder];
-      } else {
-        mainQueue = Array.from({ length: questions.length }, (_, i) => i);
-        shuffleArray(mainQueue);
-        state.savedOrder = [...mainQueue]; // сохраняем порядок вопросов
-      }
+      mainQueue = Array.from({ length: questions.length }, (_, i) => i);
+      shuffleArray(mainQueue);
 
-      // ====== Порядок вариантов (не перемешивать после первого раза) ======
       mainQueue.forEach(qId => {
         const q = questions[qId];
+        const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
+        shuffleArray(originalAnswers);
+        q.answers = originalAnswers.map(a => a.text);
 
-        if (!q.savedAnswers) {
-          // Сохраняем исходный порядок вариантов
-          q.savedAnswers = [...q.answers];
-
-          // Если correct был индексом, оставляем как есть
-          if (Array.isArray(q.correct)) {
-            // correct остаётся как есть, без изменения индексов
-            q.correct = [...q.correct];
-          } else {
-            q.correct = q.correct;
-          }
+        if (Array.isArray(q.correct)) {
+          q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
         } else {
-          // Восстанавливаем порядок вариантов из сохранённого
-          q.answers = [...q.savedAnswers];
+          q.correct = originalAnswers.findIndex(a => a.index === q.correct);
         }
       });
 
       errorQueue = state.errors || [];
-      saveState();
       render();
     })
     .catch(err => {
@@ -395,12 +377,9 @@ resetBtn.onclick = () => {
     state.history = {};
     state.index = 0;
     state.queueType = "main";
-    delete state.savedOrder; // сброс порядка вопросов
-    questions.forEach(q => delete q.savedAnswers); // сброс порядка вариантов
     loadQuestions();
   }
 };
 
 // ================== Инициализация ==================
 loadQuestions();
-
