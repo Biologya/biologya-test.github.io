@@ -76,24 +76,39 @@ function loadQuestions() {
 
         } else {
 
-          // ======== НОВЫЕ → МЕШАЕМ ТОЛЬКО ОТВЕТЫ ========
-          const original = q.answers.map((a, idx) => ({
-            text: a,
-            index: idx
-          }));
+         // ======== КЭШИРОВАНИЕ ПОРЯДКА ОТВЕТОВ ========
 
-          shuffleArray(original);
+if (h?.answers && h?.correct) {
 
-          q.answers = original.map(a => a.text);
+  // уже перемешан ранее — восстанавливаем
+  q.answers = [...h.answers];
+  q.correct = [...h.correct];
 
-          if (Array.isArray(q.correct)) {
-            q.correct = q.correct.map(c =>
-              original.findIndex(a => a.index === c)
-            );
-          } else {
-            q.correct = original.findIndex(a => a.index === q.correct);
-          }
-        }
+} else {
+
+  // первый показ — мешаем и СОХРАНЯЕМ
+  const original = q.answers.map((a, idx) => ({
+    text: a,
+    index: idx
+  }));
+
+  shuffleArray(original);
+
+  q.answers = original.map(a => a.text);
+
+  const newCorrect = Array.isArray(q.correct)
+    ? q.correct.map(c => original.findIndex(a => a.index === c))
+    : original.findIndex(a => a.index === q.correct);
+
+  q.correct = Array.isArray(newCorrect) ? newCorrect : newCorrect;
+
+  // 🔐 сохраняем сразу
+  if (!state.history[i]) state.history[i] = {};
+  state.history[i].answers = [...q.answers];
+  state.history[i].correct = Array.isArray(newCorrect) ? [...newCorrect] : [newCorrect];
+
+  saveState();
+}
 
       });
 
@@ -130,6 +145,9 @@ prevBtn.onclick = () => {
 // ================== Рендер панели вопросов с динамичной пагинацией ==================
 function renderQuestionPanel() {
   const queue = currentQueue();
+  if (state.index < 0) state.index = 0;
+if (state.index >= queue.length) state.index = queue.length - 1;
+
   const questionsPerPage = 50;
   const currentPage = Math.floor(state.index / questionsPerPage);
 
@@ -408,3 +426,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
