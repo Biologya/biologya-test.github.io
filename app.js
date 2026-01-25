@@ -1,16 +1,19 @@
 // ================== Состояние ==================
 const state = JSON.parse(localStorage.getItem("bioState")) || {
-  queueType: "main",
-  index: 0,
-  mainIndex: 0,
-  stats: { correct: 0, wrong: 0 },
-  errors: [],
-  errorAttempts: {},
-  history: {}
+    queueType: "main",
+    index: 0,
+    mainIndex: 0,
+    stats: { correct: 0, wrong: 0 },
+    errors: [],
+    errorAttempts: {},
+    history: {}
 };
 
-let questions = [], mainQueue = [], errorQueue = [];
-let selected = new Set(), checked = false;
+let questions = []; // сюда подгружаются твои вопросы
+let mainQueue = [];
+let errorQueue = [];
+let selected = new Set();
+let checked = false;
 
 // ================== Элементы UI ==================
 const qText = document.getElementById("questionText");
@@ -59,55 +62,38 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // Если в state нет savedQueue — значит первый раз, перемешиваем
-      if (!state.savedQueue || !state.savedAnswers) {
-        // Перемешиваем вопросы
+      // Если сохранён порядок вопросов — используем его, иначе перемешиваем и сохраняем
+      if (state.savedOrder && state.savedOrder.length === questions.length) {
+        mainQueue = [...state.savedOrder];
+      } else {
         mainQueue = Array.from({ length: questions.length }, (_, i) => i);
         shuffleArray(mainQueue);
-
-        // Перемешиваем ответы для каждого вопроса
-mainQueue.forEach(qId => {
-  const q = questions[qId];
-
-  // Преобразуем correct в Set для удобства
-  const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
-
-const q = questions[qId];
-
-// Если порядок ещё не сохранён — перемешиваем
-if (!state.history[qId]?.shuffledAnswers) {
-  const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
-  shuffleArray(originalAnswers);
-  q.answers = originalAnswers.map(a => a.text);
-
-  const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
-  const newCorrect = [];
-  originalAnswers.forEach((a, i) => {
-    if (correctSet.has(a.index)) newCorrect.push(i);
-  });
-  q.correct = Array.isArray(q.correct) ? newCorrect : newCorrect[0];
-
-  // Сохраняем порядок, чтобы не перемешивать больше
-  state.history[qId] = state.history[qId] || {};
-  state.history[qId].shuffledAnswers = q.answers.slice();
-} else {
-  // Загружаем сохранённый порядок
-  q.answers = state.history[qId].shuffledAnswers.slice();
-}
-        
-        // Сохраняем начальное состояние в state
-        state.savedQueue = mainQueue.slice();
-        state.savedAnswers = questions.map(q => q.answers.slice());
-        saveState();
-      } else {
-        // Загружаем сохранённое состояние, чтобы не перемешивалось
-        mainQueue = state.savedQueue.slice();
-        questions.forEach((q, i) => {
-          q.answers = state.savedAnswers[i].slice();
-        });
+        state.savedOrder = [...mainQueue]; // сохраняем порядок
       }
 
+      mainQueue.forEach(qId => {
+        const q = questions[qId];
+
+        // Проверка на сохранённый порядок ответов
+        if (!q.savedAnswers) {
+          const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
+          shuffleArray(originalAnswers);
+          q.answers = originalAnswers.map(a => a.text);
+
+          if (Array.isArray(q.correct)) {
+            q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+          } else {
+            q.correct = originalAnswers.findIndex(a => a.index === q.correct);
+          }
+
+          q.savedAnswers = [...q.answers]; // сохраняем порядок ответов
+        } else {
+          q.answers = [...q.savedAnswers];
+        }
+      });
+
       errorQueue = state.errors || [];
+      saveState();
       render();
     })
     .catch(err => {
@@ -409,18 +395,11 @@ resetBtn.onclick = () => {
     state.history = {};
     state.index = 0;
     state.queueType = "main";
-    state.savedQueue = null;
-    state.savedAnswers = null;
+    delete state.savedOrder; // сброс порядка
+    questions.forEach(q => delete q.savedAnswers); // сброс порядка ответов
     loadQuestions();
   }
 };
 
 // ================== Инициализация ==================
 loadQuestions();
-
-
-
-
-
-
-
