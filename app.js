@@ -131,9 +131,6 @@ prevBtn.onclick = () => {
 // ================== Рендер панели вопросов с динамичной пагинацией ==================
 function renderQuestionPanel() {
   const queue = currentQueue();
-  if (state.index < 0) state.index = 0;
-  if (state.index >= queue.length) state.index = queue.length - 1;
-
   const questionsPerPage = 50;
   const currentPage = Math.floor(state.index / questionsPerPage);
 
@@ -147,36 +144,38 @@ function renderQuestionPanel() {
   // Панель вопросов
   questionPanel.innerHTML = "";
   for (let idx = start; idx < end; idx++) {
-    const qId = queue[idx];
-    const btn = document.createElement("button");
-    btn.innerText = idx + 1;
+  const qId = queue[idx];
+  const btn = document.createElement("button");
+  btn.innerText = idx + 1;
 
-    if (state.history[qId]?.checked) {
-      const sel = state.history[qId].selected || [];
-      const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
-      const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
+  // Статус правильного/неправильного
+  if (state.history[qId]?.checked) {
+    const sel = state.history[qId].selected || [];
+    const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
+    const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
 
-      btn.style.background = ok ? "#4caf50" : "#e53935";
-      btn.style.color = "#fff";
-      btn.style.borderColor = btn.style.background;
-    } else {
-      btn.style.background = "#fff";
-      btn.style.color = "#000";
-      btn.style.borderColor = "#ccc";
-    }
-
-    if (idx === state.index) {
-      btn.style.border = "2px solid blue";
-      btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
-    }
-
-    btn.onclick = () => {
-      state.index = idx;
-      render();
-    };
-
-    questionPanel.appendChild(btn);
+    btn.style.background = ok ? "#4caf50" : "#e53935"; // цвет фона
+    btn.style.color = "#fff"; // белый текст
+    btn.style.borderColor = btn.style.background; // рамка совпадает
+  } else {
+    btn.style.background = "#fff"; // ещё не отвечено
+    btn.style.color = "#000";
+    btn.style.borderColor = "#ccc";
   }
+
+  // Подсветка текущего вопроса
+  if (idx === state.index) {
+    btn.style.border = "2px solid blue"; // рамка текущего
+    btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
+  }
+
+  btn.onclick = () => {
+    state.index = idx;
+    render();
+  };
+
+  questionPanel.appendChild(btn);
+}
 
   // Панель страниц
   pageNav.innerHTML = "";
@@ -247,11 +246,13 @@ function render() {
   qText.innerText = q.text;
   answersDiv.innerHTML = "";
 
-  // ====== Кнопка submit для MULTI ======
   submitBtn.style.display = multi ? "inline-block" : "none";
   submitBtn.disabled = false;
 
-  // ====== Выбранные ответы ======
+  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
+
+  nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
+
   checked = !!state.history[qId]?.checked;
   selected = new Set(state.history[qId]?.selected || []);
 
@@ -263,27 +264,27 @@ function render() {
 
     el.onclick = () => {
       if (state.queueType === "errors" || checked) return;
-
       if (!multi) {
-        // SINGLE — проверяем сразу
         selected.clear();
         selected.add(i);
         checkAnswers();
+        render();
       } else {
-        // MULTI — выбор/снятие
         if (selected.has(i)) {
           selected.delete(i);
           el.classList.remove("selected");
+          el.style.transition = "transform 0.2s ease";
           el.style.transform = "scale(1)";
         } else {
           selected.add(i);
           el.classList.add("selected");
+          el.style.transition = "transform 0.2s ease";
           el.style.transform = "scale(1.1)";
+          setTimeout(() => {
+            if (selected.has(i)) el.style.transform = "scale(1.05)";
+          }, 150);
         }
       }
-
-      highlightAnswers(qId);
-      updateUI();
     };
 
     answersDiv.appendChild(el);
@@ -408,4 +409,3 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
-
