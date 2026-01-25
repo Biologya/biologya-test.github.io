@@ -67,22 +67,27 @@ function loadQuestions() {
 
         // Перемешиваем ответы для каждого вопроса
         mainQueue.forEach(qId => {
-          const q = questions[qId];
-          const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
-          shuffleArray(originalAnswers);
-          q.answers = originalAnswers.map(a => a.text);
+  const q = questions[qId];
 
-          if (Array.isArray(q.correct)) {
-            q.correct = originalAnswers.findIndex((a, i) => originalAnswers[i].index === q.correct);
-            q.correct = originalAnswers.map((a, i) => {
-              if (Array.isArray(q.correct)) return q.correct.findIndex(c => c === a.index);
-              return q.correct === a.index ? i : -1;
-            }).filter(i => i !== -1);
-          } else {
-            q.correct = originalAnswers.findIndex(a => a.index === q.correct);
-          }
-        });
+  // Сохраняем старые индексы correct
+  const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
 
+  // Перемешиваем ответы с привязкой к исходному индексу
+  const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
+  shuffleArray(originalAnswers);
+
+  // Новые ответы
+  q.answers = originalAnswers.map(a => a.text);
+
+  // Пересчитываем правильные индексы после перемешивания
+  const newCorrect = [];
+  originalAnswers.forEach((a, i) => {
+    if (correctSet.has(a.index)) newCorrect.push(i);
+  });
+
+  q.correct = Array.isArray(q.correct) ? newCorrect : newCorrect[0];
+});
+        
         // Сохраняем начальное состояние в state
         state.savedQueue = mainQueue.slice();
         state.savedAnswers = questions.map(q => q.answers.slice());
@@ -405,3 +410,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
