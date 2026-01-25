@@ -53,70 +53,55 @@ function shuffleArray(arr) {
 }
 
 // ================== Загрузка и перемешивание вопросов ==================
+// ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
-
   fetch("questions.json")
     .then(r => r.json())
     .then(data => {
 
       questions = data;
 
-      // ======== СТАТИЧНАЯ ОЧЕРЕДЬ (КАК В JSON) ========
+      // Статическая очередь (как в JSON)
       mainQueue = questions.map((_, i) => i);
 
       questions.forEach((q, i) => {
-
         const h = state.history[i];
 
-        // ======== ВОССТАНОВЛЕНИЕ ВЫПОЛНЕННЫХ ========
+        // ======== ВОССТАНОВЛЕНИЕ ВЫПОЛНЕННЫХ ВОПРОСОВ ========
         if (h?.checked && h.answers && h.correct) {
-
+          // Зафиксированные ответы и порядок вариантов
           q.answers = [...h.answers];
-          q.correct = [...h.correct];
+          q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
+        } 
+        // ======== ВОССТАНОВЛЕНИЕ НЕОТВЕЧЕННЫХ (НО УЖЕ ПРОСМОТРЕННЫХ) ========
+        else if (h?.answers && h?.correct) {
+          q.answers = [...h.answers];
+          q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
+        } 
+        // ======== НОВЫЕ ВОПРОСЫ (перемешиваем один раз) ========
+        else {
+          const original = q.answers.map((a, idx) => ({ text: a, index: idx }));
+          shuffleArray(original);
+          q.answers = original.map(a => a.text);
 
-        } else {
+          const newCorrect = Array.isArray(q.correct)
+            ? q.correct.map(c => original.findIndex(a => a.index === c))
+            : original.findIndex(a => a.index === q.correct);
 
-         // ======== КЭШИРОВАНИЕ ПОРЯДКА ОТВЕТОВ ========
+          q.correct = Array.isArray(newCorrect) ? newCorrect : [newCorrect];
 
-if (h?.answers && h?.correct) {
-
-  // уже перемешан ранее — восстанавливаем
-  q.answers = [...h.answers];
-  q.correct = [...h.correct];
-
-} else {
-
-  // первый показ — мешаем и СОХРАНЯЕМ
-  const original = q.answers.map((a, idx) => ({
-    text: a,
-    index: idx
-  }));
-
-  shuffleArray(original);
-
-  q.answers = original.map(a => a.text);
-
-  const newCorrect = Array.isArray(q.correct)
-    ? q.correct.map(c => original.findIndex(a => a.index === c))
-    : original.findIndex(a => a.index === q.correct);
-
-  q.correct = Array.isArray(newCorrect) ? newCorrect : newCorrect;
-
-  // 🔐 сохраняем сразу
-  if (!state.history[i]) state.history[i] = {};
-  state.history[i].answers = [...q.answers];
-  state.history[i].correct = Array.isArray(newCorrect) ? [...newCorrect] : [newCorrect];
-
-  saveState();
-}
-
+          // Сохраняем сразу, чтобы больше не перемешивать
+          if (!state.history[i]) state.history[i] = {};
+          state.history[i].answers = [...q.answers];
+          state.history[i].correct = Array.isArray(newCorrect) ? [...newCorrect] : [newCorrect];
+          saveState();
+        }
       });
 
-      // ======== ОЧЕРЕДЬ ОШИБОК НЕ ТРОГАЕМ ========
+      // Очередь ошибок остаётся без изменений
       errorQueue = state.errors || [];
 
       render();
-
     })
     .catch(e => {
       console.error(e);
@@ -426,4 +411,5 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
