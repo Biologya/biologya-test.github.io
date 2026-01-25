@@ -7,8 +7,10 @@ const state = JSON.parse(localStorage.getItem("bioState")) || {
   errors: [],
   errorAttempts: {},
   history: {},
-  // дополнительные поля, которые будут сохраняться
-  // mainQueue: [...], answersOrder: { qId: [order] }, errorQueue: [...]
+  // дополнительные поля
+  mainQueue: null,
+  answersOrder: {},
+  errorQueue: []
 };
 
 let questions = [], mainQueue = [], errorQueue = [];
@@ -60,95 +62,81 @@ function loadQuestions() {
     .then(data => {
 
       questions = data;
+      state.answersOrder = state.answersOrder || {};
+      state.mainQueue = state.mainQueue || null;
+      state.errorQueue = state.errorQueue || [];
 
-      const answered = [];
-      const unanswered = [];
+      // ===== QUEUE LOGIC =====
+      if (!state.mainQueue || state.mainQueue.length !== data.length) {
+        // First load OR after RESET -> полная рандомизация всех вопросов
+        mainQueue = [...Array(data.length).keys()];
+        shuffleArray(mainQueue);
+      } else {
+        // Reload: берем сохранённый порядок и перемешиваем только те слоты, где вопросы не отмечены
+        mainQueue = state.mainQueue.slice();
 
-      data.forEach((q, qId) => {
-        if (state.history[qId]?.checked) answered.push(qId);
-        else unanswered.push(qId);
-      });
+        const freeIndexes = [];
+        const floating = [];
 
-      // ===== FIRST LOAD or RESET =====
+        mainQueue.forEach((qId, pos) => {
+          if (!state.history[qId]?.checked) {
+            freeIndexes.push(pos);
+            floating.push(qId);
+          }
+        });
 
-if (!state.mainQueue || state.mainQueue.length !== data.length) {
+        // перемешиваем только неотмеченные
+        shuffleArray(floating);
 
-  // First load OR after RESET
-  mainQueue = [...Array(data.length).keys()];
-  shuffleArray(mainQueue);
+        freeIndexes.forEach((pos, i) => {
+          mainQueue[pos] = floating[i];
+        });
+      }
 
-} else {
-
-  // Reload case
-
-  mainQueue = state.mainQueue.slice();
-
-  const freeIndexes = [];
-  const floating = [];
-
-  mainQueue.forEach((qId, pos) => {
-    if (!state.history[qId]?.checked) {
-      freeIndexes.push(pos);
-      floating.push(qId);
-    }
-  });
-
-  // IMPORTANT — reshuffle only unanswered
-  shuffleArray(floating);
-
-  freeIndexes.forEach((pos, i) => {
-    mainQueue[pos] = floating[i];
-  });
-
-}
-
-// Save final order
-state.mainQueue = mainQueue.slice();
+      // Сохраняем итоговый порядок (фиксируем позиции отметившихся, обновляем плавающие)
+      state.mainQueue = mainQueue.slice();
 
       // ===== ANSWERS LOGIC =====
+      // Для каждого вопроса формируем порядок вариантов, и сохраняем текущий порядок внутрь объекта вопроса (q._currentOrder)
       mainQueue.forEach(qId => {
 
         const q = questions[qId];
-
+        // originalAnswers — порядок из JSON (исходный)
         const original = q.answers.map((a, i) => ({
           text: a,
           index: i
         }));
 
-        // ANSWERED — FIX
-        if (state.history[qId]?.checked) {
+        let order;
 
-          if (!state.answersOrder[qId]) {
-            const order = original.map(a => a.index);
-            shuffleArray(order);
-            state.answersOrder[qId] = order;
-          }
-
-          const order = state.answersOrder[qId];
-
-          q.answers = order.map(i => original.find(a => a.index === i).text);
-
-          q.correct = Array.isArray(q.correct)
-            ? q.correct.map(c => order.indexOf(c))
-            : order.indexOf(q.correct);
-
-        }
-
-        // UNANSWERED — ALWAYS RANDOM
-        else {
-
-          const order = original.map(a => a.index);
+        // Если у нас уже есть зафиксированный порядок вариантов для этого вопроса => используем его
+        if (state.answersOrder.hasOwnProperty(qId)) {
+          order = state.answersOrder[qId].slice();
+        } else {
+          // Если вопрос уже отвечён — мы должны ЗАФИКСИРОВАТЬ порядок, который был показан пользователю в момент ответа.
+          // Но если answersOrder нет (старые данные), просто генерируем новый порядок сейчас (чтобы было стабильно дальше).
+          order = original.map(a => a.index);
           shuffleArray(order);
-
-          q.answers = order.map(i => original.find(a => a.index === i).text);
-
-          q.correct = Array.isArray(q.correct)
-            ? q.correct.map(c => order.indexOf(c))
-            : order.indexOf(q.correct);
-
+          // Но не сохраняем в state.answersOrder здесь — сохранение будет происходить в момент ответа (checkAnswers),
+          // чтобы не перезаписать реальный порядок, который видел пользователь.
+          // Тем не менее, чтобы вариант не «прыгал» между загрузками до ответа, сохраняем временно в q._currentOrder.
         }
 
+        // Применяем порядок к q.answers (текущий отображаемый порядок)
+        q.answers = order.map(i => original.find(a => a.index === i).text);
+
+        // Сохраняем текущий порядок прямо в объект вопроса (используется позже при ответе)
+        q._currentOrder = order.slice(); // *** ВАЖНО ***
+
+        // Пересчитываем индекс(ы) правильного ответа(ов) под текущий порядок
+        q.correct = Array.isArray(q.correct)
+          ? q.correct.map(c => order.indexOf(c))
+          : order.indexOf(q.correct);
       });
+
+      // Восстанавливаем очередь ошибок (если была)
+      errorQueue = state.errorQueue && state.errorQueue.length ? state.errorQueue.slice() : (state.errors ? state.errors.slice() : []);
+      state.errorQueue = errorQueue.slice();
 
       saveState();
       render();
@@ -347,6 +335,14 @@ function checkAnswers() {
   submitBtn.disabled = true;
 
   state.history[qId] = state.history[qId] || {};
+
+  // *** ВАЖНО: фиксируем порядок вариантов для этого вопроса в момент ответа,
+  // чтобы при перезагрузке индексы selected совпадали с теми вариантами, которые видел пользователь.
+  state.answersOrder = state.answersOrder || {};
+  if (!state.answersOrder[qId] && q._currentOrder) {
+    state.answersOrder[qId] = q._currentOrder.slice();
+  }
+
   state.history[qId].selected = [...selected];
   state.history[qId].checked = true;
 
@@ -380,8 +376,8 @@ function checkAnswers() {
   }
 
   // Сохраняем изменения: порядок вопросов и порядок вариантов остаются в state.mainQueue и state.answersOrder
-  state.mainQueue = state.mainQueue || mainQueue.slice();
-  state.errorQueue = state.errorQueue || errorQueue.slice();
+  state.mainQueue = mainQueue.slice();
+  state.errorQueue = errorQueue.slice();
   saveState();
   renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
 }
@@ -427,6 +423,7 @@ document.getElementById("errorsBtn").onclick = () => {
       } else {
         questions[qId].correct = order.indexOf(questions[qId].correct);
       }
+      questions[qId]._currentOrder = order.slice();
     } else {
       // применяем уже сохранённый порядок вариантов
       const order = state.answersOrder[qId];
@@ -437,6 +434,7 @@ document.getElementById("errorsBtn").onclick = () => {
       } else {
         questions[qId].correct = order.indexOf(questions[qId].correct);
       }
+      questions[qId]._currentOrder = order.slice();
     }
     errorQueue.push(qId);
   });
@@ -473,20 +471,10 @@ function showResult() {
 // ================== RESET ==================
 resetBtn.onclick = () => {
   if (confirm("Вы уверены? Это удалит весь прогресс!")) {
-
     localStorage.removeItem("bioState");
-
-    location.reload(); // 🔥 ВАЖНО
+    location.reload();
   }
 };
 
 // ================== Инициализация ==================
 loadQuestions();
-
-
-
-
-
-
-
-
