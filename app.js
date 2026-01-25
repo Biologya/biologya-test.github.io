@@ -72,22 +72,28 @@ mainQueue.forEach(qId => {
   // Преобразуем correct в Set для удобства
   const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
 
-  // Перемешиваем ответы с привязкой к исходному индексу
+const q = questions[qId];
+
+// Если порядок ещё не сохранён — перемешиваем
+if (!state.history[qId]?.shuffledAnswers) {
   const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
   shuffleArray(originalAnswers);
-
-  // Новые ответы
   q.answers = originalAnswers.map(a => a.text);
 
-  // Пересчёт правильных индексов после перемешивания
+  const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
   const newCorrect = [];
   originalAnswers.forEach((a, i) => {
     if (correctSet.has(a.index)) newCorrect.push(i);
   });
-
-  // Если был массив — массив, если число — число
   q.correct = Array.isArray(q.correct) ? newCorrect : newCorrect[0];
-});
+
+  // Сохраняем порядок, чтобы не перемешивать больше
+  state.history[qId] = state.history[qId] || {};
+  state.history[qId].shuffledAnswers = q.answers.slice();
+} else {
+  // Загружаем сохранённый порядок
+  q.answers = state.history[qId].shuffledAnswers.slice();
+}
         
         // Сохраняем начальное состояние в state
         state.savedQueue = mainQueue.slice();
@@ -411,6 +417,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
