@@ -59,17 +59,16 @@ function loadQuestions() {
         .then(data => {
             questions = data;
 
-            // ===== Формируем mainQueue с сохранением порядка выполненных вопросов =====
-            mainQueue = [];
+            // Массивы для очереди: выполненные и неотвеченные
             const done = [];
             const notDone = [];
 
-            data.forEach((q, i) => {
-                const checked = state.history[i]?.checked;
-                if (checked) done.push(i);
+            questions.forEach((q, i) => {
+                const isChecked = state.history[i]?.checked;
+                if (isChecked) done.push(i);
                 else notDone.push(i);
 
-                // Перемешиваем ответы внутри каждого вопроса
+                // Перемешиваем только ответы внутри вопроса
                 const originalAnswers = q.answers.map((a, idx) => ({ text: a, index: idx }));
                 shuffleArray(originalAnswers);
                 q.answers = originalAnswers.map(a => a.text);
@@ -84,12 +83,23 @@ function loadQuestions() {
             // Перемешиваем только неотвеченные вопросы
             shuffleArray(notDone);
 
-            // Объединяем: сначала выполненные, потом перемешанные неотвеченные
+            // Объединяем: выполненные остаются первыми, неотвеченные перемешаны
             mainQueue = [...done, ...notDone];
 
-            // ===== Работа над ошибками =====
-            // Сохраняем порядок ошибок, перемешивание не нужно
+            // Для ошибок порядок сохраняем как был
             errorQueue = state.errors || [];
+
+            // Восстанавливаем индекс для mainQueue
+            if (state.queueType === "main") {
+                // Если предыдущий индекс уже выполнен, перемещаемся к следующему неотвеченному
+                if (state.index >= mainQueue.length || state.history[mainQueue[state.index]]?.checked) {
+                    const nextUnanswered = mainQueue.findIndex(qId => !state.history[qId]?.checked);
+                    state.index = nextUnanswered !== -1 ? nextUnanswered : 0;
+                }
+            } else {
+                // Для режима ошибок
+                state.index = state.index || 0;
+            }
 
             render();
         })
@@ -98,6 +108,7 @@ function loadQuestions() {
             qText.innerText = "Не удалось загрузить вопросы ❌";
         });
 }
+
 
 // ================== Очередь ==================
 function currentQueue() {
@@ -384,18 +395,22 @@ function showResult() {
 
 // ================== RESET ==================
 resetBtn.onclick = () => {
-  if (confirm("Вы уверены? Это удалит весь прогресс!")) {
-    localStorage.removeItem("bioState");
+    if (!confirm("Вы уверены? Это удалит весь прогресс!")) return;
+
+    // Сбрасываем прогресс
     state.stats.correct = 0;
     state.stats.wrong = 0;
     state.errors = [];
+    state.errorAttempts = {};
     state.history = {};
     state.index = 0;
     state.queueType = "main";
+
+    // Сбрасываем очередь — все вопросы считаются неотвеченными
     loadQuestions();
-  }
 };
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
