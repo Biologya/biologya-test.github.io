@@ -59,45 +59,64 @@ function loadQuestions() {
         .then(data => {
             questions = data;
 
-            // Массивы для очереди: выполненные и неотвеченные
             const done = [];
             const notDone = [];
 
             questions.forEach((q, i) => {
-                const isChecked = state.history[i]?.checked;
-                if (isChecked) done.push(i);
-                else notDone.push(i);
+                const history = state.history[i];
+                const isChecked = history?.checked;
 
-                // Перемешиваем только ответы внутри вопроса
-                const originalAnswers = q.answers.map((a, idx) => ({ text: a, index: idx }));
-                shuffleArray(originalAnswers);
-                q.answers = originalAnswers.map(a => a.text);
+                if (isChecked) {
+                    done.push(i);
 
-                if (Array.isArray(q.correct)) {
-                    q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+                    // Если вопрос уже выполнен, НЕ перемешиваем ответы
+                    // Но если ответов в истории нет, сохраняем оригинал
+                    if (!q.answersSaved) {
+                        q.answersSaved = q.answers.map((a, idx) => ({ text: a, index: idx }));
+                    }
+                    // Восстанавливаем ответы из истории
+                    q.answers = q.answersSaved.map(a => a.text);
+
+                    // Пересчёт индексов correct только для сохранённого порядка
+                    if (Array.isArray(q.correct)) {
+                        q.correct = q.correct.map(c => c);
+                    } else {
+                        q.correct = q.correct;
+                    }
+
                 } else {
-                    q.correct = originalAnswers.findIndex(a => a.index === q.correct);
+                    notDone.push(i);
+
+                    // Перемешиваем ответы только для неотвеченных вопросов
+                    const originalAnswers = q.answers.map((a, idx) => ({ text: a, index: idx }));
+                    shuffleArray(originalAnswers);
+                    q.answers = originalAnswers.map(a => a.text);
+                    q.answersSaved = originalAnswers.map(a => ({ text: a.text, index: a.index }));
+
+                    if (Array.isArray(q.correct)) {
+                        q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+                    } else {
+                        q.correct = originalAnswers.findIndex(a => a.index === q.correct);
+                    }
                 }
             });
 
             // Перемешиваем только неотвеченные вопросы
             shuffleArray(notDone);
 
-            // Объединяем: выполненные остаются первыми, неотвеченные перемешаны
+            // Объединяем: сначала выполненные, потом перемешанные неотвеченные
             mainQueue = [...done, ...notDone];
 
-            // Для ошибок порядок сохраняем как был
+            // Ошибки остаются в порядке добавления
             errorQueue = state.errors || [];
 
-            // Восстанавливаем индекс для mainQueue
+            // Восстанавливаем индекс
             if (state.queueType === "main") {
-                // Если предыдущий индекс уже выполнен, перемещаемся к следующему неотвеченному
                 if (state.index >= mainQueue.length || state.history[mainQueue[state.index]]?.checked) {
                     const nextUnanswered = mainQueue.findIndex(qId => !state.history[qId]?.checked);
                     state.index = nextUnanswered !== -1 ? nextUnanswered : 0;
                 }
             } else {
-                // Для режима ошибок
                 state.index = state.index || 0;
             }
 
@@ -108,6 +127,7 @@ function loadQuestions() {
             qText.innerText = "Не удалось загрузить вопросы ❌";
         });
 }
+
 
 
 // ================== Очередь ==================
@@ -412,5 +432,6 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
