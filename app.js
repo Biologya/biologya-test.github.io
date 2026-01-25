@@ -52,69 +52,52 @@ function shuffleArray(arr) {
   }
 }
 
-// ================== Загрузка и перемешивание вопросов ==================
+// ================== "Умное" перемешивание очереди ==================
+function buildMainQueue() {
+  if (state.queueType === "errors") {
+    mainQueue = state.errors.slice();
+    return;
+  }
+
+  const answered = [];
+  const unanswered = [];
+
+  for (let i = 0; i < questions.length; i++) {
+    if (state.history[i]?.checked) answered.push(i);
+    else unanswered.push(i);
+  }
+
+  shuffleArray(unanswered);
+
+  mainQueue = [];
+  let uaIndex = 0;
+  for (let i = 0; i < questions.length; i++) {
+    if (state.history[i]?.checked) mainQueue.push(i);
+    else mainQueue.push(unanswered[uaIndex++]);
+  }
+}
+
+// ================== Загрузка вопросов ==================
 function loadQuestions() {
   fetch("questions.json")
     .then(r => r.json())
     .then(data => {
       questions = data;
 
-      // ====== Инициализация истории для новых вопросов ======
-      questions.forEach((q, i) => {
-        if (!state.history[i]) state.history[i] = {};
-      });
+      questions.forEach(q => {
+        const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
+        shuffleArray(originalAnswers);
+        q.answers = originalAnswers.map(a => a.text);
 
-      // ====== Сначала перемешиваем все вопросы при первом входе ======
-      if (!state.initialShuffle) {
-        mainQueue = Array.from({ length: questions.length }, (_, i) => i);
-        shuffleArray(mainQueue);
-        state.initialShuffle = true;
-        state.originalQueue = [...mainQueue]; // сохраняем порядок после первого перемешивания
-      } else {
-        // ====== После перезагрузки ======
-        // Отвеченные остаются на своих местах (в порядке originalQueue)
-        // Неотвеченные перемешиваются только среди своих позиций
-        const tempQueue = [...state.originalQueue];
-        const unansweredIndices = tempQueue
-          .map((qId, idx) => state.history[qId]?.checked ? null : idx)
-          .filter(idx => idx !== null);
-
-        const unanswered = unansweredIndices.map(idx => tempQueue[idx]);
-        shuffleArray(unanswered);
-
-        unansweredIndices.forEach((idx, i) => {
-          tempQueue[idx] = unanswered[i];
-        });
-
-        mainQueue = tempQueue;
-      }
-
-      // ====== Перемешивание вариантов ответов (только при первом показе каждого вопроса) ======
-      mainQueue.forEach(qId => {
-        const q = questions[qId];
-        if (!state.history[qId].answers) {
-          const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
-          shuffleArray(originalAnswers);
-          q.answers = originalAnswers.map(a => a.text);
-
-          if (Array.isArray(q.correct)) {
-            q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
-          } else {
-            q.correct = originalAnswers.findIndex(a => a.index === q.correct);
-          }
-
-          // Сохраняем ответы и правильные индексы
-          state.history[qId].answers = [...q.answers];
-          state.history[qId].correct = Array.isArray(q.correct) ? [...q.correct] : [q.correct];
+        if (Array.isArray(q.correct)) {
+          q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
         } else {
-          // Если ответы уже сохранены, восстанавливаем их
-          q.answers = [...state.history[qId].answers];
-          q.correct = Array.isArray(state.history[qId].correct) ? [...state.history[qId].correct] : state.history[qId].correct;
+          q.correct = originalAnswers.findIndex(a => a.index === q.correct);
         }
       });
 
+      buildMainQueue();
       errorQueue = state.errors || [];
-      saveState();
       render();
     })
     .catch(err => {
@@ -154,43 +137,38 @@ function renderQuestionPanel() {
   const start = page * questionsPerPage;
   const end = Math.min(start + questionsPerPage, queue.length);
 
-  // Панель вопросов
   questionPanel.innerHTML = "";
   for (let idx = start; idx < end; idx++) {
-  const qId = queue[idx];
-  const btn = document.createElement("button");
-  btn.innerText = idx + 1;
+    const qId = queue[idx];
+    const btn = document.createElement("button");
+    btn.innerText = idx + 1;
 
-  // Статус правильного/неправильного
-  if (state.history[qId]?.checked) {
-    const sel = state.history[qId].selected || [];
-    const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
-    const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
+    if (state.history[qId]?.checked) {
+      const sel = state.history[qId].selected || [];
+      const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
+      const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
+      btn.style.background = ok ? "#4caf50" : "#e53935";
+      btn.style.color = "#fff";
+      btn.style.borderColor = btn.style.background;
+    } else {
+      btn.style.background = "#fff";
+      btn.style.color = "#000";
+      btn.style.borderColor = "#ccc";
+    }
 
-    btn.style.background = ok ? "#4caf50" : "#e53935"; // цвет фона
-    btn.style.color = "#fff"; // белый текст
-    btn.style.borderColor = btn.style.background; // рамка совпадает
-  } else {
-    btn.style.background = "#fff"; // ещё не отвечено
-    btn.style.color = "#000";
-    btn.style.borderColor = "#ccc";
+    if (idx === state.index) {
+      btn.style.border = "2px solid blue";
+      btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
+    }
+
+    btn.onclick = () => {
+      state.index = idx;
+      render();
+    };
+
+    questionPanel.appendChild(btn);
   }
 
-  // Подсветка текущего вопроса
-  if (idx === state.index) {
-    btn.style.border = "2px solid blue"; // рамка текущего
-    btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
-  }
-
-  btn.onclick = () => {
-    state.index = idx;
-    render();
-  };
-
-  questionPanel.appendChild(btn);
-}
-
-  // Панель страниц
   pageNav.innerHTML = "";
   const totalPages = Math.ceil(queue.length / questionsPerPage);
   const startPage = Math.max(page - 1, 0);
@@ -262,7 +240,7 @@ function render() {
   submitBtn.style.display = multi ? "inline-block" : "none";
   submitBtn.disabled = false;
 
-  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
+  renderQuestionPanel();
 
   nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
 
@@ -347,7 +325,7 @@ function checkAnswers() {
   }
 
   saveState();
-  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
+  renderQuestionPanel();
 }
 
 // ================== Навигация ==================
@@ -422,12 +400,3 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
-
-
-
-
-
-
-
-
-
