@@ -59,50 +59,77 @@ function loadQuestions() {
     .then(r => r.json())
     .then(data => {
       questions = data;
-      state.answersOrder = state.answersOrder || {};
 
-      // === Определяем отвеченные и неотвеченные ===
       const answered = [];
       const unanswered = [];
+
+      // Делим вопросы
       data.forEach((q, qId) => {
         if (state.history[qId]?.checked) answered.push(qId);
         else unanswered.push(qId);
       });
 
-      // === Перемешиваем неотвеченные только если ещё не было panelOrder ===
-      if (!state.panelOrder) {
-        shuffleArray(unanswered);
-        state.panelOrder = [...answered, ...unanswered];
-      }
+      // Перемешиваем ТОЛЬКО неотвеченные
+      shuffleArray(unanswered);
 
-      mainQueue = state.panelOrder.slice();
-      state.mainQueue = mainQueue.slice(); // для безопасности
+      // Итоговый порядок
+      mainQueue = [...answered, ...unanswered];
+      state.mainQueue = mainQueue.slice();
 
-      // === Создаём порядок вариантов для каждого вопроса ===
+      // ===== ВАРИАНТЫ =====
       mainQueue.forEach(qId => {
         const q = questions[qId];
-        const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
+        const originalAnswers = q.answers.map((a, i) => ({
+          text: a,
+          index: i
+        }));
 
-        if (state.answersOrder[qId]) {
-          // Используем зафиксированный порядок
+        // ===== ОТВЕЧЕННЫЕ — ФИКС =====
+        if (state.history[qId]?.checked) {
+
+          // если еще нет сохранённого порядка — создаём
+          state.answersOrder = state.answersOrder || {};
+
+          if (!state.answersOrder[qId]) {
+            const fixedOrder = originalAnswers.map(a => a.index);
+            shuffleArray(fixedOrder);
+            state.answersOrder[qId] = fixedOrder.slice();
+          }
+
           const order = state.answersOrder[qId];
-          q.answers = order.map(i => originalAnswers.find(a => a.index === i).text);
-          if (Array.isArray(q.correct)) q.correct = q.correct.map(c => order.indexOf(c));
-          else q.correct = order.indexOf(q.correct);
-        } else {
-          // Новый порядок для неотвеченных
+
+          q.answers = order.map(i =>
+            originalAnswers.find(a => a.index === i).text
+          );
+
+          if (Array.isArray(q.correct))
+            q.correct = q.correct.map(c => order.indexOf(c));
+          else
+            q.correct = order.indexOf(q.correct);
+
+        }
+
+        // ===== НЕОТВЕЧЕННЫЕ — ВСЕГДА ПЕРЕМЕШИВАЕМ =====
+        else {
+
           const order = originalAnswers.map(a => a.index);
           shuffleArray(order);
-          state.answersOrder[qId] = order.slice();
-          q.answers = order.map(i => originalAnswers.find(a => a.index === i).text);
-          if (Array.isArray(q.correct)) q.correct = q.correct.map(c => order.indexOf(c));
-          else q.correct = order.indexOf(q.correct);
+
+          q.answers = order.map(i =>
+            originalAnswers.find(a => a.index === i).text
+          );
+
+          if (Array.isArray(q.correct))
+            q.correct = q.correct.map(c => order.indexOf(c));
+          else
+            q.correct = order.indexOf(q.correct);
+
         }
+
       });
 
-      // === Восстанавливаем очередь ошибок ===
+      // Очередь ошибок
       errorQueue = state.errors ? state.errors.slice() : [];
-      state.errorQueue = errorQueue.slice();
 
       saveState();
       render();
@@ -444,6 +471,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
