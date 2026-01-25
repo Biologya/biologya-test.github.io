@@ -59,49 +59,47 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // Определяем индекс для каждой позиции
-      mainQueue = Array.from({ length: questions.length }, (_, i) => i);
+      // 1. Создаём массив всех индексов вопросов
+      const allIndexes = Array.from({ length: questions.length }, (_, i) => i);
 
-      // Разделяем вопросы на отвеченные и неотвеченные
-      const answered = mainQueue.filter(qId => state.history[qId]?.checked);
-      const unanswered = mainQueue.filter(qId => !state.history[qId]?.checked);
+      // 2. Определяем отвеченные и неотвеченные
+      const answered = allIndexes.filter(i => state.history[i]?.checked);
+      const unanswered = allIndexes.filter(i => !state.history[i]?.checked);
 
-      // Перемешиваем только неотвеченные вопросы
+      // 3. Перемешиваем только неотвеченные
       shuffleArray(unanswered);
 
-      // Формируем итоговую очередь: закрепляем отвеченные на своих местах
-      let finalQueue = [];
-      let uIndex = 0;
+      // 4. Формируем итоговую очередь с закреплением отвеченных
+      mainQueue = [];
+      let u = 0; // индекс по перемешанным неотвеченным
       for (let i = 0; i < questions.length; i++) {
         if (answered.includes(i)) {
-          finalQueue.push(i); // оставляем отвеченный на месте
+          mainQueue.push(i); // отвеченный остаётся на своём месте
         } else {
-          finalQueue.push(unanswered[uIndex++]); // добавляем перемешанный
+          mainQueue.push(unanswered[u++]); // перемешанный неотвеченный
         }
       }
-      mainQueue = finalQueue;
 
-      // Перемешивание вариантов ответов
+      // 5. Перемешивание вариантов только для неотвеченных вопросов
       mainQueue.forEach(qId => {
         const q = questions[qId];
 
-        // Если вопрос уже отвечен, варианты статичны
+        // Если вопрос уже отвечен — варианты не меняем
         if (state.history[qId]?.checked) return;
 
         const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
         shuffleArray(originalAnswers);
         q.answers = originalAnswers.map(a => a.text);
 
+        // Обновляем индексы правильных ответов
         if (Array.isArray(q.correct)) {
-          q.correct = originalAnswers.findIndex(a => a.index === q.correct[0]) !== -1
-            ? originalAnswers.filter(a => q.correct.includes(a.index)).map(a => a.index)
-            : q.correct;
+          q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
         } else {
           q.correct = originalAnswers.findIndex(a => a.index === q.correct);
         }
       });
 
-      // Ошибки
+      // Ошибки остаются как есть
       errorQueue = state.errors || [];
 
       render();
@@ -411,5 +409,6 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
