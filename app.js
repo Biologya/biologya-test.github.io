@@ -59,21 +59,32 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // Очередь всех вопросов
-      mainQueue = questions.map((_, i) => i);
+      // Перемешиваем все вопросы один раз при первой загрузке
+      let initialQueue = questions.map((_, i) => i);
+      if (!state.history || Object.keys(state.history).length === 0) {
+        shuffleArray(initialQueue);
+        mainQueue = initialQueue;
+      } else {
+        // Если история уже есть, оставляем порядок вопросов прежним
+        mainQueue = questions.map((_, i) => i);
+      }
 
       questions.forEach((q, i) => {
         const h = state.history[i];
 
         // ===================== ВЫПОЛНЕННЫЕ ВОПРОСЫ =====================
         if (h?.checked && h.answers && h.correct) {
-          // Статично оставляем выбранные варианты и порядок
           q.answers = [...h.answers];
           q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
         } 
-        // ===================== НЕВЫПОЛНЕННЫЕ ВОПРОСЫ =====================
+        // ===================== ВОПРОСЫ, КОТОРЫЕ УЖЕ В ИСТОРИИ, НО НЕ ОТВЕЧЕННЫЕ =====================
+        else if (h?.answers && h?.correct) {
+          q.answers = [...h.answers];
+          q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
+        } 
+        // ===================== НОВЫЕ ВОПРОСЫ =====================
         else {
-          // Перемешиваем новые или неотвеченные варианты
+          // Перемешиваем ответы один раз при показе
           const original = q.answers.map((a, idx) => ({ text: a, index: idx }));
           shuffleArray(original);
           q.answers = original.map(a => a.text);
@@ -84,19 +95,15 @@ function loadQuestions() {
 
           q.correct = Array.isArray(newCorrect) ? newCorrect : [newCorrect];
 
-          // Сохраняем порядок в историю, но НЕ отмечаем как checked
+          // Сохраняем в историю сразу — чтобы больше не перемешивать
           if (!state.history[i]) state.history[i] = {};
           state.history[i].answers = [...q.answers];
           state.history[i].correct = Array.isArray(newCorrect) ? [...newCorrect] : [newCorrect];
-          // selected и checked остаются пустыми
-          delete state.history[i].checked;
-          delete state.history[i].selected;
         }
       });
 
-      // Очередь ошибок не трогаем
       errorQueue = state.errors || [];
-
+      saveState();
       render();
     })
     .catch(e => {
@@ -404,5 +411,6 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
