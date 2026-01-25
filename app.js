@@ -361,11 +361,41 @@ nextBtn.onclick = () => {
 // ================== Режим ошибок ==================
 document.getElementById("errorsBtn").onclick = () => {
   if (!state.errors.length) return alert("Ошибок пока нет 👍");
+
   if (state.queueType !== "errors") state.mainIndex = state.index;
   state.queueType = "errors";
   state.index = 0;
-  // восстановим очередь ошибок из state.errorQueue (если есть)
-  errorQueue = state.errorQueue && state.errorQueue.length ? state.errorQueue.slice() : (state.errors ? state.errors.slice() : []);
+
+  // Формируем очередь ошибок с фиксированным порядком вариантов
+  errorQueue = [];
+  state.errors.forEach(qId => {
+    // если порядок вариантов для этого вопроса ещё не сохранён, создаём и сохраняем
+    if (!state.answersOrder[qId]) {
+      const originalAnswers = questions[qId].answers.map((a,i)=>({text:a,index:i}));
+      const order = originalAnswers.map(a=>a.index);
+      shuffleArray(order); // первичная перемешка
+      state.answersOrder[qId] = order.slice();
+      questions[qId].answers = order.map(i=>originalAnswers.find(a=>a.index===i).text);
+      if (Array.isArray(questions[qId].correct)) {
+        questions[qId].correct = questions[qId].correct.map(c => order.indexOf(c));
+      } else {
+        questions[qId].correct = order.indexOf(questions[qId].correct);
+      }
+    } else {
+      // применяем уже сохранённый порядок вариантов
+      const order = state.answersOrder[qId];
+      const originalAnswers = questions[qId].answers.map((a,i)=>({text:a,index:i}));
+      questions[qId].answers = order.map(i=>originalAnswers.find(a=>a.index===i).text);
+      if (Array.isArray(questions[qId].correct)) {
+        questions[qId].correct = questions[qId].correct.map(c => order.indexOf(c));
+      } else {
+        questions[qId].correct = order.indexOf(questions[qId].correct);
+      }
+    }
+    errorQueue.push(qId);
+  });
+
+  state.errorQueue = errorQueue.slice(); // сохраняем фиксированную очередь ошибок
   saveState();
   render();
 };
@@ -415,3 +445,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
