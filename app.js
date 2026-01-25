@@ -53,7 +53,6 @@ function shuffleArray(arr) {
 }
 
 // ================== Загрузка и перемешивание вопросов ==================
-// ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
   fetch("questions.json")
     .then(r => r.json())
@@ -67,19 +66,20 @@ function loadQuestions() {
       questions.forEach((q, i) => {
         const h = state.history[i];
 
-        // ======== ВОССТАНОВЛЕНИЕ ВЫПОЛНЕННЫХ ВОПРОСОВ ========
+        // ===================== ОТВЕЧЕННЫЕ ВОПРОСЫ =====================
         if (h?.checked && h.answers && h.correct) {
-          // Зафиксированные ответы и порядок вариантов
           q.answers = [...h.answers];
           q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
         } 
-        // ======== ВОССТАНОВЛЕНИЕ НЕОТВЕЧЕННЫХ (НО УЖЕ ПРОСМОТРЕННЫХ) ========
-        else if (h?.answers && h?.correct) {
+        // ===================== НЕОТВЕЧЕННЫЕ, НО УЖЕ ПРОСМОТРЕННЫЕ =====================
+        else if (h?.answers && h?.correct && !h.checked) {
+          // Не мешаем — оставляем перемешанными с прошлого показа
           q.answers = [...h.answers];
           q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
         } 
-        // ======== НОВЫЕ ВОПРОСЫ (перемешиваем один раз) ========
+        // ===================== НОВЫЕ ВОПРОСЫ =====================
         else {
+          // Перемешиваем варианты
           const original = q.answers.map((a, idx) => ({ text: a, index: idx }));
           shuffleArray(original);
           q.answers = original.map(a => a.text);
@@ -90,7 +90,7 @@ function loadQuestions() {
 
           q.correct = Array.isArray(newCorrect) ? newCorrect : [newCorrect];
 
-          // Сохраняем сразу, чтобы больше не перемешивать
+          // Сохраняем в историю, чтобы больше не перемешивать
           if (!state.history[i]) state.history[i] = {};
           state.history[i].answers = [...q.answers];
           state.history[i].correct = Array.isArray(newCorrect) ? [...newCorrect] : [newCorrect];
@@ -248,49 +248,53 @@ function render() {
   qText.innerText = q.text;
   answersDiv.innerHTML = "";
 
-  submitBtn.style.display = multi ? "inline-block" : "none";
-  submitBtn.disabled = false;
+// ====== Кнопка submit ======
+submitBtn.style.display = multi ? "inline-block" : "none";
+submitBtn.disabled = false;
 
-  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
+// ====== Выбранные ответы ======
+checked = !!state.history[qId]?.checked;
+selected = new Set(state.history[qId]?.selected || []);
 
-  nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
+q.answers.forEach((text, i) => {
+  const el = document.createElement("div");
+  el.className = "answer";
+  el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
+  if (selected.has(i)) el.classList.add("selected");
 
-  checked = !!state.history[qId]?.checked;
-  selected = new Set(state.history[qId]?.selected || []);
+  el.onclick = () => {
+    if (state.queueType === "errors" || checked) return;
 
-  q.answers.forEach((text, i) => {
-    const el = document.createElement("div");
-    el.className = "answer";
-    el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
-    if (selected.has(i)) el.classList.add("selected");
-
-    el.onclick = () => {
-      if (state.queueType === "errors" || checked) return;
-      if (!multi) {
-        selected.clear();
-        selected.add(i);
-        checkAnswers();
-        render();
+    if (!multi) {
+      // SINGLE-CHOICE — проверяем сразу
+      selected.clear();
+      selected.add(i);
+      checkAnswers();
+    } else {
+      // MULTI-CHOICE — можно выбрать/снять
+      if (selected.has(i)) {
+        selected.delete(i);
+        el.classList.remove("selected");
+        el.style.transition = "transform 0.2s ease";
+        el.style.transform = "scale(1)";
       } else {
-        if (selected.has(i)) {
-          selected.delete(i);
-          el.classList.remove("selected");
-          el.style.transition = "transform 0.2s ease";
-          el.style.transform = "scale(1)";
-        } else {
-          selected.add(i);
-          el.classList.add("selected");
-          el.style.transition = "transform 0.2s ease";
-          el.style.transform = "scale(1.1)";
-          setTimeout(() => {
-            if (selected.has(i)) el.style.transform = "scale(1.05)";
-          }, 150);
-        }
+        selected.add(i);
+        el.classList.add("selected");
+        el.style.transition = "transform 0.2s ease";
+        el.style.transform = "scale(1.1)";
+        setTimeout(() => {
+          if (selected.has(i)) el.style.transform = "scale(1.05)";
+        }, 150);
       }
-    };
+    }
 
-    answersDiv.appendChild(el);
-  });
+    // Перерисовываем подсветку
+    highlightAnswers(qId);
+    updateUI();
+  };
+
+  answersDiv.appendChild(el);
+});
 
   if (checked || state.queueType === "errors") highlightAnswers(qId);
   submitBtn.disabled = checked;
@@ -411,5 +415,6 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
