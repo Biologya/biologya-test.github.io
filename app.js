@@ -69,27 +69,35 @@ function loadQuestions() {
         else unanswered.push(i);           // можно перемешивать
       });
 
-      shuffleArray(unanswered); // перемешиваем только неотвеченные
+      // Если история пуста (первый вход), перемешиваем все
+      if (!Object.keys(state.history).length) {
+        const allIndices = Array.from({ length: questions.length }, (_, i) => i);
+        shuffleArray(allIndices);
+        mainQueue = allIndices;
+      } else {
+        // Перемешиваем только неотвеченные
+        shuffleArray(unanswered);
 
-      // ======== Собираем mainQueue ========
-      mainQueue = [];
-      let u = 0;
-      for (let i = 0; i < questions.length; i++) {
-        if (answered.includes(i)) mainQueue.push(i);
-        else mainQueue.push(unanswered[u++]);
+        // Собираем mainQueue: answered остаются на местах, unanswered вставляем в свободные позиции
+        mainQueue = [];
+        let u = 0;
+        for (let i = 0; i < questions.length; i++) {
+          if (answered.includes(i)) mainQueue.push(i);
+          else mainQueue.push(unanswered[u++]);
+        }
       }
 
-      // ======== Подготовка каждого вопроса ========
+      // ======== Подготовка вариантов каждого вопроса ========
       mainQueue.forEach(qId => {
         const q = questions[qId];
         const h = state.history[qId];
 
-        // Выполненные вопросы остаются как есть
         if (h?.answers && h?.correct) {
+          // Выполненные вопросы сохраняют порядок
           q.answers = [...h.answers];
           q.correct = Array.isArray(h.correct) ? [...h.correct] : [h.correct];
         } else {
-          // Новые варианты — перемешиваем
+          // Новые вопросы или неотвеченные — перемешиваем варианты
           const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
           shuffleArray(originalAnswers);
           q.answers = originalAnswers.map(a => a.text);
@@ -418,6 +426,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
