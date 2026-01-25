@@ -54,34 +54,49 @@ function shuffleArray(arr) {
 
 // ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
-  fetch("questions.json")
-    .then(r => r.json())
-    .then(data => {
-      questions = data;
+    fetch("questions.json")
+        .then(r => r.json())
+        .then(data => {
+            questions = data;
 
-      mainQueue = Array.from({ length: questions.length }, (_, i) => i);
-      shuffleArray(mainQueue);
+            // ===== Формируем mainQueue с сохранением порядка выполненных вопросов =====
+            mainQueue = [];
+            const done = [];
+            const notDone = [];
 
-      mainQueue.forEach(qId => {
-        const q = questions[qId];
-        const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
-        shuffleArray(originalAnswers);
-        q.answers = originalAnswers.map(a => a.text);
+            data.forEach((q, i) => {
+                const checked = state.history[i]?.checked;
+                if (checked) done.push(i);
+                else notDone.push(i);
 
-        if (Array.isArray(q.correct)) {
-          q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
-        } else {
-          q.correct = originalAnswers.findIndex(a => a.index === q.correct);
-        }
-      });
+                // Перемешиваем ответы внутри каждого вопроса
+                const originalAnswers = q.answers.map((a, idx) => ({ text: a, index: idx }));
+                shuffleArray(originalAnswers);
+                q.answers = originalAnswers.map(a => a.text);
 
-      errorQueue = state.errors || [];
-      render();
-    })
-    .catch(err => {
-      console.error(err);
-      qText.innerText = "Не удалось загрузить вопросы ❌";
-    });
+                if (Array.isArray(q.correct)) {
+                    q.correct = q.correct.map(c => originalAnswers.findIndex(a => a.index === c));
+                } else {
+                    q.correct = originalAnswers.findIndex(a => a.index === q.correct);
+                }
+            });
+
+            // Перемешиваем только неотвеченные вопросы
+            shuffleArray(notDone);
+
+            // Объединяем: сначала выполненные, потом перемешанные неотвеченные
+            mainQueue = [...done, ...notDone];
+
+            // ===== Работа над ошибками =====
+            // Сохраняем порядок ошибок, перемешивание не нужно
+            errorQueue = state.errors || [];
+
+            render();
+        })
+        .catch(err => {
+            console.error(err);
+            qText.innerText = "Не удалось загрузить вопросы ❌";
+        });
 }
 
 // ================== Очередь ==================
@@ -383,3 +398,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
