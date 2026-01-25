@@ -59,44 +59,44 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // Если мы в режиме ошибок, всё статично
+      // Если режим ошибок, всё статично
       if (state.queueType === "errors") {
-        mainQueue = state.errors.slice(); // просто используем очередь ошибок
+        mainQueue = state.errors.slice();
         render();
         return;
       }
 
-      // Создаём массив для финальной очереди с фиксированными позициями
-      const finalQueue = new Array(questions.length).fill(null);
+      // 1️⃣ Создаём массив фиксированных позиций
+      let finalQueue = new Array(questions.length).fill(null);
 
-      // 1️⃣ Закрепляем все отвеченные вопросы на их индексах
+      // 2️⃣ Закрепляем отвеченные вопросы на своих местах
       for (let i = 0; i < questions.length; i++) {
         if (state.history[i]?.checked) {
-          finalQueue[i] = i; // отвеченный вопрос остаётся на месте
+          finalQueue[i] = i; // отвеченный вопрос на месте
         }
       }
 
-      // 2️⃣ Собираем все неотвеченные
+      // 3️⃣ Собираем все неотвеченные
       const unanswered = [];
       for (let i = 0; i < questions.length; i++) {
         if (!state.history[i]?.checked) unanswered.push(i);
       }
 
-      // 3️⃣ Перемешиваем неотвеченные
+      // 4️⃣ Перемешиваем неотвеченные
       shuffleArray(unanswered);
 
-      // 4️⃣ Заполняем пустые слоты перемешанными неотвеченными
+      // 5️⃣ Вставляем перемешанные в пустые слоты
       for (let i = 0; i < finalQueue.length; i++) {
         if (finalQueue[i] === null) finalQueue[i] = unanswered.shift();
       }
 
       mainQueue = finalQueue;
 
-      // 5️⃣ Перемешивание вариантов только для неотвеченных вопросов
+      // 6️⃣ Перемешивание вариантов только для неотвеченных вопросов
       mainQueue.forEach(qId => {
         const q = questions[qId];
 
-        // Если вопрос уже отвечен — варианты не меняем
+        // Если уже отвечен — варианты не трогаем
         if (state.history[qId]?.checked) return;
 
         const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
@@ -110,7 +110,9 @@ function loadQuestions() {
         }
       });
 
+      // Ошибки
       errorQueue = state.errors || [];
+
       render();
     })
     .catch(err => {
@@ -418,6 +420,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
