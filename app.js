@@ -54,27 +54,32 @@ function shuffleArray(arr) {
 
 // ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
+
   fetch("questions.json")
     .then(r => r.json())
     .then(data => {
+
       questions = data;
 
       const done = [];
       const notDone = [];
 
       questions.forEach((q, i) => {
-        const history = state.history[i];
 
-        // ✅ ЕСЛИ ВЫПОЛНЕН — ВОССТАНАВЛИВАЕМ ПОРЯДОК
-        if (history?.checked && history.answersOrder) {
+        const h = state.history[i];
 
-          q.answers = [...history.answersOrder];
+        // ================= ВЫПОЛНЕННЫЕ =================
+        if (h?.checked && h.answers && h.correct) {
+
+          // ✅ ВОССТАНАВЛИВАЕМ ТОЧНО КАК БЫЛО
+          q.answers = [...h.answers];
+          q.correct = [...h.correct];
 
           done.push(i);
 
         } else {
 
-          // ✅ ТОЛЬКО НОВЫЕ ВОПРОСЫ ПЕРЕМЕШИВАЕМ
+          // ================= НОВЫЕ =================
           const original = q.answers.map((a, idx) => ({
             text: a,
             index: idx
@@ -84,7 +89,6 @@ function loadQuestions() {
 
           q.answers = original.map(a => a.text);
 
-          // пересчёт correct
           if (Array.isArray(q.correct)) {
             q.correct = q.correct.map(c =>
               original.findIndex(a => a.index === c)
@@ -95,21 +99,22 @@ function loadQuestions() {
 
           notDone.push(i);
         }
+
       });
 
-      // ✅ мешаем ТОЛЬКО неотвеченные
+      // ✅ мешаем ТОЛЬКО новые
       shuffleArray(notDone);
 
-      // ✅ выполненные всегда на месте
+      // ✅ выполненные статичны
       mainQueue = [...done, ...notDone];
 
-      // ✅ ошибки НЕ ТРОГАЕМ
+      // ✅ ошибки тоже статичны
       errorQueue = state.errors || [];
 
       render();
     })
-    .catch(err => {
-      console.error(err);
+    .catch(e => {
+      console.error(e);
       qText.innerText = "Ошибка загрузки ❌";
     });
 }
@@ -308,6 +313,7 @@ submitBtn.onclick = () => {
 };
 
 function checkAnswers() {
+
   const queue = currentQueue();
   const qId = queue[state.index];
   const q = questions[qId];
@@ -317,20 +323,22 @@ function checkAnswers() {
   checked = true;
   submitBtn.disabled = true;
 
-  state.history[qId] = state.history[qId] || {};
+  if (!state.history[qId]) state.history[qId] = {};
 
-  // ✅ СОХРАНЯЕМ ВЫБРАННЫЕ
+  // ✅ сохраняем выбранные индексы
   state.history[qId].selected = [...selected];
 
-  // ✅ СОХРАНЯЕМ ПОРЯДОК ОТВЕТОВ
-  state.history[qId].answersOrder = [...q.answers];
+  // ✅ сохраняем порядок ответов (КЛЮЧЕВО)
+  state.history[qId].answers = [...q.answers];
+
+  // ✅ сохраняем правильные индексы В ТЕКУЩЕМ ПОРЯДКЕ
+  state.history[qId].correct = [...correct];
 
   state.history[qId].checked = true;
 
-  const selectedSet = new Set(selected);
   const isCorrect =
-    [...correct].every(c => selectedSet.has(c)) &&
-    selectedSet.size === correct.size;
+    [...correct].every(c => selected.has(c)) &&
+    selected.size === correct.size;
 
   highlightAnswers(qId);
 
@@ -339,18 +347,11 @@ function checkAnswers() {
   }
 
   if (!state.history[qId].counted && state.queueType !== "errors") {
-    if (isCorrect) state.stats.correct++;
-    else state.stats.wrong++;
-
+    isCorrect ? state.stats.correct++ : state.stats.wrong++;
     state.history[qId].counted = true;
   }
 
-  if (state.queueType === "errors") {
-    state.errorAttempts[qId] = (state.errorAttempts[qId] || 0) + 1;
-  }
-
   saveState();
-  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
 }
 
 // ================== Навигация ==================
@@ -428,6 +429,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
