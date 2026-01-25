@@ -53,6 +53,7 @@ function shuffleArray(arr) {
 }
 
 // ================== Загрузка и перемешивание вопросов ==================
+// ================== Загрузка и перемешивание вопросов ==================
 function loadQuestions() {
   fetch("questions.json")
     .then(r => r.json())
@@ -78,7 +79,6 @@ function loadQuestions() {
         } 
         // ===================== НОВЫЕ ВОПРОСЫ =====================
         else {
-          // Перемешиваем варианты
           const original = q.answers.map((a, idx) => ({ text: a, index: idx }));
           shuffleArray(original);
           q.answers = original.map(a => a.text);
@@ -89,15 +89,17 @@ function loadQuestions() {
 
           q.correct = Array.isArray(newCorrect) ? newCorrect : [newCorrect];
 
-          // Сохраняем порядок в истории, но без выбранного ответа
+          // Сохраняем в историю, чтобы больше не перемешивать
           if (!state.history[i]) state.history[i] = {};
           state.history[i].answers = [...q.answers];
           state.history[i].correct = Array.isArray(newCorrect) ? [...newCorrect] : [newCorrect];
-          saveState();
+          // Убираем checked и selected, чтобы вопрос считался новым
+          delete state.history[i].checked;
+          delete state.history[i].selected;
         }
       });
 
-      // Очередь ошибок
+      // Очередь ошибок чистая
       errorQueue = state.errors || [];
 
       render();
@@ -406,3 +408,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
