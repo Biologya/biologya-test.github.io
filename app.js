@@ -69,14 +69,24 @@ function loadQuestions() {
         mainQueue = Array.from({ length: questions.length }, (_, i) => i);
         shuffleArray(mainQueue);
         state.initialShuffle = true;
+        state.originalQueue = [...mainQueue]; // сохраняем порядок после первого перемешивания
       } else {
-        // ====== При перезагрузке ======
-        // Выполненные вопросы остаются на своих местах
-        // Неотвеченные вопросы перемешиваются
-        const answered = mainQueue.filter(qId => state.history[qId]?.checked);
-        const unanswered = mainQueue.filter(qId => !state.history[qId]?.checked);
+        // ====== После перезагрузки ======
+        // Отвеченные остаются на своих местах (в порядке originalQueue)
+        // Неотвеченные перемешиваются только среди своих позиций
+        const tempQueue = [...state.originalQueue];
+        const unansweredIndices = tempQueue
+          .map((qId, idx) => state.history[qId]?.checked ? null : idx)
+          .filter(idx => idx !== null);
+
+        const unanswered = unansweredIndices.map(idx => tempQueue[idx]);
         shuffleArray(unanswered);
-        mainQueue = [...answered, ...unanswered];
+
+        unansweredIndices.forEach((idx, i) => {
+          tempQueue[idx] = unanswered[i];
+        });
+
+        mainQueue = tempQueue;
       }
 
       // ====== Перемешивание вариантов ответов (только при первом показе каждого вопроса) ======
@@ -412,6 +422,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
