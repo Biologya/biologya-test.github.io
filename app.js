@@ -59,24 +59,24 @@ function loadQuestions() {
     .then(data => {
       questions = data;
 
-      // ================== Перемешиваем все вопросы один раз при первом входе ==================
-      if (!state.history || Object.keys(state.history).length === 0) {
-        // создаем случайный порядок вопросов
-        mainQueue = questions.map((_, i) => i);
-        shuffleArray(mainQueue);
-      } else {
-        // уже есть история — оставляем порядок выполненных вопросов фиксированным,
-        // а неотвеченные можно перемешивать отдельно
-        mainQueue = [];
-        const answered = [];
-        const unanswered = [];
-        data.forEach((q, i) => {
-          const h = state.history[i];
-          if (h?.checked) answered.push(i); // фиксируем
-          else unanswered.push(i); // можно перемешивать
-        });
-        shuffleArray(unanswered);
-        mainQueue = [...answered, ...unanswered]; // сначала выполненные, потом случайные неотвеченные
+      const answered = [];
+      const unanswered = [];
+
+      questions.forEach((q, i) => {
+        const h = state.history[i];
+
+        if (h?.checked) answered.push(i); // фиксируем
+        else unanswered.push(i);          // можно перемешивать
+      });
+
+      shuffleArray(unanswered); // перемешиваем только неотвеченные
+
+      // Строим основную очередь: вставляем выполненные на их места
+      mainQueue = [];
+      let u = 0;
+      for (let i = 0; i < questions.length; i++) {
+        if (answered.includes(i)) mainQueue.push(i);
+        else mainQueue.push(unanswered[u++]);
       }
 
       // ================== Подготовка каждого вопроса ==================
@@ -105,14 +105,13 @@ function loadQuestions() {
 
           q.correct = Array.isArray(newCorrect) ? newCorrect : [newCorrect];
 
-          // сохраняем сразу, чтобы больше не перемешивать этот вопрос
+          // сохраняем сразу
           if (!state.history[i]) state.history[i] = {};
           state.history[i].answers = [...q.answers];
           state.history[i].correct = Array.isArray(newCorrect) ? [...newCorrect] : [newCorrect];
         }
       });
 
-      // ================== Очередь ошибок ==================
       errorQueue = state.errors || [];
 
       saveState();
@@ -423,6 +422,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
