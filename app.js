@@ -387,34 +387,30 @@ document.getElementById("errorsBtn").onclick = () => {
   state.queueType = "errors";
   state.index = 0;
 
-  // Формируем очередь ошибок с фиксированным порядком вариантов
+  // Формируем очередь ошибок
   errorQueue = [];
+
   state.errors.forEach(qId => {
-    // если порядок вариантов для этого вопроса ещё не сохранён, создаём и сохраняем
+    const q = questions[qId];
+
+    // Если порядок вариантов ещё не сохранён — фиксируем его в текущем виде
     if (!state.answersOrder[qId]) {
-      const originalAnswers = questions[qId].answers.map((a,i)=>({text:a,index:i}));
-      const order = originalAnswers.map(a=>a.index);
-      shuffleArray(order); // первичная перемешка
-      state.answersOrder[qId] = order.slice();
-      questions[qId].answers = order.map(i=>originalAnswers.find(a=>a.index===i).text);
-      if (Array.isArray(questions[qId].correct)) {
-        questions[qId].correct = questions[qId].correct.map(c => order.indexOf(c));
-      } else {
-        questions[qId].correct = order.indexOf(questions[qId].correct);
-      }
-      questions[qId]._currentOrder = order.slice();
-    } else {
-      // применяем уже сохранённый порядок вариантов
-      const order = state.answersOrder[qId];
-      const originalAnswers = questions[qId].answers.map((a,i)=>({text:a,index:i}));
-      questions[qId].answers = order.map(i=>originalAnswers.find(a=>a.index===i).text);
-      if (Array.isArray(questions[qId].correct)) {
-        questions[qId].correct = questions[qId].correct.map(c => order.indexOf(c));
-      } else {
-        questions[qId].correct = order.indexOf(questions[qId].correct);
-      }
-      questions[qId]._currentOrder = order.slice();
+      state.answersOrder[qId] = q.answers.map((a, i) => i); // порядок как есть
+      q._currentOrder = state.answersOrder[qId].slice();
     }
+
+    // Применяем зафиксированный порядок к вариантам
+    const order = state.answersOrder[qId];
+    const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
+    q.answers = order.map(i => originalAnswers.find(a => a.index === i).text);
+
+    // Пересчитываем индексы правильных ответов
+    if (Array.isArray(q.correct)) {
+      q.correct = q.correct.map(c => order.indexOf(c));
+    } else {
+      q.correct = order.indexOf(q.correct);
+    }
+
     errorQueue.push(qId);
   });
 
@@ -457,5 +453,6 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
