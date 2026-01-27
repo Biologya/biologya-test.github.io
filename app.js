@@ -67,49 +67,38 @@ function loadQuestions() {
 
       // ===== QUEUE LOGIC =====
       if (!state.mainQueue || state.mainQueue.length !== data.length) {
-        // Первая загрузка или после RESET -> полная рандомизация всех вопросов
         mainQueue = [...Array(data.length).keys()];
         shuffleArray(mainQueue);
       } else {
-        // Перезагрузка: берем сохранённый порядок
         mainQueue = state.mainQueue.slice();
-
         const freeIndexes = [];
         const floating = [];
-
         mainQueue.forEach((qId, pos) => {
           if (!state.history[qId]?.checked) {
             freeIndexes.push(pos);
             floating.push(qId);
           }
         });
-
-        // перемешиваем только неотмеченные
         shuffleArray(floating);
-
-        freeIndexes.forEach((pos, i) => {
-          mainQueue[pos] = floating[i];
-        });
+        freeIndexes.forEach((pos, i) => mainQueue[pos] = floating[i]);
       }
-
-      // Сохраняем итоговый порядок
       state.mainQueue = mainQueue.slice();
 
       // ===== ANSWERS LOGIC =====
       mainQueue.forEach(qId => {
         const q = questions[qId];
         const original = q.answers.map((a, i) => ({ text: a, index: i }));
-
         let order;
 
-        // Если порядок вариантов уже есть — используем его
-        if (state.answersOrder.hasOwnProperty(qId)) {
+        if (state.answersOrder[qId]) {
+          // Используем зафиксированный порядок
           order = state.answersOrder[qId].slice();
         } else {
-          // Новый вопрос — фиксируем случайный порядок сразу
+          // Новый вопрос — случайный порядок
           order = original.map(a => a.index);
           shuffleArray(order);
-          state.answersOrder[qId] = order.slice(); // сохраняем в state навсегда
+          // фиксируем сразу
+          state.answersOrder[qId] = order.slice();
         }
 
         // Применяем порядок к q.answers
@@ -120,8 +109,7 @@ function loadQuestions() {
           ? q.correct.map(c => order.indexOf(c))
           : order.indexOf(q.correct);
 
-        // Сохраняем текущий порядок в объекте вопроса (на всякий случай)
-        q._currentOrder = order.slice();
+        q._currentOrder = order.slice(); // на всякий случай
       });
 
       // Восстанавливаем очередь ошибок
@@ -469,4 +457,5 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
