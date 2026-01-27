@@ -331,12 +331,21 @@ function checkAnswers() {
   highlightAnswers(qId);
 
   // === Обновление списка ошибок и его очереди ===
-  if (!isCorrect && !state.errors.includes(qId)) {
+if (!isCorrect) {
+
+  if (!state.errors.includes(qId)) {
     state.errors.push(qId);
-    state.errorQueue = state.errorQueue || [];
-    if (!state.errorQueue.includes(qId)) state.errorQueue.push(qId); // фиксируем позицию в очереди ошибок
   }
 
+} else {
+
+  const pos = state.errors.indexOf(qId);
+  if (pos !== -1) {
+    state.errors.splice(pos, 1);
+  }
+
+}
+  
   // Если в режиме ошибок и ответили правильно — удаляем из очереди ошибок
   if (isCorrect && state.queueType === "errors") {
     state.errors = (state.errors || []).filter(id => id !== qId);
@@ -438,4 +447,5 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
