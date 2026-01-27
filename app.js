@@ -387,38 +387,23 @@ document.getElementById("errorsBtn").onclick = () => {
   state.queueType = "errors";
   state.index = 0;
 
-  errorQueue = [];
+document.getElementById("errorsBtn").onclick = () => {
+  if (!state.errors.length) return alert("Ошибок пока нет 👍");
 
-  state.errors.forEach(qId => {
-    const q = questions[qId];
-    const originalAnswers = q.answers.map((a,i)=>({text:a,index:i}));
-    let order;
+  if (state.queueType !== "errors") {
+    state.mainIndex = state.index;
+  }
 
-    if (state.answersOrder[qId]) {
-      // Используем уже сохранённый порядок вариантов
-      order = state.answersOrder[qId].slice();
-    } else {
-      // Если порядка нет — фиксируем текущий порядок без перемешивания
-      order = originalAnswers.map(a=>a.index);
-      state.answersOrder[qId] = order.slice();
-    }
+  state.queueType = "errors";
+  state.index = 0;
 
-    // Применяем порядок к вариантам
-    q.answers = order.map(i => originalAnswers.find(a => a.index === i).text);
+  // Берём ТОЛЬКО зафиксированную очередь
+  errorQueue = state.errorQueue.length
+    ? state.errorQueue.slice()
+    : state.errors.slice();
 
-    // Пересчитываем правильные ответы
-    if (Array.isArray(q.correct)) {
-      q.correct = q.correct.map(c => order.indexOf(c));
-    } else {
-      q.correct = order.indexOf(q.correct);
-    }
+  state.errorQueue = errorQueue.slice();
 
-    q._currentOrder = order.slice(); // сохраняем порядок на всякий случай
-
-    errorQueue.push(qId);
-  });
-
-  state.errorQueue = errorQueue.slice(); // сохраняем очередь ошибок
   saveState();
   render();
 };
@@ -457,6 +442,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
