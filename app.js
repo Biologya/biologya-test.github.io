@@ -383,13 +383,6 @@ nextBtn.onclick = () => {
 document.getElementById("errorsBtn").onclick = () => {
   if (!state.errors.length) return alert("Ошибок пока нет 👍");
 
-  if (state.queueType !== "errors") state.mainIndex = state.index;
-  state.queueType = "errors";
-  state.index = 0;
-
-document.getElementById("errorsBtn").onclick = () => {
-  if (!state.errors.length) return alert("Ошибок пока нет 👍");
-
   if (state.queueType !== "errors") {
     state.mainIndex = state.index;
   }
@@ -442,3 +435,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
