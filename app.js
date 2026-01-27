@@ -34,7 +34,7 @@ exitErrorsBtn.style.marginLeft = "10px";
 exitErrorsBtn.style.display = "none";
 exitErrorsBtn.onclick = () => {
   state.queueType = "main";
-  state.index = state.mainIndex;
+  state.index = state.mainIndex || 0;
   saveState();
   render();
 };
@@ -60,17 +60,24 @@ function loadQuestions() {
   fetch("questions.json")
     .then(r => r.json())
     .then(data => {
-      questions = data;
+      // clone data to questions (so we don't mutate the original fetched object in surprising ways)
+      questions = data.map(q => ({
+        text: q.text,
+        answers: q.answers.slice(),
+        correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
+      }));
+
       state.answersOrder = state.answersOrder || {};
       state.mainQueue = state.mainQueue || null;
       state.errorQueue = state.errorQueue || [];
 
       // ===== QUEUE LOGIC =====
-      if (!state.mainQueue || state.mainQueue.length !== data.length) {
-        mainQueue = [...Array(data.length).keys()];
+      if (!state.mainQueue || state.mainQueue.length !== questions.length) {
+        mainQueue = [...Array(questions.length).keys()];
         shuffleArray(mainQueue);
       } else {
         mainQueue = state.mainQueue.slice();
+        // Permute only unanswered slots to keep answered ones stable
         const freeIndexes = [];
         const floating = [];
         mainQueue.forEach((qId, pos) => {
@@ -85,34 +92,39 @@ function loadQuestions() {
       state.mainQueue = mainQueue.slice();
 
       // ===== ANSWERS LOGIC =====
+      // For each question in the mainQueue determine order and apply it.
       mainQueue.forEach(qId => {
         const q = questions[qId];
         const original = q.answers.map((a, i) => ({ text: a, index: i }));
-        let order;
+        // preserve original correct indices (from source)
+        const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
 
+        let order;
         if (state.answersOrder[qId]) {
-          // Используем зафиксированный порядок
+          // Use previously fixed order
           order = state.answersOrder[qId].slice();
         } else {
-          // Новый вопрос — случайный порядок
+          // New question — create order
           order = original.map(a => a.index);
+          // Shuffle only in normal mode (we do not want to shuffle later when in errors mode)
+          // Always shuffle here because this is initial load/main mode.
           shuffleArray(order);
-          // фиксируем сразу
+          // Save fixed order so it won't change after reloads
           state.answersOrder[qId] = order.slice();
         }
 
-        // Применяем порядок к q.answers
+        // Apply order to answers
         q.answers = order.map(i => original.find(a => a.index === i).text);
 
-        // Пересчитываем индексы правильных ответов
-        q.correct = Array.isArray(q.correct)
-          ? q.correct.map(c => order.indexOf(c))
-          : order.indexOf(q.correct);
+        // Recalculate correct indices relative to new order
+        q.correct = Array.isArray(origCorrect)
+          ? origCorrect.map(c => order.indexOf(c))
+          : order.indexOf(origCorrect);
 
-        q._currentOrder = order.slice(); // на всякий случай
+        q._currentOrder = order.slice();
       });
 
-      // Восстанавливаем очередь ошибок
+      // Восстанавливаем очередь ошибок (если была сохранена)
       errorQueue = state.errorQueue && state.errorQueue.length
         ? state.errorQueue.slice()
         : (state.errors ? state.errors.slice() : []);
@@ -235,6 +247,11 @@ function render() {
   }
 
   if (state.index >= queue.length) {
+    // Если мы в режиме ошибок и дошли до конца — вернуться в main автоматически
+    if (state.queueType === "errors") {
+      exitErrorsBtn.click();
+      return;
+    }
     showResult();
     return;
   }
@@ -332,32 +349,24 @@ function checkAnswers() {
     selectedSet.size === correctSet.size;
 
   // ====== 🔥 ГЛАВНЫЙ ФИКС ОШИБОК ======
-
   if (!isCorrect) {
-
-    // регистрируем ВСЕГДА
+    // регистрируем ВСЕГДА (без дубликатов)
     if (!state.errors.includes(qId)) {
       state.errors.push(qId);
     }
-
     if (!state.errorQueue.includes(qId)) {
       state.errorQueue.push(qId);
     }
-
   } else {
-
     // удаляем если исправили
     state.errors = state.errors.filter(id => id !== qId);
     state.errorQueue = state.errorQueue.filter(id => id !== qId);
-
   }
 
   // ===== СТАТИСТИКА (ТОЛЬКО ОДИН РАЗ) =====
   if (!state.history[qId].counted && state.queueType === "main") {
-
     if (isCorrect) state.stats.correct++;
     else state.stats.wrong++;
-
     state.history[qId].counted = true;
   }
 
@@ -368,46 +377,9 @@ function checkAnswers() {
 
   highlightAnswers(qId);
 
-  saveState();
-  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
-};
-
-  // === Обновление списка ошибок и его очереди ===
-if (!isCorrect) {
-
-  if (!state.errors.includes(qId)) {
-    state.errors.push(qId);
-  }
-
-} else {
-
-  const pos = state.errors.indexOf(qId);
-  if (pos !== -1) {
-    state.errors.splice(pos, 1);
-  }
-
-}
-  
-  // Если в режиме ошибок и ответили правильно — удаляем из очереди ошибок
-  if (isCorrect && state.queueType === "errors") {
-    state.errors = (state.errors || []).filter(id => id !== qId);
-    state.errorQueue = (state.errorQueue || []).filter(id => id !== qId);
-  }
-
-  // Считаем статистику только один раз
-  if (!state.history[qId]?.counted && state.queueType !== "errors") {
-    if (isCorrect) state.stats.correct++;
-    else state.stats.wrong++;
-    state.history[qId].counted = true;
-  }
-
-  if (state.queueType === "errors") {
-    state.errorAttempts[qId] = (state.errorAttempts[qId] || 0) + 1;
-  }
-
-  // Сохраняем изменения: порядок вопросов и порядок вариантов остаются в state.mainQueue и state.answersOrder
+  // Сохраняем и обновляем панель
   state.mainQueue = mainQueue.slice();
-  state.errorQueue = errorQueue.slice();
+  state.errorQueue = state.errorQueue.slice();
   saveState();
   renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
 }
@@ -445,7 +417,7 @@ document.getElementById("errorsBtn").onclick = () => {
   state.queueType = "errors";
   state.index = 0;
 
-  // ✅ ВСЕГДА формируем заново
+  // ВСЕГДА формируем очередь заново из state.errors (чтобы новые ошибки тоже попали)
   errorQueue = state.errors.slice();
 
   // сохраняем
@@ -464,7 +436,7 @@ function saveState() {
 function updateUI() {
   const queue = currentQueue();
   progressText.innerText = `Вопрос ${state.index + 1} из ${queue.length}`;
-  progressFill.style.width = `${(state.index / queue.length) * 100}%`;
+  progressFill.style.width = `${(queue.length ? (state.index / queue.length) * 100 : 0)}%`;
   statsDiv.innerText = `✔ ${state.stats.correct} ✖ ${state.stats.wrong}`;
 }
 
@@ -489,6 +461,3 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
-
-
-
