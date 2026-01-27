@@ -387,34 +387,38 @@ document.getElementById("errorsBtn").onclick = () => {
   state.queueType = "errors";
   state.index = 0;
 
-  // Формируем очередь ошибок
   errorQueue = [];
-state.errors.forEach(qId => {
-  const originalAnswers = questions[qId].answers.map((a,i)=>({text:a,index:i}));
-  let order;
 
-  if (state.answersOrder[qId]) {
-    // Уже есть порядок — используем его
-    order = state.answersOrder[qId].slice();
-  } else {
-    // Режим ошибок — порядок не перемешиваем
-    order = originalAnswers.map(a => a.index);
-    state.answersOrder[qId] = order.slice();
-  }
+  state.errors.forEach(qId => {
+    const originalAnswers = questions[qId].answers.map((a, i) => ({ text: a, index: i }));
+    let order;
 
-  // Применяем порядок к вариантам
-  questions[qId].answers = order.map(i => originalAnswers.find(a=>a.index===i).text);
-  if (Array.isArray(questions[qId].correct)) {
-    questions[qId].correct = questions[qId].correct.map(c => order.indexOf(c));
-  } else {
-    questions[qId].correct = order.indexOf(questions[qId].correct);
-  }
-  questions[qId]._currentOrder = order.slice();
+    if (state.answersOrder[qId]) {
+      // Если порядок уже есть — используем его
+      order = state.answersOrder[qId].slice();
+    } else {
+      // Если порядка нет — сохраняем текущий порядок вариантов без перемешивания
+      order = originalAnswers.map(a => a.index);
+      state.answersOrder[qId] = order.slice();
+    }
 
-  errorQueue.push(qId);
-});
+    // Применяем порядок к вариантам
+    questions[qId].answers = order.map(i => originalAnswers.find(a => a.index === i).text);
 
-  state.errorQueue = errorQueue.slice(); // сохраняем фиксированную очередь ошибок
+    // Пересчитываем правильные ответы
+    if (Array.isArray(questions[qId].correct)) {
+      questions[qId].correct = questions[qId].correct.map(c => order.indexOf(c));
+    } else {
+      questions[qId].correct = order.indexOf(questions[qId].correct);
+    }
+
+    // Сохраняем текущий порядок на всякий случай
+    questions[qId]._currentOrder = order.slice();
+
+    errorQueue.push(qId);
+  });
+
+  state.errorQueue = errorQueue.slice();
   saveState();
   render();
 };
@@ -453,6 +457,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
