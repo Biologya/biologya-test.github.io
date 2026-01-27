@@ -381,8 +381,12 @@ nextBtn.onclick = () => {
 
 // ================== Режим ошибок ==================
 document.getElementById("errorsBtn").onclick = () => {
-  if (!state.errors.length) return alert("Ошибок пока нет 👍");
+  if (!state.errors.length) {
+    alert("Ошибок пока нет 👍");
+    return;
+  }
 
+  // сохраняем позицию в основном режиме
   if (state.queueType !== "errors") {
     state.mainIndex = state.index;
   }
@@ -390,11 +394,10 @@ document.getElementById("errorsBtn").onclick = () => {
   state.queueType = "errors";
   state.index = 0;
 
-  // Берём ТОЛЬКО зафиксированную очередь
-  errorQueue = state.errorQueue.length
-    ? state.errorQueue.slice()
-    : state.errors.slice();
+  // ✅ ВСЕГДА формируем заново
+  errorQueue = state.errors.slice();
 
+  // сохраняем
   state.errorQueue = errorQueue.slice();
 
   saveState();
@@ -435,3 +438,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
