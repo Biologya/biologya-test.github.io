@@ -306,18 +306,20 @@ submitBtn.onclick = () => {
 };
 
 function checkAnswers() {
+
   const queue = currentQueue();
   const qId = queue[state.index];
   const q = questions[qId];
-  const correct = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
+
+  const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
+  const selectedSet = new Set(selected);
+
   checked = true;
   submitBtn.disabled = true;
 
   state.history[qId] = state.history[qId] || {};
 
-  // *** ВАЖНО: фиксируем порядок вариантов для этого вопроса в момент ответа,
-  // чтобы при перезагрузке индексы selected совпадали с теми вариантами, которые видел пользователь.
-  state.answersOrder = state.answersOrder || {};
+  // ===== ФИКС ПОРЯДКА ОТВЕТОВ =====
   if (!state.answersOrder[qId] && q._currentOrder) {
     state.answersOrder[qId] = q._currentOrder.slice();
   }
@@ -325,10 +327,50 @@ function checkAnswers() {
   state.history[qId].selected = [...selected];
   state.history[qId].checked = true;
 
-  const selectedSet = new Set(selected);
-  const isCorrect = [...correct].every(c => selectedSet.has(c)) && selectedSet.size === correct.size;
+  const isCorrect =
+    [...correctSet].every(c => selectedSet.has(c)) &&
+    selectedSet.size === correctSet.size;
+
+  // ====== 🔥 ГЛАВНЫЙ ФИКС ОШИБОК ======
+
+  if (!isCorrect) {
+
+    // регистрируем ВСЕГДА
+    if (!state.errors.includes(qId)) {
+      state.errors.push(qId);
+    }
+
+    if (!state.errorQueue.includes(qId)) {
+      state.errorQueue.push(qId);
+    }
+
+  } else {
+
+    // удаляем если исправили
+    state.errors = state.errors.filter(id => id !== qId);
+    state.errorQueue = state.errorQueue.filter(id => id !== qId);
+
+  }
+
+  // ===== СТАТИСТИКА (ТОЛЬКО ОДИН РАЗ) =====
+  if (!state.history[qId].counted && state.queueType === "main") {
+
+    if (isCorrect) state.stats.correct++;
+    else state.stats.wrong++;
+
+    state.history[qId].counted = true;
+  }
+
+  // ===== ПОПЫТКИ В РЕЖИМЕ ОШИБОК =====
+  if (state.queueType === "errors") {
+    state.errorAttempts[qId] = (state.errorAttempts[qId] || 0) + 1;
+  }
 
   highlightAnswers(qId);
+
+  saveState();
+  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
+};
 
   // === Обновление списка ошибок и его очереди ===
 if (!isCorrect) {
@@ -447,5 +489,6 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
