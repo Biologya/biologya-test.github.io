@@ -389,30 +389,30 @@ document.getElementById("errorsBtn").onclick = () => {
 
   // Формируем очередь ошибок
   errorQueue = [];
+state.errors.forEach(qId => {
+  const originalAnswers = questions[qId].answers.map((a,i)=>({text:a,index:i}));
+  let order;
 
-  state.errors.forEach(qId => {
-    const q = questions[qId];
+  if (state.answersOrder[qId]) {
+    // Уже есть порядок — используем его
+    order = state.answersOrder[qId].slice();
+  } else {
+    // Режим ошибок — порядок не перемешиваем
+    order = originalAnswers.map(a => a.index);
+    state.answersOrder[qId] = order.slice();
+  }
 
-    // Если порядок вариантов ещё не сохранён — фиксируем его в текущем виде
-    if (!state.answersOrder[qId]) {
-      state.answersOrder[qId] = q.answers.map((a, i) => i); // порядок как есть
-      q._currentOrder = state.answersOrder[qId].slice();
-    }
+  // Применяем порядок к вариантам
+  questions[qId].answers = order.map(i => originalAnswers.find(a=>a.index===i).text);
+  if (Array.isArray(questions[qId].correct)) {
+    questions[qId].correct = questions[qId].correct.map(c => order.indexOf(c));
+  } else {
+    questions[qId].correct = order.indexOf(questions[qId].correct);
+  }
+  questions[qId]._currentOrder = order.slice();
 
-    // Применяем зафиксированный порядок к вариантам
-    const order = state.answersOrder[qId];
-    const originalAnswers = q.answers.map((a, i) => ({ text: a, index: i }));
-    q.answers = order.map(i => originalAnswers.find(a => a.index === i).text);
-
-    // Пересчитываем индексы правильных ответов
-    if (Array.isArray(q.correct)) {
-      q.correct = q.correct.map(c => order.indexOf(c));
-    } else {
-      q.correct = order.indexOf(q.correct);
-    }
-
-    errorQueue.push(qId);
-  });
+  errorQueue.push(qId);
+});
 
   state.errorQueue = errorQueue.slice(); // сохраняем фиксированную очередь ошибок
   saveState();
@@ -453,6 +453,7 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
 
 
 
