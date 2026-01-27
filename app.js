@@ -60,7 +60,6 @@ function loadQuestions() {
   fetch("questions.json")
     .then(r => r.json())
     .then(data => {
-
       questions = data;
       state.answersOrder = state.answersOrder || {};
       state.mainQueue = state.mainQueue || null;
@@ -68,11 +67,11 @@ function loadQuestions() {
 
       // ===== QUEUE LOGIC =====
       if (!state.mainQueue || state.mainQueue.length !== data.length) {
-        // First load OR after RESET -> полная рандомизация всех вопросов
+        // Первая загрузка или после RESET -> полная рандомизация всех вопросов
         mainQueue = [...Array(data.length).keys()];
         shuffleArray(mainQueue);
       } else {
-        // Reload: берем сохранённый порядок и перемешиваем только те слоты, где вопросы не отмечены
+        // Перезагрузка: берем сохранённый порядок
         mainQueue = state.mainQueue.slice();
 
         const freeIndexes = [];
@@ -93,54 +92,46 @@ function loadQuestions() {
         });
       }
 
-      // Сохраняем итоговый порядок (фиксируем позиции отметившихся, обновляем плавающие)
+      // Сохраняем итоговый порядок
       state.mainQueue = mainQueue.slice();
 
       // ===== ANSWERS LOGIC =====
-      // Для каждого вопроса формируем порядок вариантов, и сохраняем текущий порядок внутрь объекта вопроса (q._currentOrder)
       mainQueue.forEach(qId => {
-
         const q = questions[qId];
-        // originalAnswers — порядок из JSON (исходный)
-        const original = q.answers.map((a, i) => ({
-          text: a,
-          index: i
-        }));
+        const original = q.answers.map((a, i) => ({ text: a, index: i }));
 
         let order;
 
-        // Если у нас уже есть зафиксированный порядок вариантов для этого вопроса => используем его
+        // Если порядок вариантов уже есть — используем его
         if (state.answersOrder.hasOwnProperty(qId)) {
           order = state.answersOrder[qId].slice();
         } else {
-          // Если вопрос уже отвечён — мы должны ЗАФИКСИРОВАТЬ порядок, который был показан пользователю в момент ответа.
-          // Но если answersOrder нет (старые данные), просто генерируем новый порядок сейчас (чтобы было стабильно дальше).
+          // Новый вопрос — фиксируем случайный порядок сразу
           order = original.map(a => a.index);
           shuffleArray(order);
-          // Но не сохраняем в state.answersOrder здесь — сохранение будет происходить в момент ответа (checkAnswers),
-          // чтобы не перезаписать реальный порядок, который видел пользователь.
-          // Тем не менее, чтобы вариант не «прыгал» между загрузками до ответа, сохраняем временно в q._currentOrder.
+          state.answersOrder[qId] = order.slice(); // сохраняем в state навсегда
         }
 
-        // Применяем порядок к q.answers (текущий отображаемый порядок)
+        // Применяем порядок к q.answers
         q.answers = order.map(i => original.find(a => a.index === i).text);
 
-        // Сохраняем текущий порядок прямо в объект вопроса (используется позже при ответе)
-        q._currentOrder = order.slice(); // *** ВАЖНО ***
-
-        // Пересчитываем индекс(ы) правильного ответа(ов) под текущий порядок
+        // Пересчитываем индексы правильных ответов
         q.correct = Array.isArray(q.correct)
           ? q.correct.map(c => order.indexOf(c))
           : order.indexOf(q.correct);
+
+        // Сохраняем текущий порядок в объекте вопроса (на всякий случай)
+        q._currentOrder = order.slice();
       });
 
-      // Восстанавливаем очередь ошибок (если была)
-      errorQueue = state.errorQueue && state.errorQueue.length ? state.errorQueue.slice() : (state.errors ? state.errors.slice() : []);
+      // Восстанавливаем очередь ошибок
+      errorQueue = state.errorQueue && state.errorQueue.length
+        ? state.errorQueue.slice()
+        : (state.errors ? state.errors.slice() : []);
       state.errorQueue = errorQueue.slice();
 
       saveState();
       render();
-
     })
     .catch(err => {
       console.error(err);
@@ -478,3 +469,4 @@ resetBtn.onclick = () => {
 
 // ================== Инициализация ==================
 loadQuestions();
+
