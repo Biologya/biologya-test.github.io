@@ -56,7 +56,6 @@ function setStatus(text, isError=false){
 let quizInitialized = false;   // флаг, чтобы тест инициализировался один раз
 let quizInstance = null;       // экземпляр теста
 let progressDocRef = null;     // ссылка на прогресс в Firestore
-let passwordResetDone = false; // сброс пароля один раз
 
 /* ====== Авторизация: кнопка входа/регистрации ====== */
 if (authBtn) {
@@ -719,6 +718,7 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
