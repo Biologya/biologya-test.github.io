@@ -1,463 +1,595 @@
-// ================== Состояние ==================
-const state = JSON.parse(localStorage.getItem("bioState")) || {
-  queueType: "main",
-  index: 0,
-  mainIndex: 0,
-  stats: { correct: 0, wrong: 0 },
-  errors: [],
-  errorAttempts: {},
-  history: {},
-  // дополнительные поля
-  mainQueue: null,
-  answersOrder: {},
-  errorQueue: []
+// app.js (ES module) — Firebase + ваш тест (внутри initQuiz)
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
+import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-analytics.js";
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
+
+/* ====== CONFIG: вставь свой конфиг если нужно ====== */
+const firebaseConfig = {
+  apiKey: "AIzaSyA_8x2YAjREKIg8TTtMLeB-v-mFbz_5ecc",
+  authDomain: "myawesomedefense.firebaseapp.com",
+  projectId: "myawesomedefense",
+  storageBucket: "myawesomedefense.firebasestorage.app",
+  messagingSenderId: "644507684491",
+  appId: "1:644507684491:web:9878c8504ed1da7e6bce8e",
+  measurementId: "G-PCMJGS1ZXL"
 };
 
-let questions = [], mainQueue = [], errorQueue = [];
-let selected = new Set(), checked = false;
+/* ====== Firebase init ====== */
+const app = initializeApp(firebaseConfig);
+try { getAnalytics(app); } catch (e) { /* ignore */ }
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-// ================== Элементы UI ==================
-const qText = document.getElementById("questionText");
-const answersDiv = document.getElementById("answers");
-const progressText = document.getElementById("progressText");
-const progressFill = document.getElementById("progressFill");
-const statsDiv = document.getElementById("stats");
-const submitBtn = document.getElementById("submitBtn");
-const nextBtn = document.getElementById("nextBtn");
-const resetBtn = document.getElementById("resetBtn");
+/* ====== DOM элементы (overlay и пр. должны быть в index.html) ====== */
+const authOverlay = document.getElementById('authOverlay');
+const waitOverlay = document.getElementById('waitOverlay');
+const appDiv = document.getElementById('app');
+const authBtn = document.getElementById('authBtn');
+const statusP = document.getElementById('authStatus');
+const emailInput = document.getElementById('email');
+const passInput = document.getElementById('password');
+const logoutBtn = document.getElementById('logoutBtn');
+const helpBtn = document.getElementById('helpBtn');
+const signOutFromWait = document.getElementById('signOutFromWait');
+const userEmailSpan = document.getElementById('userEmail');
 
-// ================== Кнопка выхода из режима ошибок ==================
-const exitErrorsBtn = document.createElement("button");
-exitErrorsBtn.innerText = "Выйти из режима ошибок";
-exitErrorsBtn.className = "secondary";
-exitErrorsBtn.style.marginLeft = "10px";
-exitErrorsBtn.style.display = "none";
-exitErrorsBtn.onclick = () => {
-  state.queueType = "main";
-  state.index = state.mainIndex || 0;
-  saveState();
-  render();
-};
-document.querySelector(".controls").appendChild(exitErrorsBtn);
-
-// ================== Панель вопросов ==================
-const questionPanel = document.getElementById("questionPanel");
-const pageNav = document.getElementById("pageNav");
-let currentPanelPage = 0;
-let currentPanelPageErrors = 0;
-questionPanel.style.overflowY = "auto";
-
-// ================== Функция перемешивания ==================
-function shuffleArray(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
+function setStatus(text, isError = false) {
+  if (!statusP) return;
+  statusP.innerText = text;
+  statusP.style.color = isError ? '#e53935' : '#444';
 }
 
-// ================== Загрузка и перемешивание вопросов ==================
-function loadQuestions() {
-  fetch("questions.json")
-    .then(r => r.json())
-    .then(data => {
-      // clone data to questions (so we don't mutate the original fetched object in surprising ways)
-      questions = data.map(q => ({
-        text: q.text,
-        answers: q.answers.slice(),
-        correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
-      }));
+/* ====== Авторизация: кнопка входа/регистрации ====== */
+if (authBtn) {
+  authBtn.addEventListener('click', async () => {
+    const email = (emailInput && emailInput.value || '').trim();
+    const password = (passInput && passInput.value || '');
+    if (!email || !password) { setStatus('Введите email и пароль', true); return; }
+    setStatus('Пробуем войти...');
 
-      state.answersOrder = state.answersOrder || {};
-      state.mainQueue = state.mainQueue || null;
-      state.errorQueue = state.errorQueue || [];
-
-      // ===== QUEUE LOGIC =====
-      if (!state.mainQueue || state.mainQueue.length !== questions.length) {
-        mainQueue = [...Array(questions.length).keys()];
-        shuffleArray(mainQueue);
-      } else {
-        mainQueue = state.mainQueue.slice();
-        // Permute only unanswered slots to keep answered ones stable
-        const freeIndexes = [];
-        const floating = [];
-        mainQueue.forEach((qId, pos) => {
-          if (!state.history[qId]?.checked) {
-            freeIndexes.push(pos);
-            floating.push(qId);
-          }
-        });
-        shuffleArray(floating);
-        freeIndexes.forEach((pos, i) => mainQueue[pos] = floating[i]);
-      }
-      state.mainQueue = mainQueue.slice();
-
-      // ===== ANSWERS LOGIC =====
-      // For each question in the mainQueue determine order and apply it.
-      mainQueue.forEach(qId => {
-        const q = questions[qId];
-        const original = q.answers.map((a, i) => ({ text: a, index: i }));
-        // preserve original correct indices (from source)
-        const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
-
-        let order;
-        if (state.answersOrder[qId]) {
-          // Use previously fixed order
-          order = state.answersOrder[qId].slice();
-        } else {
-          // New question — create order
-          order = original.map(a => a.index);
-          // Shuffle only in normal mode (we do not want to shuffle later when in errors mode)
-          // Always shuffle here because this is initial load/main mode.
-          shuffleArray(order);
-          // Save fixed order so it won't change after reloads
-          state.answersOrder[qId] = order.slice();
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      setStatus('Вход выполнен');
+    } catch (e) {
+      if (e.code === 'auth/user-not-found') {
+        setStatus('Учётной записи не найдено — создаём...');
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          await setDoc(doc(db, 'users', cred.user.uid), {
+            email: email,
+            allowed: false,
+            createdAt: serverTimestamp()
+          });
+          setStatus('Заявка отправлена. Ожидайте подтверждения.');
+        } catch (err2) {
+          setStatus(err2.message || 'Ошибка регистрации', true);
         }
-
-        // Apply order to answers
-        q.answers = order.map(i => original.find(a => a.index === i).text);
-
-        // Recalculate correct indices relative to new order
-        q.correct = Array.isArray(origCorrect)
-          ? origCorrect.map(c => order.indexOf(c))
-          : order.indexOf(origCorrect);
-
-        q._currentOrder = order.slice();
-      });
-
-      // Восстанавливаем очередь ошибок (если была сохранена)
-      errorQueue = state.errorQueue && state.errorQueue.length
-        ? state.errorQueue.slice()
-        : (state.errors ? state.errors.slice() : []);
-      state.errorQueue = errorQueue.slice();
-
-      saveState();
-      render();
-    })
-    .catch(err => {
-      console.error(err);
-      qText.innerText = "Не удалось загрузить вопросы ❌";
-    });
-}
-
-// ================== Очередь ==================
-function currentQueue() {
-  return state.queueType === "main" ? mainQueue : errorQueue;
-}
-function allChecked() {
-  return currentQueue().every(qId => state.history[qId]?.checked);
-}
-
-// ================== Кнопка ПРЕДЫДУЩИЙ ==================
-const prevBtn = document.getElementById("prevBtn");
-prevBtn.onclick = () => {
-  if (state.index > 0) {
-    state.index--;
-    render();
-  }
-};
-
-// ================== Рендер панели вопросов с динамичной пагинацией ==================
-function renderQuestionPanel() {
-  const queue = currentQueue();
-  const questionsPerPage = 50;
-  const currentPage = Math.floor(state.index / questionsPerPage);
-  if (state.queueType === "main") currentPanelPage = currentPage;
-  else currentPanelPageErrors = currentPage;
-  const page = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
-  const start = page * questionsPerPage;
-  const end = Math.min(start + questionsPerPage, queue.length);
-
-  questionPanel.innerHTML = "";
-
-  const pageQuestions = queue.slice(start, end);
-
-  pageQuestions.forEach((qId, idx) => {
-    const btn = document.createElement("button");
-    btn.innerText = start + idx + 1;
-
-    if (state.history[qId]?.checked) {
-      const sel = state.history[qId].selected || [];
-      const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
-      const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
-      btn.style.background = ok ? "#4caf50" : "#e53935";
-      btn.style.color = "#fff";
-      btn.style.borderColor = btn.style.background;
-    } else {
-      btn.style.background = "#fff";
-      btn.style.color = "#000";
-      btn.style.borderColor = "#ccc";
+      } else if (e.code === 'auth/wrong-password') {
+        setStatus('Неверный пароль', true);
+      } else {
+        setStatus(e.message || 'Ошибка авторизации', true);
+      }
     }
-
-    if (qId === queue[state.index]) {
-      btn.style.border = "2px solid blue";
-      btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
-    }
-
-    btn.onclick = () => {
-      state.index = queue.indexOf(qId);
-      render();
-    };
-
-    questionPanel.appendChild(btn);
-  });
-
-  // Панель страниц
-  pageNav.innerHTML = "";
-  const totalPages = Math.ceil(queue.length / questionsPerPage);
-  const startPage = Math.max(page - 1, 0);
-  const endPage = Math.min(page + 1, totalPages - 1);
-  for (let p = startPage; p <= endPage; p++) {
-    const navBtn = document.createElement("button");
-    navBtn.innerText = p + 1;
-    const activePage = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
-    if (p === activePage) navBtn.classList.add("active");
-    else navBtn.classList.remove("active");
-    navBtn.onclick = () => {
-      if (state.queueType === "main") currentPanelPage = p;
-      else currentPanelPageErrors = p;
-      state.index = p * questionsPerPage;
-      render();
-    };
-    pageNav.appendChild(navBtn);
-  }
-}
-
-// ================== Функция подсветки всех ответов ==================
-function highlightAnswers(qId) {
-  const q = questions[qId];
-  const correctIndexes = Array.isArray(q.correct) ? q.correct : [q.correct];
-  const answerEls = [...answersDiv.children];
-  answerEls.forEach((el, i) => {
-    el.classList.remove("correct", "wrong");
-    if (correctIndexes.includes(i)) el.classList.add("correct");
-    if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) el.classList.add("wrong");
   });
 }
 
-// ================== Рендер вопроса ==================
-function render() {
-  const queue = currentQueue();
-  exitErrorsBtn.style.display = state.queueType === "errors" ? "inline-block" : "none";
+/* ====== Выход ====== */
+if (logoutBtn) logoutBtn.addEventListener('click', async () => { await signOut(auth); location.reload(); });
+if (signOutFromWait) signOutFromWait.addEventListener('click', async () => { await signOut(auth); location.reload(); });
 
-  if (queue.length === 0) {
-    qText.innerText = "Вопросов нет 😎";
-    answersDiv.innerHTML = "";
-    submitBtn.style.display = nextBtn.style.display = "none";
+if (helpBtn) helpBtn.addEventListener('click', () => {
+  alert('Админ: зайдите в Firebase Console → Firestore → collection "users" → найдите пользователя → поставьте allowed = true.');
+});
+
+/* ====== Флаг чтобы инициализировать тест один раз ====== */
+let quizInitialized = false;
+
+/* ====== Когда изменился аутентифицированный юзер ====== */
+onAuthStateChanged(auth, async (user) => {
+  if (!user) {
+    if (authOverlay) authOverlay.style.display = 'flex';
+    if (waitOverlay) waitOverlay.style.display = 'none';
+    if (appDiv) appDiv.style.display = 'none';
+    if (userEmailSpan) userEmailSpan.innerText = '';
     return;
   }
 
-  if (state.index >= queue.length) {
-    // Если мы в режиме ошибок и дошли до конца — вернуться в main автоматически
-    if (state.queueType === "errors") {
-      exitErrorsBtn.click();
+  if (authOverlay) authOverlay.style.display = 'none';
+
+  try {
+    const uDocRef = doc(db, 'users', user.uid);
+    const uDoc = await getDoc(uDocRef);
+
+    if (!uDoc.exists()) {
+      await setDoc(uDocRef, {
+        email: user.email || '',
+        allowed: false,
+        createdAt: serverTimestamp()
+      });
+      setStatus('Заявка отправлена. Ожидайте подтверждения.');
+      if (waitOverlay) waitOverlay.style.display = 'flex';
+      if (appDiv) appDiv.style.display = 'none';
+      if (userEmailSpan) userEmailSpan.innerText = user.email || '';
       return;
     }
-    showResult();
-    return;
-  }
 
-  const qId = queue[state.index];
-  const q = questions[qId];
-  const multi = Array.isArray(q.correct);
+    const data = uDoc.data();
+    if (userEmailSpan) userEmailSpan.innerText = user.email || '';
 
-  qText.classList.remove("fade");
-  answersDiv.classList.remove("fade");
-  setTimeout(() => {
-    qText.classList.add("fade");
-    answersDiv.classList.add("fade");
-  }, 10);
-
-  qText.innerText = q.text;
-  answersDiv.innerHTML = "";
-  submitBtn.style.display = multi ? "inline-block" : "none";
-  submitBtn.disabled = false;
-
-  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
-
-  nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
-  checked = !!state.history[qId]?.checked;
-  selected = new Set(state.history[qId]?.selected || []);
-
-  q.answers.forEach((text, i) => {
-    const el = document.createElement("div");
-    el.className = "answer";
-    el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
-    if (selected.has(i)) el.classList.add("selected");
-    el.onclick = () => {
-      if (state.queueType === "errors" || checked) return;
-      if (!multi) {
-        selected.clear();
-        selected.add(i);
-        checkAnswers();
-        render();
-      } else {
-        if (selected.has(i)) {
-          selected.delete(i);
-          el.classList.remove("selected");
-          el.style.transition = "transform 0.2s ease";
-          el.style.transform = "scale(1)";
-        } else {
-          selected.add(i);
-          el.classList.add("selected");
-          el.style.transition = "transform 0.2s ease";
-          el.style.transform = "scale(1.1)";
-          setTimeout(() => {
-            if (selected.has(i)) el.style.transform = "scale(1.05)";
-          }, 150);
-        }
+    if (data.allowed === true) {
+      if (waitOverlay) waitOverlay.style.display = 'none';
+      if (appDiv) appDiv.style.display = 'block';
+      setStatus('');
+      if (!quizInitialized) {
+        // Запускаем initQuiz — код теста
+        try { initQuiz(); quizInitialized = true; } catch (err) { console.error('initQuiz error:', err); }
       }
-    };
-    answersDiv.appendChild(el);
-  });
-
-  if (checked || state.queueType === "errors") highlightAnswers(qId);
-  submitBtn.disabled = checked;
-  updateUI();
-}
-
-// ================== Проверка ответа ==================
-submitBtn.onclick = () => {
-  if (checked) return;
-  checkAnswers();
-  render();
-};
-
-function checkAnswers() {
-
-  const queue = currentQueue();
-  const qId = queue[state.index];
-  const q = questions[qId];
-
-  const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
-  const selectedSet = new Set(selected);
-
-  checked = true;
-  submitBtn.disabled = true;
-
-  state.history[qId] = state.history[qId] || {};
-
-  // ===== ФИКС ПОРЯДКА ОТВЕТОВ =====
-  if (!state.answersOrder[qId] && q._currentOrder) {
-    state.answersOrder[qId] = q._currentOrder.slice();
-  }
-
-  state.history[qId].selected = [...selected];
-  state.history[qId].checked = true;
-
-  const isCorrect =
-    [...correctSet].every(c => selectedSet.has(c)) &&
-    selectedSet.size === correctSet.size;
-
-  // ====== 🔥 ГЛАВНЫЙ ФИКС ОШИБОК ======
-  if (!isCorrect) {
-    // регистрируем ВСЕГДА (без дубликатов)
-    if (!state.errors.includes(qId)) {
-      state.errors.push(qId);
-    }
-    if (!state.errorQueue.includes(qId)) {
-      state.errorQueue.push(qId);
-    }
-  } else {
-    // удаляем если исправили
-    state.errors = state.errors.filter(id => id !== qId);
-    state.errorQueue = state.errorQueue.filter(id => id !== qId);
-  }
-
-  // ===== СТАТИСТИКА (ТОЛЬКО ОДИН РАЗ) =====
-  if (!state.history[qId].counted && state.queueType === "main") {
-    if (isCorrect) state.stats.correct++;
-    else state.stats.wrong++;
-    state.history[qId].counted = true;
-  }
-
-  // ===== ПОПЫТКИ В РЕЖИМЕ ОШИБОК =====
-  if (state.queueType === "errors") {
-    state.errorAttempts[qId] = (state.errorAttempts[qId] || 0) + 1;
-  }
-
-  highlightAnswers(qId);
-
-  // Сохраняем и обновляем панель
-  state.mainQueue = mainQueue.slice();
-  state.errorQueue = state.errorQueue.slice();
-  saveState();
-  renderQuestionPanel(state.queueType === "main" ? currentPanelPage : currentPanelPageErrors);
-}
-
-// ================== Навигация ==================
-nextBtn.onclick = () => {
-  const queue = currentQueue();
-  if (state.index < queue.length - 1) {
-    state.index++;
-    render();
-  } else {
-    if (allChecked()) {
-      if (state.queueType === "errors") exitErrorsBtn.click();
-      else showResult();
     } else {
-      const nextUnanswered = queue.findIndex(qId => !state.history[qId]?.checked);
-      if (nextUnanswered !== -1) state.index = nextUnanswered;
+      if (waitOverlay) waitOverlay.style.display = 'flex';
+      if (appDiv) appDiv.style.display = 'none';
+      setStatus('Ожидайте подтверждения администратора.');
+    }
+  } catch (err) {
+    console.error(err);
+    setStatus('Ошибка при проверке доступа', true);
+    if (waitOverlay) waitOverlay.style.display = 'flex';
+    if (appDiv) appDiv.style.display = 'none';
+  }
+});
+
+/* ===================================================================
+   Ниже — ваш существующий код теста, обёрнут в функцию initQuiz().
+   Я старался не менять логику — только поместил всё в scope функции.
+   =================================================================== */
+
+function initQuiz() {
+  // === Состояние ===
+  const state = JSON.parse(localStorage.getItem("bioState")) || {
+    queueType: "main",
+    index: 0,
+    mainIndex: 0,
+    stats: { correct: 0, wrong: 0 },
+    errors: [],
+    errorAttempts: {},
+    history: {},
+    mainQueue: null,
+    answersOrder: {},
+    errorQueue: []
+  };
+
+  let questions = [], mainQueue = [], errorQueue = [];
+  let selected = new Set(), checked = false;
+
+  // === Элементы UI ===
+  const qText = document.getElementById("questionText");
+  const answersDiv = document.getElementById("answers");
+  const progressText = document.getElementById("progressText");
+  const progressFill = document.getElementById("progressFill");
+  const statsDiv = document.getElementById("stats");
+  const submitBtn = document.getElementById("submitBtn");
+  const nextBtn = document.getElementById("nextBtn");
+  const resetBtn = document.getElementById("resetBtn");
+
+  // === Exit errors button (append once) ===
+  let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
+  if (!exitErrorsBtn) {
+    exitErrorsBtn = document.createElement("button");
+    exitErrorsBtn.id = 'exitErrorsBtn_custom';
+    exitErrorsBtn.innerText = "Выйти из режима ошибок";
+    exitErrorsBtn.className = "secondary";
+    exitErrorsBtn.style.marginLeft = "10px";
+    exitErrorsBtn.style.display = "none";
+    exitErrorsBtn.onclick = () => {
+      state.queueType = "main";
+      state.index = state.mainIndex || 0;
+      saveState();
       render();
+    };
+    const controls = document.querySelector(".controls");
+    if (controls) controls.appendChild(exitErrorsBtn);
+  }
+
+  // === Панель вопросов ===
+  const questionPanel = document.getElementById("questionPanel");
+  const pageNav = document.getElementById("pageNav");
+  let currentPanelPage = 0;
+  let currentPanelPageErrors = 0;
+  if (questionPanel) questionPanel.style.overflowY = "auto";
+
+  // === Shuffle ===
+  function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
     }
   }
-};
 
-// ================== Режим ошибок ==================
-document.getElementById("errorsBtn").onclick = () => {
-  if (!state.errors.length) {
-    alert("Ошибок пока нет 👍");
-    return;
+  // === Load questions ===
+  function loadQuestions() {
+    fetch("questions.json")
+      .then(r => r.json())
+      .then(data => {
+        questions = data.map(q => ({
+          text: q.text,
+          answers: q.answers.slice(),
+          correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
+        }));
+
+        state.answersOrder = state.answersOrder || {};
+        state.mainQueue = state.mainQueue || null;
+        state.errorQueue = state.errorQueue || [];
+
+        if (!state.mainQueue || state.mainQueue.length !== questions.length) {
+          mainQueue = [...Array(questions.length).keys()];
+          shuffleArray(mainQueue);
+        } else {
+          mainQueue = state.mainQueue.slice();
+          const freeIndexes = [];
+          const floating = [];
+          mainQueue.forEach((qId, pos) => {
+            if (!state.history[qId]?.checked) {
+              freeIndexes.push(pos);
+              floating.push(qId);
+            }
+          });
+          shuffleArray(floating);
+          freeIndexes.forEach((pos, i) => mainQueue[pos] = floating[i]);
+        }
+        state.mainQueue = mainQueue.slice();
+
+        mainQueue.forEach(qId => {
+          const q = questions[qId];
+          const original = q.answers.map((a, i) => ({ text: a, index: i }));
+          const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
+
+          let order;
+          if (state.answersOrder[qId]) {
+            order = state.answersOrder[qId].slice();
+          } else {
+            order = original.map(a => a.index);
+            shuffleArray(order);
+            state.answersOrder[qId] = order.slice();
+          }
+
+          q.answers = order.map(i => original.find(a => a.index === i).text);
+          q.correct = Array.isArray(origCorrect)
+            ? origCorrect.map(c => order.indexOf(c))
+            : order.indexOf(origCorrect);
+          q._currentOrder = order.slice();
+        });
+
+        errorQueue = state.errorQueue && state.errorQueue.length
+          ? state.errorQueue.slice()
+          : (state.errors ? state.errors.slice() : []);
+        state.errorQueue = errorQueue.slice();
+
+        saveState();
+        render();
+      })
+      .catch(err => {
+        console.error(err);
+        if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
+      });
   }
 
-  // сохраняем позицию в основном режиме
-  if (state.queueType !== "errors") {
-    state.mainIndex = state.index;
+  // === Queue helpers ===
+  function currentQueue() { return state.queueType === "main" ? mainQueue : errorQueue; }
+  function allChecked() { return currentQueue().every(qId => state.history[qId]?.checked); }
+
+  // === Prev button (bind if exists) ===
+  const prevBtn = document.getElementById("prevBtn");
+  if (prevBtn) prevBtn.onclick = () => {
+    if (state.index > 0) { state.index--; render(); }
+  };
+
+  // === Render question panel with pagination ===
+  function renderQuestionPanel() {
+    const queue = currentQueue();
+    const questionsPerPage = 50;
+    const currentPage = Math.floor(state.index / questionsPerPage);
+    if (state.queueType === "main") currentPanelPage = currentPage;
+    else currentPanelPageErrors = currentPage;
+    const page = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
+    const start = page * questionsPerPage;
+    const end = Math.min(start + questionsPerPage, queue.length);
+
+    if (!questionPanel) return;
+    questionPanel.innerHTML = "";
+
+    const pageQuestions = queue.slice(start, end);
+
+    pageQuestions.forEach((qId, idx) => {
+      const btn = document.createElement("button");
+      btn.innerText = start + idx + 1;
+
+      if (state.history[qId]?.checked) {
+        const sel = state.history[qId].selected || [];
+        const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
+        const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
+        btn.style.background = ok ? "#4caf50" : "#e53935";
+        btn.style.color = "#fff";
+        btn.style.borderColor = btn.style.background;
+      } else {
+        btn.style.background = "#fff";
+        btn.style.color = "#000";
+        btn.style.borderColor = "#ccc";
+      }
+
+      if (qId === queue[state.index]) {
+        btn.style.border = "2px solid blue";
+        btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
+      }
+
+      btn.onclick = () => {
+        state.index = queue.indexOf(qId);
+        render();
+      };
+
+      questionPanel.appendChild(btn);
+    });
+
+    // page nav
+    if (!pageNav) return;
+    pageNav.innerHTML = "";
+    const totalPages = Math.ceil(queue.length / questionsPerPage);
+    const startPage = Math.max(page - 1, 0);
+    const endPage = Math.min(page + 1, totalPages - 1);
+    for (let p = startPage; p <= endPage; p++) {
+      const navBtn = document.createElement("button");
+      navBtn.innerText = p + 1;
+      const activePage = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
+      if (p === activePage) navBtn.classList.add("active");
+      else navBtn.classList.remove("active");
+      navBtn.onclick = () => {
+        if (state.queueType === "main") currentPanelPage = p;
+        else currentPanelPageErrors = p;
+        state.index = p * questionsPerPage;
+        render();
+      };
+      pageNav.appendChild(navBtn);
+    }
   }
 
-  state.queueType = "errors";
-  state.index = 0;
-
-  // ВСЕГДА формируем очередь заново из state.errors (чтобы новые ошибки тоже попали)
-  errorQueue = state.errors.slice();
-
-  // сохраняем
-  state.errorQueue = errorQueue.slice();
-
-  saveState();
-  render();
-};
-
-// ================== Сохранение состояния ==================
-function saveState() {
-  localStorage.setItem("bioState", JSON.stringify(state));
-}
-
-// ================== UI и прогресс ==================
-function updateUI() {
-  const queue = currentQueue();
-  progressText.innerText = `Вопрос ${state.index + 1} из ${queue.length}`;
-  progressFill.style.width = `${(queue.length ? (state.index / queue.length) * 100 : 0)}%`;
-  statsDiv.innerText = `✔ ${state.stats.correct} ✖ ${state.stats.wrong}`;
-}
-
-// ================== Показ результата ==================
-function showResult() {
-  const total = state.stats.correct + state.stats.wrong;
-  const correctPercent = total ? ((state.stats.correct / total) * 100).toFixed(1) : 0;
-  const wrongPercent = total ? ((state.stats.wrong / total) * 100).toFixed(1) : 0;
-  qText.innerText = "Тест завершён 🎉";
-  answersDiv.innerHTML = `<div>Правильные: ${state.stats.correct} (${correctPercent}%)</div><div>Неправильные: ${state.stats.wrong} (${wrongPercent}%)</div>`;
-  submitBtn.style.display = nextBtn.style.display = "none";
-  exitErrorsBtn.style.display = "none";
-}
-
-// ================== RESET ==================
-resetBtn.onclick = () => {
-  if (confirm("Вы уверены? Это удалит весь прогресс!")) {
-    localStorage.removeItem("bioState");
-    location.reload();
+  // === Highlight answers ===
+  function highlightAnswers(qId) {
+    const q = questions[qId];
+    const correctIndexes = Array.isArray(q.correct) ? q.correct : [q.correct];
+    const answerEls = answersDiv ? [...answersDiv.children] : [];
+    answerEls.forEach((el, i) => {
+      el.classList.remove("correct", "wrong");
+      if (correctIndexes.includes(i)) el.classList.add("correct");
+      if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) el.classList.add("wrong");
+    });
   }
-};
 
-// ================== Инициализация ==================
-loadQuestions();
+  // === Render question ===
+  function render() {
+    const queue = currentQueue();
+    exitErrorsBtn.style.display = state.queueType === "errors" ? "inline-block" : "none";
+
+    if (!qText) return;
+    if (!answersDiv) return;
+
+    if (queue.length === 0) {
+      qText.innerText = "Вопросов нет 😎";
+      answersDiv.innerHTML = "";
+      if (submitBtn) submitBtn.style.display = nextBtn.style.display = "none";
+      return;
+    }
+
+    if (state.index >= queue.length) {
+      if (state.queueType === "errors") {
+        exitErrorsBtn.click();
+        return;
+      }
+      showResult();
+      return;
+    }
+
+    const qId = queue[state.index];
+    const q = questions[qId];
+    const multi = Array.isArray(q.correct);
+
+    qText.classList.remove("fade");
+    answersDiv.classList.remove("fade");
+    setTimeout(() => {
+      qText.classList.add("fade");
+      answersDiv.classList.add("fade");
+    }, 10);
+
+    qText.innerText = q.text;
+    answersDiv.innerHTML = "";
+    if (submitBtn) {
+      submitBtn.style.display = multi ? "inline-block" : "none";
+      submitBtn.disabled = false;
+    }
+
+    renderQuestionPanel();
+
+    if (nextBtn) nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
+    checked = !!state.history[qId]?.checked;
+    selected = new Set(state.history[qId]?.selected || []);
+
+    q.answers.forEach((text, i) => {
+      const el = document.createElement("div");
+      el.className = "answer";
+      el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
+      if (selected.has(i)) el.classList.add("selected");
+      el.onclick = () => {
+        if (state.queueType === "errors" || checked) return;
+        if (!multi) {
+          selected.clear();
+          selected.add(i);
+          checkAnswers();
+          render();
+        } else {
+          if (selected.has(i)) {
+            selected.delete(i);
+            el.classList.remove("selected");
+            el.style.transition = "transform 0.2s ease";
+            el.style.transform = "scale(1)";
+          } else {
+            selected.add(i);
+            el.classList.add("selected");
+            el.style.transition = "transform 0.2s ease";
+            el.style.transform = "scale(1.1)";
+            setTimeout(() => {
+              if (selected.has(i)) el.style.transform = "scale(1.05)";
+            }, 150);
+          }
+        }
+      };
+      answersDiv.appendChild(el);
+    });
+
+    if (checked || state.queueType === "errors") highlightAnswers(qId);
+    if (submitBtn) submitBtn.disabled = checked;
+    updateUI();
+  }
+
+  // === Check answers ===
+  if (submitBtn) submitBtn.onclick = () => {
+    if (checked) return;
+    checkAnswers();
+    render();
+  };
+
+  function checkAnswers() {
+    const queue = currentQueue();
+    const qId = queue[state.index];
+    const q = questions[qId];
+
+    const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
+    const selectedSet = new Set(selected);
+
+    checked = true;
+    if (submitBtn) submitBtn.disabled = true;
+
+    state.history[qId] = state.history[qId] || {};
+
+    if (!state.answersOrder[qId] && q._currentOrder) {
+      state.answersOrder[qId] = q._currentOrder.slice();
+    }
+
+    state.history[qId].selected = [...selected];
+    state.history[qId].checked = true;
+
+    const isCorrect =
+      [...correctSet].every(c => selectedSet.has(c)) &&
+      selectedSet.size === correctSet.size;
+
+    if (!isCorrect) {
+      if (!state.errors.includes(qId)) state.errors.push(qId);
+      if (!state.errorQueue.includes(qId)) state.errorQueue.push(qId);
+    } else {
+      state.errors = state.errors.filter(id => id !== qId);
+      state.errorQueue = state.errorQueue.filter(id => id !== qId);
+    }
+
+    if (!state.history[qId].counted && state.queueType === "main") {
+      if (isCorrect) state.stats.correct++;
+      else state.stats.wrong++;
+      state.history[qId].counted = true;
+    }
+
+    if (state.queueType === "errors") {
+      state.errorAttempts[qId] = (state.errorAttempts[qId] || 0) + 1;
+    }
+
+    highlightAnswers(qId);
+
+    state.mainQueue = mainQueue.slice();
+    state.errorQueue = state.errorQueue.slice();
+    saveState();
+    renderQuestionPanel();
+  }
+
+  // === Next button ===
+  if (nextBtn) nextBtn.onclick = () => {
+    const queue = currentQueue();
+    if (state.index < queue.length - 1) {
+      state.index++;
+      render();
+    } else {
+      if (allChecked()) {
+        if (state.queueType === "errors") exitErrorsBtn.click();
+        else showResult();
+      } else {
+        const nextUnanswered = queue.findIndex(qId => !state.history[qId]?.checked);
+        if (nextUnanswered !== -1) state.index = nextUnanswered;
+        render();
+      }
+    }
+  };
+
+  // === Errors mode ===
+  const errorsBtn = document.getElementById("errorsBtn");
+  if (errorsBtn) errorsBtn.onclick = () => {
+    if (!state.errors.length) { alert("Ошибок пока нет 👍"); return; }
+    if (state.queueType !== "errors") state.mainIndex = state.index;
+    state.queueType = "errors";
+    state.index = 0;
+    errorQueue = state.errors.slice();
+    state.errorQueue = errorQueue.slice();
+    saveState();
+    render();
+  };
+
+  // === Save state ===
+  function saveState() {
+    localStorage.setItem("bioState", JSON.stringify(state));
+  }
+
+  // === UI update ===
+  function updateUI() {
+    const queue = currentQueue();
+    if (progressText) progressText.innerText = `Вопрос ${state.index + 1} из ${queue.length}`;
+    if (progressFill) progressFill.style.width = `${(queue.length ? (state.index / queue.length) * 100 : 0)}%`;
+    if (statsDiv) statsDiv.innerText = `✔ ${state.stats.correct} ✖ ${state.stats.wrong}`;
+  }
+
+  // === Show result ===
+  function showResult() {
+    const total = state.stats.correct + state.stats.wrong;
+    const correctPercent = total ? ((state.stats.correct / total) * 100).toFixed(1) : 0;
+    const wrongPercent = total ? ((state.stats.wrong / total) * 100).toFixed(1) : 0;
+    if (qText) qText.innerText = "Тест завершён 🎉";
+    if (answersDiv) answersDiv.innerHTML = `<div>Правильные: ${state.stats.correct} (${correctPercent}%)</div><div>Неправильные: ${state.stats.wrong} (${wrongPercent}%)</div>`;
+    if (submitBtn) submitBtn.style.display = nextBtn.style.display = "none";
+    exitErrorsBtn.style.display = "none";
+  }
+
+  // === Reset ===
+  if (resetBtn) resetBtn.onclick = () => {
+    if (confirm("Вы уверены? Это удалит весь прогресс!")) {
+      localStorage.removeItem("bioState");
+      location.reload();
+    }
+  };
+
+  // === Init: load questions and render ===
+  loadQuestions();
+
+  // return handles (optional)
+  return {
+    saveState,
+    loadQuestions,
+    render,
+  };
+} // end initQuiz
+
+// Экспортируем initQuiz (если потребуется)
+export { initQuiz };
