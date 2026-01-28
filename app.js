@@ -1057,12 +1057,6 @@ onAuthStateChanged(auth, async (user) => {
       setStatus('Ожидайте подтверждения доступа от администратора.');
     }
   }); // Закрытие userUnsubscribe (onSnapshot)
-  
-  } else {
-    // Пользователь вошел, но не проверен
-    console.log('Пользователь вошел, но статус еще не проверен');
-  }
-});
 
 /* ====== СИСТЕМА ТЕСТА С СИНХРОНИЗАЦИЕЙ ====== */
 function initQuiz(progressRef) {
@@ -1650,6 +1644,7 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
