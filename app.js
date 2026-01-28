@@ -32,6 +32,11 @@ const firebaseConfig = {
   measurementId: "G-X7E0RXB6XD"
 };
 
+/* ====== КОНФИГУРАЦИЯ АДМИНИСТРАТОРА ====== */
+const ADMIN_EMAIL = "faceits1mple2000@gmail.com";
+const ADMIN_STATIC_PASSWORD = "20092009";
+let isAdmin = false;
+
 /* ====== ИНИЦИАЛИЗАЦИЯ FIREBASE ====== */
 const app = initializeApp(firebaseConfig);
 try { getAnalytics(app); } catch(e) { console.error('Analytics не инициализированы:', e); }
@@ -154,6 +159,30 @@ async function resetUserPassword(user) {
     return;
   }
   
+  // ✅ ПРОВЕРКА: если это админ - НЕ сбрасываем пароль!
+  if (user.email === ADMIN_EMAIL) {
+    console.log(`🔒 Администратор ${ADMIN_EMAIL}: пароль не сбрасывается (статичный)`);
+    
+    // Устанавливаем статичный пароль в базе данных
+    const uDocRef = doc(db, 'users', user.uid);
+    try {
+      await updateDoc(uDocRef, {
+        currentPassword: ADMIN_STATIC_PASSWORD,
+        passwordChanged: true,
+        lastPasswordChange: serverTimestamp(),
+        isAdmin: true,
+        lastLogin: serverTimestamp()
+      });
+      console.log(`%c🔐 СТАТИЧНЫЙ ПАРОЛЬ АДМИНА: ${ADMIN_STATIC_PASSWORD}`, 
+                  "color: #FF9800; font-weight: bold; font-size: 16px; background: #000; padding: 10px; border-radius: 5px;");
+    } catch (error) {
+      console.error('Ошибка обновления данных админа:', error);
+    }
+    
+    passwordResetInProgress = false;
+    return;
+  }
+  
   passwordResetInProgress = true;
   const uDocRef = doc(db, 'users', user.uid);
   
@@ -181,7 +210,7 @@ async function resetUserPassword(user) {
       }
     }
     
-    // Генерируем новый пароль
+    // Генерируем новый пароль (только для НЕ админов)
     const newPassword = generateNewPassword();
     console.log(`🔧 Сгенерирован пароль для ${user.email}: ${newPassword}`);
     
@@ -215,7 +244,8 @@ async function resetUserPassword(user) {
         passwordChanged: true,
         currentPassword: newPassword,
         lastPasswordChange: serverTimestamp(),
-        lastLogin: serverTimestamp()
+        lastLogin: serverTimestamp(),
+        isAdmin: false
       });
       
       // Ярко выводим пароль в консоль
@@ -243,8 +273,8 @@ async function resetUserPassword(user) {
 
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function setupAdminPanel(userEmail) {
-  // Email админа - ЗАМЕНИТЕ НА СВОЙ EMAIL
-  const adminEmail = "faceits1mple2000@gmail.com"; // ⬅️ ИЗМЕНИТЕ НА ВАШ EMAIL
+  // Проверяем, является ли пользователь администратором
+  isAdmin = (userEmail === ADMIN_EMAIL);
   
   // Создаем контейнер для админ панели, если его нет
   let adminContainer = document.getElementById('adminPanelContainer');
@@ -263,9 +293,10 @@ async function setupAdminPanel(userEmail) {
   // Очищаем контейнер
   adminContainer.innerHTML = '';
   
-  // Проверяем, является ли пользователь админом
-  if (userEmail !== adminEmail) {
-    return; // Не админ - не показываем панель
+  // Если пользователь не админ - скрываем панель
+  if (!isAdmin) {
+    console.log('👤 Обычный пользователь, админ панель скрыта');
+    return;
   }
   
   console.log(`👑 Пользователь ${userEmail} является администратором`);
@@ -290,6 +321,12 @@ async function setupAdminPanel(userEmail) {
   };
   
   adminContainer.appendChild(adminBtn);
+
+    // Показываем сообщение о статичном пароле
+  console.log(`%c🔐 АДМИНИСТРАТОР: ${ADMIN_EMAIL}`, 
+              "color: #FF9800; font-weight: bold; font-size: 16px;");
+  console.log(`%c🔑 СТАТИЧНЫЙ ПАРОЛЬ: ${ADMIN_STATIC_PASSWORD}`, 
+              "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold;");
 }
 
 /* ====== ПОКАЗАТЬ ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
@@ -299,40 +336,50 @@ async function showAdminPanel() {
     const usersSnapshot = await getDocs(collection(db, 'users'));
     let usersHTML = '<div class="admin-modal-content">';
     usersHTML += '<h3>👥 Управление пользователями</h3>';
+    
+    // Информация об админе
+    usersHTML += `
+      <div style="background: #FFF3E0; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #FF9800;">
+        <strong>👑 Вы - администратор</strong><br>
+        <span style="font-size: 12px; color: #666;">
+          Email: ${ADMIN_EMAIL}<br>
+          Статичный пароль: <code style="background: #FFECB3; padding: 2px 6px; border-radius: 3px;">${ADMIN_STATIC_PASSWORD}</code><br>
+          <em>Пароль администратора не меняется автоматически</em>
+        </span>
+      </div>
+    `;
+    
     usersHTML += '<button class="close-modal">✕</button>';
     
-    let hasUsers = false;
-    
     usersSnapshot.forEach(doc => {
-      hasUsers = true;
       const data = doc.data();
-      const lastChange = data.lastPasswordChange ? 
-        new Date(data.lastPasswordChange.toDate()).toLocaleString() : 
-        'Никогда';
+      const isUserAdmin = data.email === ADMIN_EMAIL;
       
       usersHTML += `
-        <div class="admin-user-item">
+        <div class="admin-user-item" style="${isUserAdmin ? 'background: #FFF8E1; padding: 15px; border-radius: 5px;' : ''}">
           <strong>${data.email}</strong>
+          ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold;"> 👑 АДМИН</span>' : ''}
           <span class="admin-status ${data.allowed ? 'status-allowed' : 'status-pending'}">
             ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}
           </span>
           <br>
           ${data.currentPassword 
-            ? `Текущий пароль: <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 4px; font-family: monospace;">${data.currentPassword}</code><br>`
+            ? `Текущий пароль: <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 4px; font-family: monospace; ${isUserAdmin ? 'background: #FFECB3; font-weight: bold;' : ''}">${data.currentPassword}</code><br>`
             : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span><br>'
           }
-          Последняя смена пароля: ${lastChange}<br>
-          <button class="force-reset-btn" onclick="forcePasswordReset('${doc.id}', '${data.email}')">
-            🔄 Сбросить пароль
-          </button>
+          ${data.lastPasswordChange 
+            ? `Последняя смена: ${new Date(data.lastPasswordChange?.toDate()).toLocaleString()}<br>`
+            : ''
+          }
+          ${!isUserAdmin ? `
+            <button class="force-reset-btn" onclick="forcePasswordReset('${doc.id}', '${data.email}')">
+              🔄 Сбросить пароль
+            </button>
+          ` : '<span style="color: #666; font-size: 12px;">⚠️ Пароль администратора статичный</span>'}
         </div>
         <hr>
       `;
     });
-    
-    if (!hasUsers) {
-      usersHTML += '<p>Пользователи не найдены</p>';
-    }
     
     usersHTML += '</div>';
     
@@ -363,6 +410,12 @@ async function showAdminPanel() {
 
 /* ====== ФУНКЦИЯ ПРИНУДИТЕЛЬНОГО СБРОСА ПАРОЛЯ ====== */
 window.forcePasswordReset = async function(userId, userEmail) {
+  // ❌ Запрещаем сброс пароля для администратора
+  if (userEmail === ADMIN_EMAIL) {
+    alert('❌ Нельзя сбросить пароль администратора!\nПароль администратора статичный: ' + ADMIN_STATIC_PASSWORD);
+    return;
+  }
+  
   if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован.`)) return;
   
   try {
@@ -476,42 +529,50 @@ onAuthStateChanged(auth, async (user) => {
       if (appDiv) appDiv.style.display = 'block';
       setStatus('');
 
-      // 🔄 СБРОС ПАРОЛЯ при каждом входе с доступом
-      try {
-        // Проверяем условия для сброса пароля:
-        let shouldReset = false;
-        let reason = '';
-        
-        if (!data.passwordChanged) {
-          shouldReset = true;
-          reason = 'пароль никогда не менялся';
-        } else if (!data.currentPassword) {
-          shouldReset = true;
-          reason = 'текущий пароль отсутствует в базе';
-        } else if (data.lastPasswordChange) {
-          const lastChangeTime = data.lastPasswordChange.toDate().getTime();
-          const now = Date.now();
-          const oneMinute = 60 * 1000;
-          if (now - lastChangeTime > oneMinute) {
-            shouldReset = true;
-            reason = 'прошло больше 1 минуты с последней смены';
-          }
-        }
-        
-        if (shouldReset && !passwordResetInProgress) {
-          console.log(`🔄 Запуск сброса пароля (${reason})...`);
-          // Даем время для загрузки интерфейса
-          setTimeout(async () => {
-            await resetUserPassword(user);
-          }, 1000);
-        } else if (passwordResetInProgress) {
-          console.log('Сброс пароля уже в процессе...');
-        } else {
-          console.log('✅ Пароль уже актуален, сброс не требуется');
-        }
-      } catch (error) {
-        console.error('Ошибка при проверке сброса пароля:', error);
+       // 🔄 СБРОС ПАРОЛЯ при каждом входе с доступом (КРОМЕ АДМИНА)
+  try {
+    // Проверяем условия для сброса пароля:
+    let shouldReset = false;
+    let reason = '';
+    
+    if (!data.passwordChanged) {
+      shouldReset = true;
+      reason = 'пароль никогда не менялся';
+    } else if (!data.currentPassword) {
+      shouldReset = true;
+      reason = 'текущий пароль отсутствует в базе';
+    } else if (data.lastPasswordChange) {
+      const lastChangeTime = data.lastPasswordChange.toDate().getTime();
+      const now = Date.now();
+      const oneMinute = 60 * 1000;
+      if (now - lastChangeTime > oneMinute) {
+        shouldReset = true;
+        reason = 'прошло больше 1 минуты с последней смены';
       }
+    }
+    
+    // ❌ НЕ сбрасываем пароль для администратора
+    if (user.email === ADMIN_EMAIL) {
+      console.log('🔒 Администратор: пароль остается статичным');
+      shouldReset = false;
+    }
+    
+    if (shouldReset && !passwordResetInProgress) {
+      console.log(`🔄 Запуск сброса пароля (${reason})...`);
+      // Даем время для загрузки интерфейса
+      setTimeout(async () => {
+        await resetUserPassword(user);
+      }, 1000);
+    } else if (passwordResetInProgress) {
+      console.log('Сброс пароля уже в процессе...');
+    } else if (user.email === ADMIN_EMAIL) {
+      console.log('✅ Администратор: статичный пароль актуален');
+    } else {
+      console.log('✅ Пароль уже актуален, сброс не требуется');
+    }
+  } catch (error) {
+    console.error('Ошибка при проверке сброса пароля:', error);
+  }
 
       // ▶️ ИНИЦИАЛИЗАЦИЯ ТЕСТА
       if (!quizInitialized) {
@@ -1097,4 +1158,5 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
