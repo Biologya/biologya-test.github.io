@@ -590,92 +590,115 @@ async function setupAdminPanel(userEmail) {
 }
 
 /* ====== ПОКАЗАТЬ ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
+/* ====== ПОКАЗАТЬ ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function showAdminPanel() {
   try {
-    // Загружаем всех пользователей
-    const usersSnapshot = await getDocs(collection(db, 'users'));
+    // Проверяем права администратора перед загрузкой пользователей
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      alert('Пользователь не авторизован');
+      return;
+    }
+    
+    // Двойная проверка прав администратора
+    const adminCheckRef = doc(db, 'users', currentUser.uid);
+    const adminCheckDoc = await getDoc(adminCheckRef);
+    
+    const isAdminByEmail = currentUser.email === ADMIN_EMAIL;
+    const isAdminByField = adminCheckDoc.exists() && adminCheckDoc.data().isAdmin === true;
+    
+    if (!isAdminByEmail && !isAdminByField) {
+      alert('❌ Недостаточно прав. Только администратор может открыть эту панель.');
+      return;
+    }
+    
+    console.log(`👑 Администратор ${currentUser.email} открывает панель управления`);
+    
+    // Загружаем всех пользователей с безопасным подходом
     let usersHTML = '<div class="admin-modal-content">';
     usersHTML += '<h3>👥 Управление пользователями</h3>';
-    
-    // Информация об админе
-    usersHTML += `
-      <div style="background: #FFF3E0; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #FF9800;">
-        <strong>👑 Вы - администратор</strong><br>
-        <span style="font-size: 12px; color: #666;">
-          Email: ${ADMIN_EMAIL}<br>
-          Статичный пароль: <code style="background: #FFECB3; padding: 2px 6px; border-radius: 3px;">${ADMIN_STATIC_PASSWORD}</code><br>
-          <em>Пароль администратора не меняется автоматически</em>
-        </span>
-      </div>
-    `;
-    
     usersHTML += '<button class="close-modal">✕</button>';
     usersHTML += '<div style="margin-bottom: 20px;">';
     usersHTML += '<button onclick="showAllSessions()" style="background: #2196F3; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">👁️ Показать все сессии</button>';
     usersHTML += '<button onclick="cleanupOldSessions()" style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">🧹 Очистить старые сессии</button>';
     usersHTML += '</div>';
     
-    usersSnapshot.forEach(docSnap => {
-      const data = docSnap.data();
-      const userId = docSnap.id;
-      const isUserAdmin = data.email === ADMIN_EMAIL;
+    try {
+      // Безопасная загрузка пользователей
+      const usersSnapshot = await getDocs(collection(db, 'users'));
       
-      // Подсчет активных сессий
-      const activeSessions = data.activeSessions || [];
-      const activeSessionCount = activeSessions.length;
-      const hasMultipleSessions = activeSessionCount > 1;
-      
-      usersHTML += `
-        <div class="admin-user-item" style="${isUserAdmin ? 'background: #FFF8E1; padding: 15px; border-radius: 5px;' : ''} ${hasMultipleSessions ? 'border-left: 5px solid #f44336;' : ''}">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div>
-              <strong>${data.email}</strong>
-              ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold;"> 👑 АДМИН</span>' : ''}
+      usersSnapshot.forEach(docSnap => {
+        const data = docSnap.data();
+        const userId = docSnap.id;
+        if (!data.email) return; // Пропускаем документы без email
+        
+        const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
+        const activeSessions = data.activeSessions || [];
+        const activeSessionCount = activeSessions.length;
+        const hasMultipleSessions = activeSessionCount > 1;
+        
+        usersHTML += `
+          <div class="admin-user-item" style="${isUserAdmin ? 'background: #FFF8E1; padding: 15px; border-radius: 5px;' : ''} ${hasMultipleSessions ? 'border-left: 5px solid #f44336;' : ''}">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>${data.email}</strong>
+                ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold;"> 👑 АДМИН</span>' : ''}
+              </div>
+              <div style="font-size: 12px; color: ${hasMultipleSessions ? '#f44336' : '#4CAF50'};">
+                ${activeSessionCount} активных сессий
+                ${hasMultipleSessions ? ' ⚠️' : ''}
+              </div>
             </div>
-            <div style="font-size: 12px; color: ${hasMultipleSessions ? '#f44336' : '#4CAF50'};">
-              ${activeSessionCount} активных сессий
-              ${hasMultipleSessions ? ' ⚠️' : ''}
-            </div>
-          </div>
-          
-          <span class="admin-status ${data.allowed ? 'status-allowed' : 'status-pending'}">
-            ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}
-          </span>
-          <br>
-          
-          ${data.currentPassword 
-            ? `Текущий пароль: <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 4px; font-family: monospace; ${isUserAdmin ? 'background: #FFECB3; font-weight: bold;' : ''}">${data.currentPassword}</code><br>`
-            : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span><br>'
-          }
-          
-          ${data.lastLogin 
-            ? `Последний вход: ${new Date(data.lastLogin?.toDate()).toLocaleString()}<br>` 
-            : ''
-          }
-          
-          ${data.lastSeen 
-            ? `Последняя активность: ${new Date(data.lastSeen?.toDate()).toLocaleString()}<br>` 
-            : ''
-          }
-          
-          <div style="margin-top: 10px;">
-            <button class="force-reset-btn" onclick="forcePasswordReset('${userId}', '${data.email}')">
-              🔄 Сбросить пароль
-            </button>
-            <button class="view-sessions-btn" onclick="viewUserSessions('${userId}', '${data.email}')" style="background: #9C27B0; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 5px;">
-              📱 Сессии (${activeSessionCount})
-            </button>
-            ${hasMultipleSessions ? 
-              `<button class="alert-btn" onclick="alertUser('${userId}', '${data.email}')" style="background: #f44336; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 5px;">
-                ⚠️ Предупредить
-              </button>` 
+            
+            <span class="admin-status ${data.allowed ? 'status-allowed' : 'status-pending'}">
+              ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}
+            </span>
+            <br>
+            
+            ${data.currentPassword 
+              ? `Текущий пароль: <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 4px; font-family: monospace; ${isUserAdmin ? 'background: #FFECB3; font-weight: bold;' : ''}">${data.currentPassword}</code><br>`
+              : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span><br>'
+            }
+            
+            ${data.lastLogin 
+              ? `Последний вход: ${new Date(data.lastLogin?.toDate()).toLocaleString()}<br>` 
               : ''
             }
+            
+            ${data.lastSeen 
+              ? `Последняя активность: ${new Date(data.lastSeen?.toDate()).toLocaleString()}<br>` 
+              : ''
+            }
+            
+            <div style="margin-top: 10px;">
+              <button class="force-reset-btn" onclick="forcePasswordReset('${userId}', '${data.email}')">
+                🔄 Сбросить пароль
+              </button>
+              <button class="view-sessions-btn" onclick="viewUserSessions('${userId}', '${data.email}')" style="background: #9C27B0; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 5px;">
+                📱 Сессии (${activeSessionCount})
+              </button>
+              ${hasMultipleSessions ? 
+                `<button class="alert-btn" onclick="alertUser('${userId}', '${data.email}')" style="background: #f44336; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 5px;">
+                  ⚠️ Предупредить
+                </button>` 
+                : ''
+              }
+            </div>
           </div>
+          <hr>
+        `;
+      });
+      
+    } catch (error) {
+      console.error('Ошибка загрузки пользователей:', error);
+      usersHTML += `
+        <div style="color: #f44336; padding: 20px; text-align: center;">
+          <strong>Ошибка загрузки пользователей:</strong><br>
+          ${error.message}<br>
+          <small>Проверьте права доступа в правилах Firestore</small>
         </div>
-        <hr>
       `;
-    });
+    }
     
     usersHTML += '</div>';
     
@@ -699,8 +722,8 @@ async function showAdminPanel() {
     };
     
   } catch (error) {
-    console.error('Ошибка загрузки пользователей:', error);
-    alert('Ошибка загрузки данных');
+    console.error('Ошибка открытия админ панели:', error);
+    alert('Ошибка открытия админ панели: ' + error.message);
   }
 }
 
@@ -1838,4 +1861,5 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
