@@ -344,13 +344,13 @@ function generateNewPassword() {
 }
 
 /* ====== СБРОС ПАРОЛЯ ПРИ ДОСТУПЕ ====== */
-/* ====== СБРОС ПАРОЛЯ ПРИ ДОСТУПЕ ====== */
 async function resetUserPassword(user) {
   if (passwordResetInProgress) {
     console.log('Сброс пароля уже в процессе');
     return;
   }
   
+  // ✅ ПРОВЕРКА: если это админ - НЕ сбрасываем пароль!
   if (user.email === ADMIN_EMAIL) {
     console.log(`🔒 Администратор ${ADMIN_EMAIL}: пароль не сбрасывается (статичный)`);
     
@@ -377,7 +377,7 @@ async function resetUserPassword(user) {
   passwordResetInProgress = true;
   const uDocRef = doc(db, 'users', user.uid);
   
-  console.log(`🔄 Начинаем сброс пароля для ${user.email}`);
+  console.log(`🔄 Принудительный сброс пароля при входе для ${user.email}`);
   
   try {
     const userDoc = await getDoc(uDocRef);
@@ -387,14 +387,12 @@ async function resetUserPassword(user) {
       return;
     }
     
-    const userData = userDoc.data();
-    
-    // ВСЕГДА сбрасываем пароль при каждом входе (кроме админа)
+    // Всегда генерируем новый пароль при каждом входе (кроме админа)
     const newPassword = generateNewPassword();
     console.log(`🔧 Сгенерирован новый пароль для ${user.email}: ${newPassword}`);
     
     try {
-      // Обновляем пароль в Firebase Auth
+      // Пытаемся обновить пароль в Firebase Auth
       console.log('Обновляем пароль в Firebase Auth...');
       await updatePassword(user, newPassword);
       console.log('✅ Пароль обновлен в Firebase Auth');
@@ -403,14 +401,14 @@ async function resetUserPassword(user) {
       console.error('❌ Ошибка обновления пароля в Auth:', authError);
       
       if (authError.code === 'auth/requires-recent-login') {
-        console.log('⚠️ Требуется повторная аутентификация');
-        // Сохраняем пароль в базу, но не обновляем в Auth
+        console.log('⚠️ Требуется повторная аутентификация для смены пароля в Auth');
+        // В этом случае пароль в Auth останется старым, но в Firestore будет новый
       }
     }
     
-    // Сохраняем пароль в Firestore
+    // Всегда сохраняем новый пароль в Firestore (принудительный сброс)
     try {
-      console.log('Сохраняем пароль в Firestore...');
+      console.log('Сохраняем новый пароль в Firestore...');
       
       await updateDoc(uDocRef, {
         passwordChanged: true,
@@ -418,10 +416,16 @@ async function resetUserPassword(user) {
         lastPasswordChange: serverTimestamp(),
         lastLogin: serverTimestamp(),
         isAdmin: false,
-        lastSeen: serverTimestamp()
+        lastSeen: serverTimestamp(),
+        securityAlerts: arrayUnion({
+          type: 'password_auto_reset_on_login',
+          message: `Пароль автоматически сброшен при входе. Новый пароль: ${newPassword}`,
+          timestamp: serverTimestamp(),
+          read: false
+        })
       });
       
-      // Ярко выводим пароль в консоль
+      // Ярко выводим новый пароль в консоль
       console.log(`%c🔄 ПАРОЛЬ СБРОШЕН ПРИ ВХОДЕ 🔄`, 
                   "color: #4CAF50; font-weight: bold; font-size: 20px; background: #000; padding: 15px; border-radius: 10px;");
       console.log(`%c📧 Email: ${user.email}`, 
@@ -1011,7 +1015,6 @@ onAuthStateChanged(auth, async (user) => {
       setStatus('');
 
 // 🔄 СБРОС ПАРОЛЯ при каждом входе с доступом (КРОМЕ АДМИНА)
-     // СБРОС ПАРОЛЯ при каждом входе с доступом (КРОМЕ АДМИНА)
       try {
         // ❌ НЕ сбрасываем пароль для администратора
         if (user.email === ADMIN_EMAIL) {
@@ -1041,6 +1044,25 @@ onAuthStateChanged(auth, async (user) => {
         console.error('Ошибка при проверке сброса пароля:', error);
       }
 
+      // Проверяем, нужно ли инициализировать тест
+      if (!quizInitialized) {
+        quizInstance = initQuiz(progressDocRef);
+        quizInitialized = true;
+      }
+    } else {
+      // Пользователь не имеет доступа
+      if (authOverlay) authOverlay.style.display = 'none';
+      if (waitOverlay) waitOverlay.style.display = 'flex';
+      if (appDiv) appDiv.style.display = 'none';
+      setStatus('Ожидайте подтверждения доступа от администратора.');
+    }
+  }); // Закрытие userUnsubscribe (onSnapshot)
+  
+  } else {
+    // Пользователь вошел, но не проверен
+    console.log('Пользователь вошел, но статус еще не проверен');
+  }
+});
 
 /* ====== СИСТЕМА ТЕСТА С СИНХРОНИЗАЦИЕЙ ====== */
 function initQuiz(progressRef) {
@@ -1628,6 +1650,7 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
