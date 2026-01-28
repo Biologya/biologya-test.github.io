@@ -709,11 +709,3 @@ waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
-
-
-
-
-
-
-
-
