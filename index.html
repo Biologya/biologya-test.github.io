@@ -214,7 +214,7 @@
   </main>
 
   <!-- ====== AUTH OVERLAY (видна, если не вошёл) ====== -->
-  <div id="authOverlay" aria-hidden="true">
+  <div id="authOverlay" inert>
     <div class="authCard" role="dialog" aria-modal="true" aria-labelledby="authTitle">
       <h1 id="authTitle">Доступ к тесту</h1>
       <input id="email" type="email" placeholder="Email" autocomplete="username" />
@@ -244,5 +244,6 @@
   </script>
 </body>
 </html>
+
 
 
