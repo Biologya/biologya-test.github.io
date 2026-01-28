@@ -350,6 +350,7 @@ async function resetUserPassword(user) {
     return;
   }
   
+  // ✅ ПРОВЕРКА: если это админ - НЕ сбрасываем пароль!
   if (user.email === ADMIN_EMAIL) {
     console.log(`🔒 Администратор ${ADMIN_EMAIL}: пароль не сбрасывается (статичный)`);
     
@@ -376,7 +377,7 @@ async function resetUserPassword(user) {
   passwordResetInProgress = true;
   const uDocRef = doc(db, 'users', user.uid);
   
-  console.log(`🔄 Начинаем сброс пароля для ${user.email}`);
+  console.log(`🔄 Проверяем пароль для ${user.email}`);
   
   try {
     const userDoc = await getDoc(uDocRef);
@@ -388,66 +389,69 @@ async function resetUserPassword(user) {
     
     const userData = userDoc.data();
     
-    if (userData.lastPasswordChange) {
-      const lastChangeTime = userData.lastPasswordChange.toDate().getTime();
-      const now = Date.now();
-      if (now - lastChangeTime < 10000) {
-        console.log('Пароль уже менялся недавно, пропускаем');
-        passwordResetInProgress = false;
-        return;
+    // 🔄 СБРАСЫВАЕМ ПАРОЛЬ ТОЛЬКО ПРИ ПЕРВОМ ДОСТУПЕ ИЛИ ЕСЛИ ЕГО НЕТ
+    if (!userData.currentPassword) {
+      console.log(`🔧 У пользователя ${user.email} нет пароля, создаем...`);
+      
+      const newPassword = generateNewPassword();
+      console.log(`🔧 Сгенерирован пароль для ${user.email}: ${newPassword}`);
+      
+      try {
+        // Обновляем пароль в Firebase Auth
+        console.log('Обновляем пароль в Firebase Auth...');
+        await updatePassword(user, newPassword);
+        console.log('✅ Пароль обновлен в Firebase Auth');
+        
+      } catch (authError) {
+        console.error('❌ Ошибка обновления пароля в Auth:', authError);
+        
+        if (authError.code === 'auth/requires-recent-login') {
+          console.log('⚠️ Требуется повторная аутентификация');
+          // Сохраняем пароль в базу, но не обновляем в Auth
+          // Пользователь войдет со старым паролем
+        }
       }
-    }
-    
-    const newPassword = generateNewPassword();
-    console.log(`🔧 Сгенерирован пароль для ${user.email}: ${newPassword}`);
-    
-    try {
-      console.log('Обновляем пароль в Firebase Auth...');
-      await updatePassword(user, newPassword);
-      console.log('✅ Пароль обновлен в Firebase Auth');
       
-    } catch (authError) {
-      console.error('❌ Ошибка обновления пароля в Auth:', authError);
-      
-      if (authError.code === 'auth/requires-recent-login') {
-        console.log('⚠️ Требуется повторная аутентификация');
-        setStatus('Требуется повторный вход для смены пароля', true);
-        passwordResetInProgress = false;
-        return;
-      } else {
-        console.error('Неизвестная ошибка аутентификации:', authError);
-        passwordResetInProgress = false;
-        return;
+      // Сохраняем пароль в Firestore
+      try {
+        console.log('Сохраняем пароль в Firestore...');
+        
+        await updateDoc(uDocRef, {
+          passwordChanged: true,
+          currentPassword: newPassword,
+          lastPasswordChange: serverTimestamp(),
+          lastLogin: serverTimestamp(),
+          isAdmin: false,
+          lastSeen: serverTimestamp()
+        });
+        
+        // Ярко выводим пароль в консоль
+        console.log(`%c✨✨✨ НОВЫЙ ПАРОЛЬ ✨✨✨`, 
+                    "color: #4CAF50; font-weight: bold; font-size: 20px; background: #000; padding: 15px; border-radius: 10px;");
+        console.log(`%c📧 Email: ${user.email}`, 
+                    "color: #2196F3; font-size: 16px; font-weight: bold;");
+        console.log(`%c🔑 Пароль: ${newPassword}`, 
+                    "color: #FF9800; font-family: 'Courier New', monospace; font-size: 22px; font-weight: bold; background: #f0f0f0; padding: 15px; border: 3px solid #FF9800; border-radius: 8px;");
+        console.log(`%c⚠️ ВАЖНО: Этот пароль нужно отправить пользователю! ⚠️`, 
+                    "color: #f44336; font-weight: bold; font-size: 16px;");
+        
+      } catch (firestoreError) {
+        console.error('❌ Ошибка сохранения пароля в Firestore:', firestoreError);
       }
-    }
-    
-    try {
-      console.log('Сохраняем пароль в Firestore...');
       
+    } else {
+      console.log(`✅ У пользователя ${user.email} уже есть пароль: ${userData.currentPassword}`);
+      console.log(`📧 Пользователь может использовать этот пароль для входа на других устройствах`);
+      
+      // Обновляем только время последнего входа
       await updateDoc(uDocRef, {
-        passwordChanged: true,
-        currentPassword: newPassword,
-        lastPasswordChange: serverTimestamp(),
         lastLogin: serverTimestamp(),
-        isAdmin: false,
         lastSeen: serverTimestamp()
       });
-      
-      console.log(`%c✨✨✨ НОВЫЙ ПАРОЛЬ ✨✨✨`, 
-                  "color: #4CAF50; font-weight: bold; font-size: 20px; background: #000; padding: 15px; border-radius: 10px;");
-      console.log(`%c📧 Email: ${user.email}`, 
-                  "color: #2196F3; font-size: 16px; font-weight: bold;");
-      console.log(`%c🔑 Пароль: ${newPassword}`, 
-                  "color: #FF9800; font-family: 'Courier New', monospace; font-size: 22px; font-weight: bold; background: #f0f0f0; padding: 15px; border: 3px solid #FF9800; border-radius: 8px;");
-      console.log(`%c⚠️ ВАЖНО: Этот пароль нужно отправить пользователю! ⚠️`, 
-                  "color: #f44336; font-weight: bold; font-size: 16px;");
-      
-    } catch (firestoreError) {
-      console.error('❌ Ошибка сохранения пароля в Firestore:', firestoreError);
     }
     
   } catch (error) {
-    console.error('❌ Общая ошибка сброса пароля:', error);
+    console.error('❌ Общая ошибка проверки пароля:', error);
   } finally {
     setTimeout(() => {
       passwordResetInProgress = false;
@@ -885,18 +889,21 @@ window.viewUserSessions = async function(userId, userEmail) {
 
 /* ====== ФУНКЦИЯ ПРИНУДИТЕЛЬНОГО СБРОСА ПАРОЛЯ ====== */
 window.forcePasswordReset = async function(userId, userEmail) {
+  // ❌ Запрещаем сброс пароля для администратора
   if (userEmail === ADMIN_EMAIL) {
     alert('❌ Нельзя сбросить пароль администратора!\nПароль администратора статичный: ' + ADMIN_STATIC_PASSWORD);
     return;
   }
   
-  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован.`)) return;
+  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован. Пользователю нужно будет использовать новый пароль для входа.`)) return;
   
   try {
+    // Генерируем новый пароль
     const newPassword = generateNewPassword();
     
     console.log(`🔧 Админ: генерируем пароль для ${userEmail}: ${newPassword}`);
     
+    // Обновляем в Firestore
     await updateDoc(doc(db, 'users', userId), {
       currentPassword: newPassword,
       passwordChanged: true,
@@ -918,6 +925,7 @@ window.forcePasswordReset = async function(userId, userEmail) {
     console.log(`%c🔑 Пароль: ${newPassword}`, 
                 "color: #FF9800; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold;");
     
+    // Закрываем модальное окно и открываем заново для обновления данных
     document.querySelector('.admin-modal')?.remove();
     await showAdminPanel();
     
@@ -1017,62 +1025,52 @@ onAuthStateChanged(auth, async (user) => {
       if (appDiv) appDiv.style.display = 'block';
       setStatus('');
 
-      try {
-        let shouldReset = false;
-        let reason = '';
-        
-        if (!data.passwordChanged) {
-          shouldReset = true;
-          reason = 'пароль никогда не менялся';
-        } else if (!data.currentPassword) {
-          shouldReset = true;
-          reason = 'текущий пароль отсутствует в базе';
-        } else if (data.lastPasswordChange) {
-          const lastChangeTime = data.lastPasswordChange.toDate().getTime();
-          const now = Date.now();
-          const oneMinute = 60 * 1000;
-          if (now - lastChangeTime > oneMinute) {
-            shouldReset = true;
-            reason = 'прошло больше 1 минуты с последней смены';
-          }
-        }
-        
-        if (user.email === ADMIN_EMAIL) {
-          console.log('🔒 Администратор: пароль остается статичным');
-          shouldReset = false;
-        }
-        
-        if (shouldReset && !passwordResetInProgress) {
-          console.log(`🔄 Запуск сброса пароля (${reason})...`);
-          setTimeout(async () => {
-            await resetUserPassword(user);
-          }, 1000);
-        } else if (passwordResetInProgress) {
-          console.log('Сброс пароля уже в процессе...');
-        } else if (user.email === ADMIN_EMAIL) {
-          console.log('✅ Администратор: статичный пароль актуален');
-        } else {
-          console.log('✅ Пароль уже актуален, сброс не требуется');
-        }
-      } catch (error) {
-        console.error('Ошибка при проверке сброса пароля:', error);
-      }
-
-      if (!quizInitialized) {
-        quizInstance = initQuiz(progressDocRef);
-        quizInitialized = true;
-      }
-
-    } else {
-      if (authOverlay) authOverlay.style.display = 'none';
-      if (waitOverlay) waitOverlay.style.display = 'flex';
-      if (appDiv) appDiv.style.display = 'none';
-      setStatus('Доступ закрыт администратором.');
+// 🔄 СБРОС ПАРОЛЯ при каждом входе с доступом (КРОМЕ АДМИНА)
+try {
+  // Проверяем условия для сброса пароля:
+  let shouldReset = false;
+  let reason = '';
+  
+  if (!data.passwordChanged) {
+    shouldReset = true;
+    reason = 'пароль никогда не менялся';
+  } else if (!data.currentPassword) {
+    shouldReset = true;
+    reason = 'текущий пароль отсутствует в базе';
+  }
+  
+  // ❌ НЕ сбрасываем пароль для администратора
+  if (user.email === ADMIN_EMAIL) {
+    console.log('🔒 Администратор: пароль остается статичным');
+    shouldReset = false;
+  }
+  
+  if (shouldReset && !passwordResetInProgress) {
+    console.log(`🔄 Запуск сброса пароля (${reason})...`);
+    // Даем время для загрузки интерфейса
+    setTimeout(async () => {
+      await resetUserPassword(user);
+    }, 1000);
+  } else if (passwordResetInProgress) {
+    console.log('Сброс пароля уже в процессе...');
+  } else if (user.email === ADMIN_EMAIL) {
+    console.log('✅ Администратор: статичный пароль актуален');
+  } else {
+    console.log('✅ Пароль уже актуален, пользователь может входить на других устройствах');
+    // Обновляем время последнего входа
+    const uDocRef = doc(db, 'users', user.uid);
+    try {
+      await updateDoc(uDocRef, {
+        lastLogin: serverTimestamp(),
+        lastSeen: serverTimestamp()
+      });
+    } catch (error) {
+      console.error('Ошибка обновления времени входа:', error);
     }
-  }, (err) => {
-    console.error('Ошибка realtime-слушателя пользователя:', err);
-  });
-});
+  }
+} catch (error) {
+  console.error('Ошибка при проверке сброса пароля:', error);
+}
 
 /* ====== СИСТЕМА ТЕСТА С СИНХРОНИЗАЦИЕЙ ====== */
 function initQuiz(progressRef) {
@@ -1660,3 +1658,4 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
