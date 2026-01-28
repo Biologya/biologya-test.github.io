@@ -91,14 +91,13 @@ if (logoutBtn) logoutBtn.onclick = async ()=>{ await signOut(auth); location.rel
 if (signOutFromWait) signOutFromWait.onclick = async ()=>{ await signOut(auth); location.reload(); };
 if (helpBtn) helpBtn.onclick = ()=>{ alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); };
 
-/* ====== Флаг чтобы инициализировать тест один раз ====== */
-let quizInitialized = false;
-let progressDocRef = null;
+/* ====== Глобальные флаги ====== */
+let quizInitialized = false;  // тест инициализируется один раз
+let quizInstance = null;      // экземпляр теста
+let progressDocRef = null;    // ссылка на прогресс в Firestore
+let passwordResetDone = false; // сброс пароля один раз
 
 /* ====== Когда изменился аутентифицированный юзер ====== */
-let quizInitialized = false;
-let quizInstance = null;
-let passwordResetDone = false; // глобально
 
 onAuthStateChanged(auth, async (user)=>{
   if (!user){
@@ -717,6 +716,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
