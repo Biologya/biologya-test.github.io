@@ -714,8 +714,9 @@ function initQuiz() {
   };
 } // end initQuiz
 
-// Экспортируем initQuiz (если потребуется)
-export { initQuiz };
+// Сделать initQuiz доступным глобально
+window.initQuiz = initQuiz;
+
 
 
 
