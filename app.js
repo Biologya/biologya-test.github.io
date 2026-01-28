@@ -647,6 +647,14 @@ function initQuiz() {
     }
   };
 
+  // показываем overlay, когда нужно
+authOverlay.style.display = 'flex';
+waitOverlay.style.display = 'flex';
+
+// скрываем overlay, когда доступ открыт
+authOverlay.style.display = 'none';
+waitOverlay.style.display = 'none';
+
    // === Errors mode ===
   const errorsBtn = document.getElementById("errorsBtn");
   if (errorsBtn) errorsBtn.onclick = () => {
@@ -701,6 +709,7 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
