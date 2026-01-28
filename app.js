@@ -96,7 +96,9 @@ let quizInitialized = false;
 let progressDocRef = null;
 
 /* ====== Когда изменился аутентифицированный юзер ====== */
-let quizInstance = null; // глобально
+let quizInitialized = false;
+let quizInstance = null;
+let passwordResetDone = false; // глобально
 
 onAuthStateChanged(auth, async (user)=>{
   if (!user){
@@ -131,30 +133,54 @@ onSnapshot(uDocRef, async (docSnap) => {
   if (!data) return;
 
   if (data.allowed === true) {
+    // ✅ ДОСТУП РАЗРЕШЁН
     if (waitOverlay) waitOverlay.style.display = 'none';
     if (appDiv) appDiv.style.display = 'block';
     setStatus('');
 
-    // 🔄 Если тест уже был и заблокирован, включаем кнопки
-    const enableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
-    enableEls.forEach(el => el.disabled = false);
+    // 🔓 разблокируем клики
+    document.body.classList.remove('blocked');
 
-    if (!quizInitialized) {
-      try {
-        quizInstance = initQuiz(progressDocRef);
-        quizInitialized = true;
-      } catch(err){ console.error(err); }
+    // 🔐 сброс секретного пароля ОДИН РАЗ за вход
+    if (!passwordResetDone) {
+      passwordResetDone = true;
+
+      const generateSecretPassword = (length = 20) => {
+        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let pwd = "";
+        for (let i = 0; i < length; i++) {
+          pwd += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return pwd;
+      };
+
+      const newSecret = generateSecretPassword();
+      console.log(
+        "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
+        "color:lime;font-weight:bold;",
+        newSecret
+      );
+
+      // ❗ ВАЖНО: updatePassword работает ТОЛЬКО если пользователь недавно вошёл
+      // Поэтому просто логируем (реальный сброс — через админку или Cloud Function)
     }
 
-    // ====== СБРОС СЕКРЕТНОГО ПАРОЛЯ ======
-const generateSecretPassword = (length = 20) => {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let pwd = "";
-  for (let i = 0; i < length; i++) {
-    pwd += chars[Math.floor(Math.random() * chars.length)];
+    // ▶️ инициализация теста ОДИН РАЗ
+    if (!quizInitialized) {
+      quizInstance = initQuiz(progressDocRef);
+      quizInitialized = true;
+    }
+
+  } else {
+    // 🔴 ДОСТУП ЗАКРЫТ — МГНОВЕННО
+    if (waitOverlay) waitOverlay.style.display = 'flex';
+    if (appDiv) appDiv.style.display = 'none';
+    setStatus('Доступ закрыт администратором.');
+
+    // 🚫 блокируем ВСЕ клики
+    document.body.classList.add('blocked');
   }
-  return pwd;
-};
+});
 
 // флаг — чтобы пароль не сбрасывался бесконечно
 let passwordResetDone = false;
@@ -169,53 +195,53 @@ onSnapshot(uDocRef, async (docSnap) => {
     if (appDiv) appDiv.style.display = 'block';
     setStatus('');
 
-    // 🔓 включаем кнопки обратно
-    const enableEls = document.querySelectorAll(
-      '#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn'
-    );
-    enableEls.forEach(el => el.disabled = false);
+    // 🔓 разблокируем клики ПРАВИЛЬНО
+    document.body.classList.remove('blocked');
 
-    // 🔐 сброс секретного пароля ОДИН РАЗ за вход
+    // 🔐 сброс секретного пароля — ОДИН РАЗ за вход
     if (!passwordResetDone) {
+      passwordResetDone = true;
+
+      const generateSecretPassword = (length = 20) => {
+        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        let pwd = "";
+        for (let i = 0; i < length; i++) {
+          pwd += chars[Math.floor(Math.random() * chars.length)];
+        }
+        return pwd;
+      };
+
       const newSecret = generateSecretPassword();
 
-      try {
-        await updatePassword(user, newSecret);
-        passwordResetDone = true;
-
-        console.log(
-          "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
-          "color:lime;font-size:14px;font-weight:bold;",
-          newSecret
-        );
-      } catch (err) {
-        console.error("Ошибка обновления пароля:", err);
-      }
+      // ⚠️ updatePassword часто требует re-auth — поэтому просто логируем
+      console.log(
+        "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
+        "color:lime;font-weight:bold;",
+        newSecret
+      );
     }
 
+    // ▶️ инициализируем тест ОДИН РАЗ
     if (!quizInitialized) {
       quizInstance = initQuiz(progressDocRef);
       quizInitialized = true;
     }
 
   } else {
-    // 🔴 ДОСТУП ЗАКРЫТ — МГНОВЕННО ОБРУБАЕМ
+    // 🔴 ДОСТУП ЗАКРЫТ — МГНОВЕННО
     if (waitOverlay) waitOverlay.style.display = 'flex';
     if (appDiv) appDiv.style.display = 'none';
     setStatus('Доступ закрыт администратором.');
 
-    if (quizInstance) {
-      const disableEls = document.querySelectorAll(
-        '#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn'
-      );
-      disableEls.forEach(el => el.disabled = true);
+    // 🚫 блокируем ВСЕ клики через CSS
+    document.body.classList.add('blocked');
 
-      const answerEls = document.querySelectorAll('#answers .answer');
-      answerEls.forEach(el => el.classList.remove('selected'));
-    }
+    // визуально снимаем выбор
+    const answerEls = document.querySelectorAll('#answers .answer');
+    answerEls.forEach(el => el.classList.remove('selected'));
   }
 });
-
+  
 /* ====== Тест с синхронизацией ====== */
 function initQuiz(progressRef){
   const state = JSON.parse(localStorage.getItem("bioState"))||{
@@ -691,6 +717,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
