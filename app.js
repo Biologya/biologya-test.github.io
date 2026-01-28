@@ -18,7 +18,8 @@ import {
   onSnapshot,
   serverTimestamp,
   collection,
-  getDocs
+  getDocs,
+  arrayUnion
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
@@ -64,18 +65,7 @@ const resetBtn = document.getElementById('resetBtn');
 const errorsBtn = document.getElementById('errorsBtn');
 const questionPanel = document.getElementById('questionPanel');
 const pageNav = document.getElementById('pageNav');
-
-// Кнопка админа (добавить в index.html)
-const adminPanel = document.getElementById('adminPanel') || (() => {
-  const div = document.createElement('div');
-  div.id = 'adminPanel';
-  div.style.position = 'fixed';
-  div.style.top = '10px';
-  div.style.right = '10px';
-  div.style.zIndex = '1000';
-  document.body.appendChild(div);
-  return div;
-})();
+const adminPanel = document.getElementById('adminPanel');
 
 function setStatus(text, isError = false) {
   if (!statusP) return;
@@ -90,6 +80,7 @@ let progressDocRef = null;
 let passwordResetInProgress = false;
 let userUnsubscribe = null;
 let progressUnsubscribe = null;
+let currentUserData = null;
 
 /* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
@@ -154,7 +145,7 @@ if (helpBtn) helpBtn.onclick = () => {
 function generateNewPassword() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
   let password = '';
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 12; i++) {
     password += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return password;
@@ -168,57 +159,87 @@ async function resetUserPassword(user) {
   const uDocRef = doc(db, 'users', user.uid);
   
   try {
-    // Генерируем новый пароль
-    const newPassword = generateNewPassword();
-    
-    // Обновляем пароль в Firebase Auth
-    await updatePassword(user, newPassword);
-    
-    // Сохраняем новый пароль в Firestore
+    // Проверяем, не меняли ли уже пароль в этой сессии
     const userDoc = await getDoc(uDocRef);
     const userData = userDoc.data();
     
-    // Добавляем в историю паролей
-    const passwordHistory = userData.passwordHistory || [];
-    passwordHistory.push({
-      password: newPassword,
-      changedAt: serverTimestamp(),
-      usedForLogin: true
-    });
+    // Если пароль уже меняли недавно (менее 30 секунд назад) - пропускаем
+    if (userData.lastPasswordChange) {
+      const lastChangeTime = userData.lastPasswordChange.toDate().getTime();
+      const now = Date.now();
+      if (now - lastChangeTime < 30000) {
+        console.log('Пароль уже менялся недавно, пропускаем');
+        passwordResetInProgress = false;
+        return;
+      }
+    }
     
-    // Обновляем документ пользователя
-    await updateDoc(uDocRef, {
-      passwordChanged: true,
-      currentPassword: newPassword,
-      passwordHistory: passwordHistory,
-      lastPasswordChange: serverTimestamp(),
-      lastLogin: serverTimestamp()
-    });
+    // Генерируем новый пароль
+    const newPassword = generateNewPassword();
+    console.log(`🔧 Генерация пароля для ${user.email}: ${newPassword}`);
     
-    console.log(`%c✨ НОВЫЙ ПАРОЛЬ ✨\nEmail: ${user.email}\nПароль: ${newPassword}\n\nСкопируйте этот пароль и отправьте пользователю!`, 
-                "color: #4CAF50; font-weight: bold; font-size: 14px; background: #f0f0f0; padding: 10px; border-radius: 5px;");
-    
-    // Показываем уведомление в консоли
-    console.log(`%c⚠️ ВАЖНО: Этот пароль нужно отправить пользователю!\nПользователь не увидит его автоматически.`, 
-                "color: #FF9800; font-weight: bold;");
+    try {
+      // Обновляем пароль в Firebase Auth
+      await updatePassword(user, newPassword);
+      console.log('✅ Пароль обновлен в Firebase Auth');
+      
+      // Сохраняем новый пароль в Firestore
+      const passwordHistory = userData.passwordHistory || [];
+      passwordHistory.push({
+        password: newPassword,
+        changedAt: serverTimestamp(),
+        usedForLogin: true
+      });
+      
+      // Обновляем документ пользователя
+      await updateDoc(uDocRef, {
+        passwordChanged: true,
+        currentPassword: newPassword,
+        passwordHistory: passwordHistory,
+        lastPasswordChange: serverTimestamp(),
+        lastLogin: serverTimestamp()
+      });
+      
+      console.log(`%c✨ НОВЫЙ ПАРОЛЬ СОХРАНЕН ✨`, 
+                  "color: #4CAF50; font-weight: bold; font-size: 14px;");
+      console.log(`%cEmail: ${user.email}\nПароль: ${newPassword}`, 
+                  "color: #2196F3; font-family: monospace; font-size: 16px;");
+      console.log(`%c⚠️ ВАЖНО: Этот пароль нужно отправить пользователю!`, 
+                  "color: #FF9800; font-weight: bold;");
+      
+    } catch (authError) {
+      console.error('❌ Ошибка обновления пароля:', authError);
+      
+      if (authError.code === 'auth/requires-recent-login') {
+        console.log('⚠️ Требуется повторная аутентификация');
+        // Просим пользователя перезайти
+        setStatus('Требуется повторный вход для безопасности');
+        setTimeout(async () => {
+          await signOut(auth);
+          alert('Для безопасности требуется повторный вход. Пожалуйста, войдите снова.');
+        }, 2000);
+      }
+    }
     
   } catch (error) {
-    console.error('Ошибка сброса пароля:', error);
-    if (error.code === 'auth/requires-recent-login') {
-      // Если нужно, можно разлогинить и попросить войти снова
-      console.log('Требуется повторный вход для сброса пароля');
-    }
+    console.error('❌ Общая ошибка сброса пароля:', error);
   } finally {
-    passwordResetInProgress = false;
+    // Сбрасываем флаг с задержкой
+    setTimeout(() => {
+      passwordResetInProgress = false;
+    }, 5000);
   }
 }
 
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
-function setupAdminPanel(userEmail) {
-  // Email админа (замените на свой)
-  const adminEmail = "faceits1mple2000@gmail.com"; // ⬅️ ЗАМЕНИТЕ НА СВОЙ EMAIL
+async function setupAdminPanel(userEmail) {
+  // Email админа - ЗАМЕНИТЕ НА СВОЙ EMAIL
+  const adminEmail = "admin@example.com"; // ⬅️ ИЗМЕНИТЕ НА ВАШ EMAIL
   
-  if (userEmail !== adminEmail) return;
+  if (userEmail !== adminEmail) {
+    adminPanel.innerHTML = '';
+    return;
+  }
   
   adminPanel.innerHTML = '';
   
@@ -232,72 +253,104 @@ function setupAdminPanel(userEmail) {
     border-radius: 5px;
     cursor: pointer;
     font-weight: bold;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
   `;
   
   adminBtn.onclick = async () => {
-    try {
-      // Загружаем всех пользователей
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      let usersHTML = '<div style="background: white; padding: 20px; border-radius: 10px; max-width: 600px; max-height: 400px; overflow-y: auto;">';
-      usersHTML += '<h3>👥 Пользователи и пароли</h3>';
-      
-      usersSnapshot.forEach(doc => {
-        const data = doc.data();
-        usersHTML += `
-          <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
-            <strong>${data.email}</strong><br>
-            Статус: ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}<br>
-            ${data.currentPassword ? `Текущий пароль: <code style="background: #f0f0f0; padding: 2px 5px; border-radius: 3px;">${data.currentPassword}</code>` : 'Пароль не сгенерирован'}<br>
-            ${data.lastPasswordChange ? `Последняя смена: ${new Date(data.lastPasswordChange?.toDate()).toLocaleString()}` : ''}
-          </div>
-        `;
-      });
-      
-      usersHTML += '</div>';
-      
-      // Показываем модальное окно
-      const modal = document.createElement('div');
-      modal.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0,0,0,0.7);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        z-index: 9999;
-      `;
-      
-      modal.innerHTML = usersHTML;
-      
-      const closeBtn = document.createElement('button');
-      closeBtn.innerHTML = 'Закрыть';
-      closeBtn.style.cssText = `
-        position: absolute;
-        top: 10px;
-        right: 10px;
-        background: #f44336;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 3px;
-        cursor: pointer;
-      `;
-      
-      closeBtn.onclick = () => document.body.removeChild(modal);
-      modal.querySelector('div').appendChild(closeBtn);
-      
-      document.body.appendChild(modal);
-      
-    } catch (error) {
-      console.error('Ошибка загрузки пользователей:', error);
-      alert('Ошибка загрузки данных');
-    }
+    await showAdminPanel();
   };
   
   adminPanel.appendChild(adminBtn);
+}
+
+async function showAdminPanel() {
+  try {
+    // Загружаем всех пользователей
+    const usersSnapshot = await getDocs(collection(db, 'users'));
+    let usersHTML = '<div class="admin-modal-content">';
+    usersHTML += '<h3>👥 Управление пользователями</h3>';
+    usersHTML += '<button class="close-modal">✕</button>';
+    
+    usersSnapshot.forEach(doc => {
+      const data = doc.data();
+      usersHTML += `
+        <div class="admin-user-item">
+          <strong>${data.email}</strong>
+          <span class="admin-status ${data.allowed ? 'status-allowed' : 'status-pending'}">
+            ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}
+          </span>
+          <br>
+          ${data.currentPassword 
+            ? `Текущий пароль: <code>${data.currentPassword}</code><br>`
+            : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span><br>'
+          }
+          ${data.lastPasswordChange 
+            ? `Последняя смена: ${new Date(data.lastPasswordChange?.toDate()).toLocaleString()}<br>`
+            : ''
+          }
+          <button class="force-reset-btn" onclick="window.forcePasswordReset('${doc.id}', '${data.email}')">
+            🔄 Сбросить пароль
+          </button>
+        </div>
+        <hr>
+      `;
+    });
+    
+    usersHTML += '</div>';
+    
+    // Показываем модальное окно
+    const modal = document.createElement('div');
+    modal.className = 'admin-modal';
+    modal.innerHTML = usersHTML;
+    
+    document.body.appendChild(modal);
+    
+    // Кнопка закрытия
+    modal.querySelector('.close-modal').onclick = () => {
+      document.body.removeChild(modal);
+    };
+    
+  } catch (error) {
+    console.error('Ошибка загрузки пользователей:', error);
+    alert('Ошибка загрузки данных');
+  }
+}
+
+// Функция принудительного сброса пароля (для админа)
+window.forcePasswordReset = async function(userId, userEmail) {
+  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован.`)) return;
+  
+  try {
+    // Генерируем новый пароль
+    const newPassword = generateNewPassword();
+    
+    // Обновляем в Firestore
+    await updateDoc(doc(db, 'users', userId), {
+      currentPassword: newPassword,
+      passwordChanged: true,
+      lastPasswordChange: serverTimestamp(),
+      passwordHistory: arrayUnion({
+        password: newPassword,
+        changedAt: serverTimestamp(),
+        forcedByAdmin: true
+      })
+    });
+    
+    alert(`✅ Пароль сброшен!\nНовый пароль: ${newPassword}\n\nОтправьте этот пароль пользователю.`);
+    
+    console.log(`%c🔧 АДМИН: Принудительный сброс пароля`, 
+                "color: #FF9800; font-weight: bold;");
+    console.log(`%cEmail: ${userEmail}\nПароль: ${newPassword}`, 
+                "color: #2196F3; font-family: monospace;");
+    
+    // Закрываем модальное окно и открываем заново для обновления данных
+    document.querySelector('.admin-modal')?.remove();
+    await showAdminPanel();
+    
+  } catch (error) {
+    console.error('Ошибка принудительного сброса:', error);
+    alert('Ошибка сброса пароля');
+  }
 }
 
 // ---------- НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ----------
@@ -324,7 +377,8 @@ onAuthStateChanged(auth, async (user) => {
     if (userEmailSpan) userEmailSpan.innerText = '';
     quizInitialized = false;
     quizInstance = null;
-    adminPanel.innerHTML = '';
+    currentUserData = null;
+    if (adminPanel) adminPanel.innerHTML = '';
     return;
   }
 
@@ -337,7 +391,7 @@ onAuthStateChanged(auth, async (user) => {
   if (userEmailSpan) userEmailSpan.innerText = user.email || '';
   
   // Настройка панели админа
-  setupAdminPanel(user.email);
+  await setupAdminPanel(user.email);
 
   const uDocRef = doc(db, 'users', user.uid);
   progressDocRef = doc(db, 'usersanswer', user.uid);
@@ -365,6 +419,7 @@ onAuthStateChanged(auth, async (user) => {
     if (!docSnap.exists()) return;
 
     const data = docSnap.data();
+    currentUserData = data;
     const allowed = data.allowed === true;
 
     if (allowed) {
@@ -376,18 +431,71 @@ onAuthStateChanged(auth, async (user) => {
 
       // 🔄 СБРОС ПАРОЛЯ при каждом входе с доступом
       try {
-        // Ждём немного, чтобы пользователь успел войти
-        setTimeout(async () => {
-          await resetUserPassword(user);
-        }, 1000);
+        // Проверяем условия для сброса пароля:
+        // 1. Если пароль еще не менялся (passwordChanged: false)
+        // 2. ИЛИ если currentPassword равен null
+        // 3. ИЛИ если с последней смены прошло больше 5 минут
+        let shouldReset = false;
+        let reason = '';
+        
+        if (!data.passwordChanged) {
+          shouldReset = true;
+          reason = 'пароль никогда не менялся';
+        } else if (!data.currentPassword) {
+          shouldReset = true;
+          reason = 'текущий пароль отсутствует в базе';
+        } else if (data.lastPasswordChange) {
+          const lastChangeTime = data.lastPasswordChange.toDate().getTime();
+          const now = Date.now();
+          const fiveMinutes = 5 * 60 * 1000;
+          if (now - lastChangeTime > fiveMinutes) {
+            shouldReset = true;
+            reason = 'прошло больше 5 минут с последней смены';
+          }
+        }
+        
+        if (shouldReset) {
+          console.log(`🔄 Запуск сброса пароля (${reason})...`);
+          // Даем время для загрузки интерфейса
+          setTimeout(async () => {
+            await resetUserPassword(user);
+          }, 1500);
+        } else {
+          console.log('✅ Пароль уже актуален, сброс не требуется');
+        }
       } catch (error) {
-        console.error('Ошибка при сбросе пароля:', error);
+        console.error('Ошибка при проверке сброса пароля:', error);
       }
 
       // ▶️ ИНИЦИАЛИЗАЦИЯ ТЕСТА
       if (!quizInitialized) {
         quizInstance = initQuiz(progressDocRef);
         quizInitialized = true;
+        
+        // Подписываемся на изменения прогресса для синхронизации
+        if (progressDocRef) {
+          progressUnsubscribe = onSnapshot(progressDocRef, (progressSnap) => {
+            if (!progressSnap.exists()) return;
+            
+            const progressData = progressSnap.data();
+            if (progressData.progress && quizInstance && quizInstance.mergeRemoteState) {
+              try {
+                const remoteState = JSON.parse(progressData.progress);
+                const remoteTime = progressData.updatedAt?.toMillis() || 0;
+                
+                // Обновляем только если данные свежее локальных
+                const localTime = JSON.parse(localStorage.getItem("bioState"))?.lastSyncTimestamp || 0;
+                
+                if (remoteTime > localTime && remoteTime > Date.now() - 60000) {
+                  console.log('🔄 Получены обновленные данные с сервера');
+                  quizInstance.mergeRemoteState(remoteState, remoteTime);
+                }
+              } catch (err) {
+                console.error('Ошибка синхронизации:', err);
+              }
+            }
+          });
+        }
       }
 
     } else {
@@ -399,6 +507,7 @@ onAuthStateChanged(auth, async (user) => {
     }
   }, (err) => {
     console.error('Ошибка realtime-слушателя пользователя:', err);
+    setStatus('Ошибка подключения к серверу', true);
   });
 });
 
@@ -461,9 +570,19 @@ function initQuiz(progressRef) {
               const localTime = state.lastSyncTimestamp || 0;
               
               if (remoteTime > localTime) {
+                console.log('📥 Загрузка прогресса с сервера...');
+                // Сохраняем важные локальные настройки
+                const localQueueType = state.queueType;
+                const localIndex = state.index;
+                
+                // Обновляем состояние
                 Object.assign(state, savedState);
                 state.lastSyncTimestamp = remoteTime;
-                console.log('✅ Прогресс загружен с сервера');
+                
+                // Восстанавливаем текущий контекст
+                state.queueType = localQueueType;
+                state.index = Math.min(localIndex, state.queueType === "main" ? 
+                  (state.mainQueue?.length || 0) : (state.errorQueue?.length || 0));
               }
             }
           } catch (err) {
@@ -499,16 +618,45 @@ function initQuiz(progressRef) {
         lastUpdated: timestamp
       }).catch(err => {
         console.error('Ошибка сохранения прогресса:', err);
+        // Сохраняем для оффлайн-синхронизации
+        if (!state.unsyncedChanges) state.unsyncedChanges = [];
+        state.unsyncedChanges.push(timestamp);
       });
+    }
+  }
+
+  // Функция для слияния удаленных данных
+  function mergeRemoteState(remoteState, remoteTime) {
+    try {
+      // Сохраняем текущую позицию
+      const currentQueueType = state.queueType;
+      const currentIndex = state.index;
+      
+      // Обновляем основное состояние
+      Object.assign(state, remoteState);
+      state.lastSyncTimestamp = remoteTime;
+      
+      // Восстанавливаем текущий контекст если нужно
+      if (currentQueueType === state.queueType) {
+        state.index = Math.min(currentIndex, 
+          state.queueType === "main" ? (state.mainQueue?.length || 0) : (state.errorQueue?.length || 0));
+      }
+      
+      // Обновляем интерфейс
+      render();
+    } catch (err) {
+      console.error('Ошибка слияния состояний:', err);
     }
   }
 
   // Shuffle функция
   function shuffleArray(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
+    const newArr = [...arr];
+    for (let i = newArr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [arr[i], arr[j]] = [arr[j], arr[i]];
+      [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
     }
+    return newArr;
   }
 
   // Загрузка вопросов
@@ -528,7 +676,7 @@ function initQuiz(progressRef) {
 
         if (!state.mainQueue || state.mainQueue.length !== questions.length) {
           mainQueue = [...Array(questions.length).keys()];
-          shuffleArray(mainQueue);
+          mainQueue = shuffleArray(mainQueue);
         } else {
           mainQueue = state.mainQueue.slice();
           const freeIndexes = [];
@@ -539,8 +687,8 @@ function initQuiz(progressRef) {
               floating.push(qId);
             }
           });
-          shuffleArray(floating);
-          freeIndexes.forEach((pos, i) => mainQueue[pos] = floating[i]);
+          const shuffledFloating = shuffleArray(floating);
+          freeIndexes.forEach((pos, i) => mainQueue[pos] = shuffledFloating[i]);
         }
         state.mainQueue = mainQueue.slice();
 
@@ -554,7 +702,7 @@ function initQuiz(progressRef) {
             order = state.answersOrder[qId].slice();
           } else {
             order = original.map(a => a.index);
-            shuffleArray(order);
+            order = shuffleArray(order);
             state.answersOrder[qId] = order.slice();
           }
 
@@ -574,7 +722,7 @@ function initQuiz(progressRef) {
         render();
       })
       .catch(err => {
-        console.error(err);
+        console.error('Ошибка загрузки вопросов:', err);
         if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
       });
   }
@@ -683,9 +831,13 @@ function initQuiz(progressRef) {
       btn.style.borderColor = "#ccc";
     }
 
-    if (state.index === parseInt(btn.innerText) - 1) {
-      btn.style.border = "2px solid blue";
-      btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
+    const btnNumber = parseInt(btn.innerText) - 1;
+    if (state.index === btnNumber) {
+      btn.style.border = "2px solid #2196F3";
+      btn.style.boxShadow = "0 0 8px rgba(33,150,243,0.7)";
+    } else {
+      btn.style.border = btn.style.borderColor ? `1px solid ${btn.style.borderColor}` : "1px solid #ccc";
+      btn.style.boxShadow = "none";
     }
   }
 
@@ -890,26 +1042,35 @@ function initQuiz(progressRef) {
   // Reset
   if (resetBtn) resetBtn.onclick = () => {
     if (confirm("Вы уверены? Это удалит весь прогресс!")) {
+      const resetState = {
+        queueType: "main",
+        index: 0,
+        mainIndex: 0,
+        stats: { correct: 0, wrong: 0 },
+        errors: [],
+        errorAttempts: {},
+        history: {},
+        mainQueue: null,
+        answersOrder: {},
+        errorQueue: [],
+        lastSyncTimestamp: Date.now()
+      };
+      
       localStorage.removeItem("bioState");
+      
       if (progressRef) {
         updateDoc(progressRef, {
-          progress: JSON.stringify({
-            queueType: "main",
-            index: 0,
-            mainIndex: 0,
-            stats: { correct: 0, wrong: 0 },
-            errors: [],
-            errorAttempts: {},
-            history: {},
-            mainQueue: null,
-            answersOrder: {},
-            errorQueue: [],
-            lastSyncTimestamp: Date.now()
-          }),
+          progress: JSON.stringify(resetState),
           updatedAt: serverTimestamp()
+        }).then(() => {
+          location.reload();
+        }).catch(err => {
+          console.error('Ошибка сброса:', err);
+          location.reload();
         });
+      } else {
+        location.reload();
       }
-      location.reload();
     }
   };
 
@@ -920,15 +1081,18 @@ function initQuiz(progressRef) {
     saveState,
     loadQuestions,
     render,
+    mergeRemoteState,
     unsubscribe: () => {
-      // Функция для отписки
+      if (progressUnsubscribe) {
+        progressUnsubscribe();
+      }
     }
   };
 }
 
 // Инициализация overlays
 if (authOverlay) authOverlay.style.display = 'flex';
-if (waitOverlay) waitOverlay.style.display = 'flex';
+if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
