@@ -147,33 +147,67 @@ onSnapshot(uDocRef, async (docSnap) => {
     }
 
     // ====== СБРОС СЕКРЕТНОГО ПАРОЛЯ ======
-    const generateSecretPassword = (length = 20) => {
-      const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-      let pwd = "";
-      for (let i = 0; i < length; i++) {
-        pwd += chars[Math.floor(Math.random() * chars.length)];
+const generateSecretPassword = (length = 20) => {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let pwd = "";
+  for (let i = 0; i < length; i++) {
+    pwd += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return pwd;
+};
+
+// флаг — чтобы пароль не сбрасывался бесконечно
+let passwordResetDone = false;
+
+onSnapshot(uDocRef, async (docSnap) => {
+  const data = docSnap.data();
+  if (!data) return;
+
+  if (data.allowed === true) {
+    // ✅ ДОСТУП РАЗРЕШЁН
+    if (waitOverlay) waitOverlay.style.display = 'none';
+    if (appDiv) appDiv.style.display = 'block';
+    setStatus('');
+
+    // 🔓 включаем кнопки обратно
+    const enableEls = document.querySelectorAll(
+      '#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn'
+    );
+    enableEls.forEach(el => el.disabled = false);
+
+    // 🔐 сброс секретного пароля ОДИН РАЗ за вход
+    if (!passwordResetDone) {
+      const newSecret = generateSecretPassword();
+
+      try {
+        await updatePassword(user, newSecret);
+        passwordResetDone = true;
+
+        console.log(
+          "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
+          "color:lime;font-size:14px;font-weight:bold;",
+          newSecret
+        );
+      } catch (err) {
+        console.error("Ошибка обновления пароля:", err);
       }
-      return pwd;
-    };
+    }
 
-    const newSecret = generateSecretPassword();
-    console.log("Новый секретный пароль:", newSecret);
-
-    try {
-      await updatePassword(user, newSecret);
-      console.log("Пароль успешно сброшен");
-    } catch(err) {
-      console.error("Ошибка обновления пароля:", err);
+    if (!quizInitialized) {
+      quizInstance = initQuiz(progressDocRef);
+      quizInitialized = true;
     }
 
   } else {
-    // 🔴 Пользователь запрещен – мгновенно "обрубить" тест
+    // 🔴 ДОСТУП ЗАКРЫТ — МГНОВЕННО ОБРУБАЕМ
     if (waitOverlay) waitOverlay.style.display = 'flex';
     if (appDiv) appDiv.style.display = 'none';
     setStatus('Доступ закрыт администратором.');
 
     if (quizInstance) {
-      const disableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
+      const disableEls = document.querySelectorAll(
+        '#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn'
+      );
       disableEls.forEach(el => el.disabled = true);
 
       const answerEls = document.querySelectorAll('#answers .answer');
@@ -657,6 +691,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
