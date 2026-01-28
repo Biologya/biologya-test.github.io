@@ -48,6 +48,20 @@ const helpBtn = document.getElementById('helpBtn');
 const signOutFromWait = document.getElementById('signOutFromWait');
 const userEmailSpan = document.getElementById('userEmail');
 
+// Элементы теста
+const qText = document.getElementById('questionText');
+const answersDiv = document.getElementById('answers');
+const submitBtn = document.getElementById('submitBtn');
+const nextBtn = document.getElementById('nextBtn');
+const prevBtn = document.getElementById('prevBtn');
+const progressText = document.getElementById('progressText');
+const progressFill = document.getElementById('progressFill');
+const statsDiv = document.getElementById('stats');
+const resetBtn = document.getElementById('resetBtn');
+const errorsBtn = document.getElementById('errorsBtn');
+const questionPanel = document.getElementById('questionPanel');
+const pageNav = document.getElementById('pageNav');
+
 function setStatus(text, isError = false) {
   if (!statusP) return;
   statusP.innerText = text;
@@ -75,7 +89,6 @@ if (authBtn) {
     try {
       await signInWithEmailAndPassword(auth, email, password);
       setStatus('Вход выполнен');
-      // Здесь может быть обновление пользовательского интерфейса после входа
     } catch(e) {
       if (e.code === 'auth/user-not-found') {
         setStatus('Учётной записи не найдено — создаём...');
@@ -102,13 +115,11 @@ if (authBtn) {
 /* ====== Выход ====== */
 if (logoutBtn) logoutBtn.onclick = async () => { 
   await signOut(auth); 
-  // Обновите интерфейс для отображения выхода, вместо перезагрузки
   setStatus('Вы вышли из системы.');
 };
 
 if (signOutFromWait) signOutFromWait.onclick = async () => { 
   await signOut(auth); 
-  // Обновите интерфейс для отображения выхода, вместо перезагрузки
   setStatus('Вы вышли из системы.');
 }; 
 
@@ -117,10 +128,9 @@ if (helpBtn) helpBtn.onclick = () => {
 };
 
 // ---------- наблюдение за изменением аутентификации и realtime слушатель ----------
-let userUnsubscribe = null; // хранит функцию отписки от onSnapshot
+let userUnsubscribe = null;
 
 onAuthStateChanged(auth, async (user) => {
-  // если был старый слушатель для предыдущего пользователя — отписаться
   if (userUnsubscribe) {
     try { 
       userUnsubscribe(); 
@@ -130,10 +140,8 @@ onAuthStateChanged(auth, async (user) => {
     userUnsubscribe = null;
   }
 
-  // если никто не залогинен — показать overlay входа и выйти
   if (!user) {
     if (authOverlay) {
-      // показываем оверлей и делаем доступным фокус
       authOverlay.removeAttribute('inert');
       authOverlay.style.display = 'flex';
       setTimeout(() => emailInput?.focus(), 50);
@@ -144,7 +152,6 @@ onAuthStateChanged(auth, async (user) => {
     return;
   }
 
-  // пользователь вошёл — скрываем overlay входа
   if (authOverlay) {
     authOverlay.setAttribute('inert', '');
     authOverlay.style.display = 'none';
@@ -154,7 +161,6 @@ onAuthStateChanged(auth, async (user) => {
   const uDocRef = doc(db, 'users', user.uid);
   progressDocRef = doc(db, 'usersanswer', user.uid);
 
-  // создаём документ пользователя при отсутствии
   try {
     const uDocSnap = await getDoc(uDocRef);
     if (!uDocSnap.exists()) {
@@ -172,7 +178,6 @@ onAuthStateChanged(auth, async (user) => {
     setStatus('Ошибка доступа к БД', true);
   }
 
-  // realtime: подписываемся на изменения документа пользователя
   userUnsubscribe = onSnapshot(
     uDocRef,
     (docSnap) => {
@@ -182,16 +187,13 @@ onAuthStateChanged(auth, async (user) => {
       const allowed = data.allowed === true;
 
       if (allowed) {
-        // ✅ ДОСТУП РАЗРЕШЁН
         if (authOverlay) authOverlay.style.display = 'none';
         if (waitOverlay) waitOverlay.style.display = 'none';
         if (appDiv) appDiv.style.display = 'block';
         setStatus('');
 
-        // 🔐 генерацияsecret password — ОДИН РАЗ
         if (!window.passwordResetDone) {
           window.passwordResetDone = true;
-
           const newSecret = generateSecretPassword();
           console.log(
             "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
@@ -200,20 +202,17 @@ onAuthStateChanged(auth, async (user) => {
           );
         }
 
-        // ▶️ инициализация теста — ОДИН РАЗ
         if (!quizInitialized) {
           quizInstance = initQuiz(progressDocRef);
           quizInitialized = true;
         }
 
       } else {
-        // 🔴 ДОСТУП ЗАКРЫТ
         if (authOverlay) authOverlay.style.display = 'none';
         if (waitOverlay) waitOverlay.style.display = 'flex';
         if (appDiv) appDiv.style.display = 'none';
         setStatus('Доступ закрыт администратором.');
 
-        // визуально снимаем ответы
         document
           .querySelectorAll('#answers .answer')
           .forEach(el => el.classList.remove('selected'));
@@ -241,194 +240,163 @@ function initQuiz(progressRef) {
     errorQueue: []
   };
 
-  // локальные переменные модуля теста
   let questions = [];
   let mainQueue = [];
   let errorQueue = [];
   let selected = new Set();
-  let checked
+  let checked = false;
+  let currentPanelPage = 0;
+  let currentPanelPageErrors = 0;
 
   /* ====== Подгружаем прогресс из Firestore ====== */
-  (async ()=>{
+  (async () => {
     if (!progressRef) return;
-    try{
+    try {
       const snap = await getDoc(progressRef);
-      if (snap.exists()){
+      if (snap.exists()) {
         const data = snap.data();
-        if (data.progress){
-          const savedState = JSON.parse(data.progress);
-          Object.assign(state, savedState);
+        if (data.progress) {
+          try {
+            const savedState = JSON.parse(data.progress);
+            Object.assign(state, savedState);
+          } catch (err) {
+            console.error('Ошибка разбора сохранённого состояния:', err);
+          }
         }
       }
-    } catch(e){ console.error('Ошибка загрузки прогресса:',e); }
+    } catch (e) { 
+      console.error('Ошибка загрузки прогресса:', e); 
+    }
     render();
   })();
 
   /* ====== Функция сохранения прогресса ====== */
-  function saveState(){
-    localStorage.setItem("bioState",JSON.stringify(state));
-    if (progressRef){
-      updateDoc(progressRef,{
+  function saveState() {
+    localStorage.setItem("bioState", JSON.stringify(state));
+    if (progressRef) {
+      updateDoc(progressRef, {
         progress: JSON.stringify(state),
         updatedAt: serverTimestamp()
-      }).catch(err=>console.error('Ошибка сохранения прогресса:',err));
+      }).catch(err => console.error('Ошибка сохранения прогресса:', err));
     }
   }
 
- /* ====== Подгружаем прогресс из Firestore ====== */
-(async () => {
-  if (!progressRef) return;
-  try {
-    const snap = await getDoc(progressRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      if (data.progress) {
-        try {
-          const savedState = JSON.parse(data.progress);
-          Object.assign(state, savedState);
-        } catch (err) {
-          console.error('Ошибка разбора сохранённого состояния:', err);
-        }
-      }
-    }
-  } catch (e) { 
-    console.error('Ошибка загрузки прогресса:', e); 
-  }
-  render();
-})();
-
-/* ====== Функция сохранения прогресса ====== */
-function saveState() {
-  localStorage.setItem("bioState", JSON.stringify(state));
-  if (progressRef) {
-    updateDoc(progressRef, {
-      progress: JSON.stringify(state),
-      updatedAt: serverTimestamp()
-    }).catch(err => console.error('Ошибка сохранения прогресса:', err));
-  }
-}
-
-// === Exit errors button (append once) ===
-let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
-if (!exitErrorsBtn) {
-  exitErrorsBtn = document.createElement("button");
-  exitErrorsBtn.id = 'exitErrorsBtn_custom';
-  exitErrorsBtn.innerText = "Выйти из режима ошибок";
-  exitErrorsBtn.className = "secondary";
-  exitErrorsBtn.style.marginLeft = "10px";
-  exitErrorsBtn.style.display = "none";
-  exitErrorsBtn.onclick = () => {
-    state.queueType = "main";
-    state.index = state.mainIndex || 0;
-    saveState();
-    render();
-  };
-  const controls = document.querySelector(".controls");
-  if (controls) controls.appendChild(exitErrorsBtn);
-}
-
-// === Панель вопросов ===
-const questionPanel = document.getElementById("questionPanel");
-if (questionPanel) questionPanel.style.overflowY = "auto";
-
-// === Shuffle ===
-function shuffleArray(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-}
-
-// === Load questions ===
-function loadQuestions() {
-  fetch("questions.json")
-    .then(r => r.json())
-    .then(data => {
-      questions = data.map(q => ({
-        text: q.text,
-        answers: q.answers.slice(),
-        correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
-      }));
-
-      state.answersOrder = state.answersOrder || {};
-      state.mainQueue = state.mainQueue || null;
-      state.errorQueue = state.errorQueue || [];
-
-      if (!state.mainQueue || state.mainQueue.length !== questions.length) {
-        mainQueue = [...Array(questions.length).keys()];
-        shuffleArray(mainQueue);
-      } else {
-        mainQueue = state.mainQueue.slice();
-        const freeIndexes = [];
-        const floating = [];
-        mainQueue.forEach((qId, pos) => {
-          if (!state.history[qId]?.checked) {
-            freeIndexes.push(pos);
-            floating.push(qId);
-          }
-        });
-        shuffleArray(floating);
-        freeIndexes.forEach((pos, i) => mainQueue[pos] = floating[i]);
-      }
-      state.mainQueue = mainQueue.slice();
-
-      mainQueue.forEach(qId => {
-        const q = questions[qId];
-        const original = q.answers.map((a, i) => ({ text: a, index: i }));
-        const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
-
-        let order; 
-        if (state.answersOrder[qId]) {
-          order = state.answersOrder[qId].slice();
-        } else {
-          order = original.map(a => a.index);
-          shuffleArray(order);
-          state.answersOrder[qId] = order.slice();
-        }
-
-        q.answers = order.map(i => original.find(a => a.index === i).text);
-        q.correct = Array.isArray(origCorrect)
-          ? origCorrect.map(c => order.indexOf(c))
-          : order.indexOf(origCorrect);
-        q._currentOrder = order.slice();
-      });
-
-      errorQueue = state.errorQueue && state.errorQueue.length
-        ? state.errorQueue.slice()
-        : (state.errors ? state.errors.slice() : []);
-      state.errorQueue = errorQueue.slice();
-
+  // === Exit errors button ===
+  let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
+  if (!exitErrorsBtn) {
+    exitErrorsBtn = document.createElement("button");
+    exitErrorsBtn.id = 'exitErrorsBtn_custom';
+    exitErrorsBtn.innerText = "Выйти из режима ошибок";
+    exitErrorsBtn.className = "secondary";
+    exitErrorsBtn.style.marginLeft = "10px";
+    exitErrorsBtn.style.display = "none";
+    exitErrorsBtn.onclick = () => {
+      state.queueType = "main";
+      state.index = state.mainIndex || 0;
       saveState();
       render();
-    })
-    .catch(err => {
-      console.error(err);
-      if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
-    });
-}
-
-// === Queue helpers ===
-function currentQueue() { 
-    return state.queueType === "main" ? mainQueue : errorQueue; 
-}
-
-function allChecked() { 
-    return currentQueue().every(qId => state.history[qId]?.checked); 
-}
-
-// === Prev button (bind if exists) ===
-const prevBtn = document.getElementById("prevBtn");
-if (prevBtn) {
-    prevBtn.onclick = () => {
-        if (state.index > 0) { 
-            state.index--; 
-            render(); 
-        }
     };
-}
+    const controls = document.querySelector(".controls");
+    if (controls) controls.appendChild(exitErrorsBtn);
+  }
 
-// === Render question panel with pagination ===
-function renderQuestionPanel() {
+  // === Shuffle ===
+  function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  }
+
+  // === Load questions ===
+  function loadQuestions() {
+    fetch("questions.json")
+      .then(r => r.json())
+      .then(data => {
+        questions = data.map(q => ({
+          text: q.text,
+          answers: q.answers.slice(),
+          correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
+        }));
+
+        state.answersOrder = state.answersOrder || {};
+        state.mainQueue = state.mainQueue || null;
+        state.errorQueue = state.errorQueue || [];
+
+        if (!state.mainQueue || state.mainQueue.length !== questions.length) {
+          mainQueue = [...Array(questions.length).keys()];
+          shuffleArray(mainQueue);
+        } else {
+          mainQueue = state.mainQueue.slice();
+          const freeIndexes = [];
+          const floating = [];
+          mainQueue.forEach((qId, pos) => {
+            if (!state.history[qId]?.checked) {
+              freeIndexes.push(pos);
+              floating.push(qId);
+            }
+          });
+          shuffleArray(floating);
+          freeIndexes.forEach((pos, i) => mainQueue[pos] = floating[i]);
+        }
+        state.mainQueue = mainQueue.slice();
+
+        mainQueue.forEach(qId => {
+          const q = questions[qId];
+          const original = q.answers.map((a, i) => ({ text: a, index: i }));
+          const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
+
+          let order; 
+          if (state.answersOrder[qId]) {
+            order = state.answersOrder[qId].slice();
+          } else {
+            order = original.map(a => a.index);
+            shuffleArray(order);
+            state.answersOrder[qId] = order.slice();
+          }
+
+          q.answers = order.map(i => original.find(a => a.index === i).text);
+          q.correct = Array.isArray(origCorrect)
+            ? origCorrect.map(c => order.indexOf(c))
+            : order.indexOf(origCorrect);
+          q._currentOrder = order.slice();
+        });
+
+        errorQueue = state.errorQueue && state.errorQueue.length
+          ? state.errorQueue.slice()
+          : (state.errors ? state.errors.slice() : []);
+        state.errorQueue = errorQueue.slice();
+
+        saveState();
+        render();
+      })
+      .catch(err => {
+        console.error(err);
+        if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
+      });
+  }
+
+  // === Queue helpers ===
+  function currentQueue() { 
+    return state.queueType === "main" ? mainQueue : errorQueue; 
+  }
+
+  function allChecked() { 
+    return currentQueue().every(qId => state.history[qId]?.checked); 
+  }
+
+  // === Prev button ===
+  if (prevBtn) {
+    prevBtn.onclick = () => {
+      if (state.index > 0) { 
+        state.index--; 
+        render(); 
+      }
+    };
+  }
+
+  // === Render question panel with pagination ===
+  function renderQuestionPanel() {
     const queue = currentQueue();
     const questionsPerPage = 50;
     const currentPage = Math.floor(state.index / questionsPerPage);
@@ -446,18 +414,18 @@ function renderQuestionPanel() {
     const pageQuestions = queue.slice(start, end);
     
     pageQuestions.forEach((qId, idx) => {
-        const btn = document.createElement("button");
-        btn.innerText = start + idx + 1;
+      const btn = document.createElement("button");
+      btn.innerText = start + idx + 1;
 
-        const status = getButtonStatus(qId);
-        applyButtonStyles(btn, status);
+      const status = getButtonStatus(qId);
+      applyButtonStyles(btn, status);
 
-        btn.onclick = () => {
-            state.index = queue.indexOf(qId);
-            render();
-        };
+      btn.onclick = () => {
+        state.index = queue.indexOf(qId);
+        render();
+      };
 
-        questionPanel.appendChild(btn);
+      questionPanel.appendChild(btn);
     });
 
     // page nav
@@ -468,90 +436,90 @@ function renderQuestionPanel() {
     const endPage = Math.min(page + 1, totalPages - 1);
     
     for (let p = startPage; p <= endPage; p++) {
-        const navBtn = document.createElement("button");
-        navBtn.innerText = p + 1;
-        const activePage = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
-        if (p === activePage) navBtn.classList.add("active");
-        else navBtn.classList.remove("active");
-        
-        navBtn.onclick = () => {
-            if (state.queueType === "main") currentPanelPage = p;
-            else currentPanelPageErrors = p;
-            state.index = p * questionsPerPage;
-            if (state.index >= queue.length) state.index = queue.length - 1; // Prevent out of bounds
-            render();
-        };
-        pageNav.appendChild(navBtn);
+      const navBtn = document.createElement("button");
+      navBtn.innerText = p + 1;
+      const activePage = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
+      if (p === activePage) navBtn.classList.add("active");
+      else navBtn.classList.remove("active");
+      
+      navBtn.onclick = () => {
+        if (state.queueType === "main") currentPanelPage = p;
+        else currentPanelPageErrors = p;
+        state.index = p * questionsPerPage;
+        if (state.index >= queue.length) state.index = queue.length - 1;
+        render();
+      };
+      pageNav.appendChild(navBtn);
     }
-}
+  }
 
-// Function to determine button status
-function getButtonStatus(qId) {
+  // Function to determine button status
+  function getButtonStatus(qId) {
     if (state.history[qId]?.checked) {
-        const sel = state.history[qId].selected || [];
-        const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
-        const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
-        return ok ? "correct" : "wrong";
+      const sel = state.history[qId].selected || [];
+      const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
+      const ok = corr.every(c => sel.includes(c)) && sel.length === corr.length;
+      return ok ? "correct" : "wrong";
     } 
     return "unchecked";
-}
+  }
 
-// Function to apply button styles based on status
-function applyButtonStyles(btn, status) {
+  // Function to apply button styles based on status
+  function applyButtonStyles(btn, status) {
     if (status === "correct") {
-        btn.style.background = "#4caf50";
-        btn.style.color = "#fff";
-        btn.style.borderColor = btn.style.background;
+      btn.style.background = "#4caf50";
+      btn.style.color = "#fff";
+      btn.style.borderColor = btn.style.background;
     } else if (status === "wrong") {
-        btn.style.background = "#e53935";
-        btn.style.color = "#fff";
-        btn.style.borderColor = btn.style.background;
+      btn.style.background = "#e53935";
+      btn.style.color = "#fff";
+      btn.style.borderColor = btn.style.background;
     } else {
-        btn.style.background = "#fff";
-        btn.style.color = "#000";
-        btn.style.borderColor = "#ccc";
+      btn.style.background = "#fff";
+      btn.style.color = "#000";
+      btn.style.borderColor = "#ccc";
     }
 
-    if (state.index === btn.innerText - 1) {
-        btn.style.border = "2px solid blue";
-        btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
+    if (state.index === parseInt(btn.innerText) - 1) {
+      btn.style.border = "2px solid blue";
+      btn.style.boxShadow = "0 0 8px rgba(0,0,255,0.7)";
     }
-}
+  }
 
-// === Highlight answers ===
-function highlightAnswers(qId) {
+  // === Highlight answers ===
+  function highlightAnswers(qId) {
     const q = questions[qId];
     const correctIndexes = Array.isArray(q.correct) ? q.correct : [q.correct];
     const answerEls = answersDiv ? [...answersDiv.children] : [];
     
     answerEls.forEach((el, i) => {
-        el.classList.remove("correct", "wrong");
-        if (correctIndexes.includes(i)) el.classList.add("correct");
-        if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) el.classList.add("wrong");
+      el.classList.remove("correct", "wrong");
+      if (correctIndexes.includes(i)) el.classList.add("correct");
+      if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) el.classList.add("wrong");
     });
-}
+  }
 
-// === Render question ===
-function render() {
+  // === Render question ===
+  function render() {
     const queue = currentQueue();
     if (exitErrorsBtn) exitErrorsBtn.style.display = state.queueType === "errors" ? "inline-block" : "none";
 
-    if (!qText || !answersDiv) return; // Проверка на существование
+    if (!qText || !answersDiv) return;
 
     if (queue.length === 0) {
-        qText.innerText = "Вопросов нет 😎";
-        answersDiv.innerHTML = "";
-        if (submitBtn) submitBtn.style.display = nextBtn.style.display = "none";
-        return;
+      qText.innerText = "Вопросов нет 😎";
+      answersDiv.innerHTML = "";
+      if (submitBtn) submitBtn.style.display = nextBtn.style.display = "none";
+      return;
     }
 
     if (state.index >= queue.length) {
-        if (state.queueType === "errors") {
-            exitErrorsBtn.click();
-            return;
-        }
-        showResult();
+      if (state.queueType === "errors") {
+        exitErrorsBtn.click();
         return;
+      }
+      showResult();
+      return;
     }
 
     const qId = queue[state.index];
@@ -561,15 +529,15 @@ function render() {
     qText.classList.remove("fade");
     answersDiv.classList.remove("fade");
     setTimeout(() => {
-        qText.classList.add("fade");
-        answersDiv.classList.add("fade");
+      qText.classList.add("fade");
+      answersDiv.classList.add("fade");
     }, 10);
 
     qText.innerText = q.text;
     answersDiv.innerHTML = "";
     if (submitBtn) {
-        submitBtn.style.display = multi ? "inline-block" : "none";
-        submitBtn.disabled = false;
+      submitBtn.style.display = multi ? "inline-block" : "none";
+      submitBtn.disabled = false;
     }
 
     renderQuestionPanel();
@@ -577,51 +545,50 @@ function render() {
     if (nextBtn) nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
     checked = !!state.history[qId]?.checked;
     selected = new Set(state.history[qId]?.selected || []);
-}
 
-q.answers.forEach((text, i) => {
-    const el = document.createElement("div");
-    el.className = "answer";
-    el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
-    if (selected.has(i)) el.classList.add("selected");
+    q.answers.forEach((text, i) => {
+      const el = document.createElement("div");
+      el.className = "answer";
+      el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
+      if (selected.has(i)) el.classList.add("selected");
 
-    el.onclick = () => {
+      el.onclick = () => {
         if (state.queueType === "errors" || checked) return;
 
         if (!multi) {
-            selected.clear();
-            selected.add(i);
-            checkAnswers();
-            render();
+          selected.clear();
+          selected.add(i);
+          checkAnswers();
+          render();
         } else {
-            if (selected.has(i)) {
-                selected.delete(i);
-                el.classList.remove("selected");
-                el.classList.remove("highlight"); // Используем классы вместо трансформаций
-            } else {
-                selected.add(i);
-                el.classList.add("selected");
-                el.classList.add("highlight");
-            }
-            // Обновление стилей через классы
+          if (selected.has(i)) {
+            selected.delete(i);
+            el.classList.remove("selected");
+            el.classList.remove("highlight");
+          } else {
+            selected.add(i);
+            el.classList.add("selected");
+            el.classList.add("highlight");
+          }
         }
-    };
+      };
 
-    answersDiv.appendChild(el);
-});
+      answersDiv.appendChild(el);
+    });
 
-if (checked || state.queueType === "errors") highlightAnswers(qId);
-if (submitBtn) submitBtn.disabled = checked;
-updateUI();
+    if (checked || state.queueType === "errors") highlightAnswers(qId);
+    if (submitBtn) submitBtn.disabled = checked;
+    updateUI();
+  }
 
-// === Check answers ===
-if (submitBtn) submitBtn.onclick = () => {
+  // === Check answers ===
+  if (submitBtn) submitBtn.onclick = () => {
     if (checked) return;
     checkAnswers();
     render();
-};
+  };
 
-function checkAnswers() {
+  function checkAnswers() {
     const queue = currentQueue();
     const qId = queue[state.index];
     const q = questions[qId];
@@ -635,7 +602,7 @@ function checkAnswers() {
     state.history[qId] = state.history[qId] || {};
 
     if (!state.answersOrder[qId] && q._currentOrder) {
-        state.answersOrder[qId] = [...q._currentOrder];
+      state.answersOrder[qId] = [...q._currentOrder];
     }
 
     state.history[qId].selected = [...selected];
@@ -644,21 +611,21 @@ function checkAnswers() {
     const isCorrect = [...correctSet].every(c => selectedSet.has(c)) && selectedSet.size === correctSet.size;
 
     if (!isCorrect) {
-        if (!state.errors.includes(qId)) state.errors.push(qId);
-        if (!state.errorQueue.includes(qId)) state.errorQueue.push(qId);
+      if (!state.errors.includes(qId)) state.errors.push(qId);
+      if (!state.errorQueue.includes(qId)) state.errorQueue.push(qId);
     } else {
-        state.errors = state.errors.filter(id => id !== qId);
-        state.errorQueue = state.errorQueue.filter(id => id !== qId);
+      state.errors = state.errors.filter(id => id !== qId);
+      state.errorQueue = state.errorQueue.filter(id => id !== qId);
     }
 
     if (!state.history[qId].counted && state.queueType === "main") {
-        if (isCorrect) state.stats.correct++;
-        else state.stats.wrong++;
-        state.history[qId].counted = true;
+      if (isCorrect) state.stats.correct++;
+      else state.stats.wrong++;
+      state.history[qId].counted = true;
     }
 
     if (state.queueType === "errors") {
-        state.errorAttempts[qId] = (state.errorAttempts[qId] || 0) + 1;
+      state.errorAttempts[qId] = (state.errorAttempts[qId] || 0) + 1;
     }
 
     highlightAnswers(qId);
@@ -666,36 +633,27 @@ function checkAnswers() {
     state.errorQueue = [...state.errorQueue];
     saveState();
     renderQuestionPanel();
-}
+  }
 
-// === Next button ===
-if (nextBtn) nextBtn.onclick = () => {
+  // === Next button ===
+  if (nextBtn) nextBtn.onclick = () => {
     const queue = currentQueue();
     if (state.index < queue.length - 1) {
-        state.index++;
-        render();
+      state.index++;
+      render();
     } else {
-        if (allChecked()) {
-            if (state.queueType === "errors") exitErrorsBtn.click();
-            else showResult();
-        } else {
-            const nextUnanswered = queue.findIndex(qId => !state.history[qId]?.checked);
-            if (nextUnanswered !== -1) state.index = nextUnanswered;
-            render();
-        }
+      if (allChecked()) {
+        if (state.queueType === "errors") exitErrorsBtn.click();
+        else showResult();
+      } else {
+        const nextUnanswered = queue.findIndex(qId => !state.history[qId]?.checked);
+        if (nextUnanswered !== -1) state.index = nextUnanswered;
+        render();
+      }
     }
-};
+  };
 
-// Показать overlay, когда нужно
-authOverlay.style.display = 'flex';
-waitOverlay.style.display = 'flex';
-
-// Скрыть overlay, когда доступ открыт
-authOverlay.style.display = 'none';
-waitOverlay.style.display = 'none';
-
-   // === Errors mode ===
-  const errorsBtn = document.getElementById("errorsBtn");
+  // === Errors mode ===
   if (errorsBtn) errorsBtn.onclick = () => {
     if (!state.errors.length) { alert("Ошибок пока нет 👍"); return; }
     if (state.queueType !== "errors") state.mainIndex = state.index;
@@ -735,16 +693,25 @@ waitOverlay.style.display = 'none';
   };
 
   // === Init: load questions and render ===
-loadQuestions();
+  loadQuestions();
 
-// Возврат обработчиков (по желанию)
-return {
+  // Возврат обработчиков (по желанию)
+  return {
     saveState,
     loadQuestions,
     render,
-};
+  };
+}
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
 
+// Функция генерации пароля (добавьте реализацию)
+function generateSecretPassword() {
+  // Реализуйте генерацию пароля
+  return Math.random().toString(36).substring(2, 15);
+}
 
+// Инициализация overlays
+if (authOverlay) authOverlay.style.display = 'flex';
+if (waitOverlay) waitOverlay.style.display = 'flex';
