@@ -13,6 +13,8 @@ import {
   doc,
   setDoc,
   getDoc,
+  updateDoc,
+  onSnapshot,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
@@ -216,32 +218,9 @@ userUnsubscribe = onSnapshot(
   }
 );
 
-// доступ разрешён
-waitOverlay.style.display = 'none';
-authOverlay.style.display = 'none';
-appDiv.style.display = 'block';
-
-// доступ запрещён
-waitOverlay.style.display = 'flex';
-appDiv.style.display = 'none';
-
 /* ====== Тест с синхронизацией ====== */
-function initQuiz(progressRef){
-  const state = JSON.parse(localStorage.getItem("bioState"))||{
-    queueType:"main", index:0, mainIndex:0, stats:{correct:0,wrong:0},
-    errors:[], errorAttempts:{}, history:{}, mainQueue:null, answersOrder:{}, errorQueue:[]
-  };
-
-  let questions=[], mainQueue=[], errorQueue=[];
-  let selected = new Set(), checked=false;
-  
-/* ===================================================================
-   Ниже — ваш существующий код теста, обёрнут в функцию initQuiz().
-   Я старался не менять логику — только поместил всё в scope функции.
-   =================================================================== */
-
-function initQuiz() {
-  // === Состояние ===
+function initQuiz(progressRef) {
+  // состояние: пытаемся восстановить из localStorage или ставим дефолт
   const state = JSON.parse(localStorage.getItem("bioState")) || {
     queueType: "main",
     index: 0,
@@ -255,8 +234,12 @@ function initQuiz() {
     errorQueue: []
   };
 
-  let questions = [], mainQueue = [], errorQueue = [];
-  let selected = new Set(), checked = false;
+  // локальные переменные модуля теста
+  let questions = [];
+  let mainQueue = [];
+  let errorQueue = [];
+  let selected = new Set();
+  let checked = false;
 
   // === Элементы UI ===
   const qText = document.getElementById("questionText");
@@ -709,3 +692,4 @@ waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
