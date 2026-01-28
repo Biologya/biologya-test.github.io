@@ -87,6 +87,7 @@ if (authBtn) {
       } else {
         setStatus(e.message||'Ошибка авторизации',true);
       }
+    }     
   });
 }
 
@@ -698,6 +699,7 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
