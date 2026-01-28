@@ -52,6 +52,12 @@ function setStatus(text, isError=false){
   statusP.style.color = isError ? '#e53935' : '#444';
 }
 
+/* ====== Глобальные флаги ====== */
+let quizInitialized = false;   // флаг, чтобы тест инициализировался один раз
+let quizInstance = null;       // экземпляр теста
+let progressDocRef = null;     // ссылка на прогресс в Firestore
+let passwordResetDone = false; // сброс пароля один раз
+
 /* ====== Авторизация: кнопка входа/регистрации ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async ()=>{
@@ -91,12 +97,6 @@ if (logoutBtn) logoutBtn.onclick = async ()=>{ await signOut(auth); location.rel
 if (signOutFromWait) signOutFromWait.onclick = async ()=>{ await signOut(auth); location.reload(); };
 if (helpBtn) helpBtn.onclick = ()=>{ alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); };
 
-/* ====== Глобальные флаги ====== */
-quizInitialized = true; // присваиваем, не объявляем 
-let quizInstance = null;      // экземпляр теста
-let progressDocRef = null;    // ссылка на прогресс в Firestore
-let passwordResetDone = false; // сброс пароля один раз
-
 /* ====== Когда изменился аутентифицированный юзер ====== */
 
 onAuthStateChanged(auth, async (user)=>{
@@ -112,7 +112,7 @@ onAuthStateChanged(auth, async (user)=>{
   if (userEmailSpan) userEmailSpan.innerText = user.email||'';
 
   const uDocRef = doc(db,'users',user.uid);
-  const progressDocRef = doc(db,'usersanswer',user.uid);
+  progressDocRef = doc(db,'usersanswer',user.uid);
 
   const uDocSnap = await getDoc(uDocRef);
   if (!uDocSnap.exists()){
@@ -716,6 +716,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
