@@ -718,7 +718,3 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
-
-
-
-
