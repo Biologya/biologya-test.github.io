@@ -126,21 +126,23 @@ onAuthStateChanged(auth, async (user)=>{
   }
   
   // ===== Реальный-time слушатель =====
- onSnapshot(uDocRef,(docSnap)=>{
-    const data = docSnap.data();
-    if (!data) return;
+if (data.allowed === true){
+  if (waitOverlay) waitOverlay.style.display = 'none';
+  if (appDiv) appDiv.style.display = 'block';
+  setStatus('');
 
-    if (data.allowed === true){
-      if (waitOverlay) waitOverlay.style.display = 'none';
-      if (appDiv) appDiv.style.display = 'block';
-      setStatus('');
-      if (!quizInitialized){
-        try {
-          quizInstance = initQuiz(progressDocRef);
-          quizInitialized = true;
-        } catch(err){ console.error(err); }
-      }
-    } else {
+  // 🔄 Если тест уже был и заблокирован, включаем кнопки
+  const enableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
+  enableEls.forEach(el => el.disabled = false);
+
+  if (!quizInitialized){
+    try {
+      quizInstance = initQuiz(progressDocRef);
+      quizInitialized = true;
+    } catch(err){ console.error(err); }
+  }
+  
+} else {
       // 🔴 Пользователь запрещен – мгновенно "обрубить" тест
       if (waitOverlay) waitOverlay.style.display = 'flex';
       if (appDiv) appDiv.style.display = 'none';
@@ -150,14 +152,14 @@ onAuthStateChanged(auth, async (user)=>{
       if (quizInstance){
         const disableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
         disableEls.forEach(el => el.disabled = true);
+
+        // убираем визуальные эффекты выделения
+const answerEls = document.querySelectorAll('#answers .answer');
+answerEls.forEach(el => el.classList.remove('selected'));
       }
     }
   });
 });
-
-// убираем визуальные эффекты выделения
-const answerEls = document.querySelectorAll('#answers .answer');
-answerEls.forEach(el => el.classList.remove('selected'));
 
 /* ====== Тест с синхронизацией ====== */
 function initQuiz(progressRef){
@@ -634,6 +636,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
