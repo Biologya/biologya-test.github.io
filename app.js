@@ -184,7 +184,7 @@ onAuthStateChanged(auth, async (user)=>{
 });
 
 // флаг — чтобы пароль не сбрасывался бесконечно
-let passwordResetDone = false;
+window.passwordResetDone = window.passwordResetDone || false;
 
 onSnapshot(uDocRef, async (docSnap) => {
   const data = docSnap.data();
@@ -200,8 +200,8 @@ onSnapshot(uDocRef, async (docSnap) => {
     document.body.classList.remove('blocked');
 
     // 🔐 сброс секретного пароля — ОДИН РАЗ за вход
-    if (!passwordResetDone) {
-      passwordResetDone = true;
+    if (!window.passwordResetDone) {
+       window.passwordResetDone = true;
 
       const generateSecretPassword = (length = 20) => {
         const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -719,5 +719,6 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
