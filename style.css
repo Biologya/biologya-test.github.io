@@ -147,12 +147,14 @@ button.secondary { background: #81c784; }
 #authOverlay,
 #waitOverlay {
   pointer-events: auto;
+  display: none; /* скрыт по умолчанию */
 }
 
 /* small responsive tweaks */
 @media (max-width: 420px) {
   .authCard { padding: 18px; width: 92%; }
 }
+
 
 
 
