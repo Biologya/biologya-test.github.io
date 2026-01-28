@@ -234,7 +234,7 @@ async function resetUserPassword(user) {
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function setupAdminPanel(userEmail) {
   // Email админа - ЗАМЕНИТЕ НА СВОЙ EMAIL
-  const adminEmail = "admin@example.com"; // ⬅️ ИЗМЕНИТЕ НА ВАШ EMAIL
+  const adminEmail = "faceits1mple2000@gmail.com"; // ⬅️ ИЗМЕНИТЕ НА ВАШ EMAIL
   
   if (userEmail !== adminEmail) {
     adminPanel.innerHTML = '';
@@ -1096,3 +1096,4 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
