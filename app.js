@@ -163,7 +163,8 @@ async function updateSessionActivity(userId) {
     
     await updateDoc(doc(db, 'users', userId), {
       lastSeen: serverTimestamp(),
-      [`session_${deviceId}.lastActive`]: serverTimestamp()
+      [`session_${deviceId}.lastActive`]: serverTimestamp(),
+      [`session_${deviceId}.isActive`]: true
     });
   } catch (error) {
     if (error.code === 'not-found') {
@@ -172,7 +173,7 @@ async function updateSessionActivity(userId) {
   }
 }
 
-// Проверка активных сессий при входе
+// Проверка активных сессий при входе - ИЗМЕНЕНО: предупреждение при >3 сессий
 async function checkActiveSessions(userId, userEmail) {
   try {
     if (userEmail === ADMIN_EMAIL) {
@@ -193,26 +194,33 @@ async function checkActiveSessions(userId, userEmail) {
     let activeCount = 0;
     let otherSessions = [];
     
+    // Собираем только действительно активные сессии
     sessionsSnapshot.forEach((docSnap) => {
       const session = docSnap.data();
       const lastActive = session.lastActive?.toDate?.()?.getTime() || 0;
+      const isActive = session.isActive !== false && (now - lastActive) <= fiveMinutes;
       
-      if (session.deviceId !== deviceId && (now - lastActive) <= fiveMinutes) {
+      if (isActive) {
         activeCount++;
-        otherSessions.push({
-          deviceId: session.deviceId,
-          userAgent: session.userAgent,
-          lastActive: new Date(lastActive).toLocaleString(),
-          platform: session.platform
-        });
+        
+        if (session.deviceId !== deviceId) {
+          otherSessions.push({
+            deviceId: session.deviceId,
+            userAgent: session.userAgent,
+            lastActive: new Date(lastActive).toLocaleString(),
+            platform: session.platform,
+            isActive: true
+          });
+        }
       }
     });
     
-    if (activeCount > 0) {
-      console.warn(`⚠️ Обнаружено ${activeCount} других активных сессий:`, otherSessions);
+    // Показываем предупреждение только если больше 3 активных сессий
+    if (activeCount > 3) {
+      console.warn(`⚠️ Обнаружено ${activeCount} активных сессий (включая текущую):`, otherSessions);
       
       const warningMsg = `
-      ⚠️ ВНИМАНИЕ! Обнаружено ${activeCount} других активных сессий.
+      ⚠️ ВНИМАНИЕ! Обнаружено ${activeCount} активных сессий.
       
       Ваш аккаунт используется на других устройствах:
       ${otherSessions.map(s => `• Устройство: ${s.deviceId.substring(0, 8)}... (${s.platform})\n  Последняя активность: ${s.lastActive}`).join('\n')}
@@ -230,7 +238,8 @@ async function checkActiveSessions(userId, userEmail) {
             count: activeCount,
             timestamp: serverTimestamp(),
             currentDevice: deviceId,
-            otherDevices: otherSessions
+            otherDevices: otherSessions,
+            message: `Обнаружено ${activeCount} активных сессий`
           })
         });
       }
@@ -305,13 +314,15 @@ async function handleLogout() {
       await updateDoc(doc(db, 'users', user.uid), {
         activeSessions: arrayRemove(deviceId),
         [`session_${deviceId}.isActive`]: false,
-        [`session_${deviceId}.lastActive`]: serverTimestamp()
+        [`session_${deviceId}.lastActive`]: serverTimestamp(),
+        [`session_${deviceId}.logoutAt`]: serverTimestamp()
       });
       
       const sessionRef = doc(db, 'users', user.uid, 'sessions', deviceId);
       await updateDoc(sessionRef, {
         isActive: false,
-        lastActive: serverTimestamp()
+        lastActive: serverTimestamp(),
+        logoutAt: serverTimestamp()
       });
       
       console.log('📱 Сессия завершена:', deviceId);
@@ -532,90 +543,27 @@ async function showAdminPanel() {
     
     console.log(`👑 Администратор ${currentUser.email} открывает панель управления`);
     
+    // Создаем модальное окно
     let usersHTML = '<div class="admin-modal-content">';
+    usersHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">';
     usersHTML += '<h3>👥 Управление пользователями</h3>';
+    usersHTML += '<div>';
+    usersHTML += '<button onclick="refreshAdminPanel()" style="background: #2196F3; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">🔄 Обновить</button>';
+    usersHTML += '<button onclick="showAllSessions()" style="background: #9C27B0; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">👁️ Все сессии</button>';
+    usersHTML += '<button onclick="cleanupOldSessions()" style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">🧹 Очистить старые</button>';
+    usersHTML += '</div>';
+    usersHTML += '</div>';
     usersHTML += '<button class="close-modal">✕</button>';
-    usersHTML += '<div style="margin-bottom: 20px;">';
-    usersHTML += '<button onclick="showAllSessions()" style="background: #2196F3; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">👁️ Показать все сессии</button>';
-    usersHTML += '<button onclick="cleanupOldSessions()" style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">🧹 Очистить старые сессии</button>';
+    
+    // Показываем загрузку
+    usersHTML += '<div id="adminLoading" style="text-align: center; padding: 40px;">';
+    usersHTML += '<div style="display: inline-block; padding: 20px; background: #f5f5f5; border-radius: 10px;">';
+    usersHTML += '<div class="spinner"></div>';
+    usersHTML += '<p style="margin-top: 10px; color: #666;">Загрузка пользователей...</p>';
+    usersHTML += '</div>';
     usersHTML += '</div>';
     
-    try {
-      const usersSnapshot = await getDocs(collection(db, 'users'));
-      
-      usersSnapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        const userId = docSnap.id;
-        if (!data.email) return;
-        
-        const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
-        const activeSessions = data.activeSessions || [];
-        const activeSessionCount = activeSessions.length;
-        const hasMultipleSessions = activeSessionCount > 1;
-        
-        usersHTML += `
-          <div class="admin-user-item" style="${isUserAdmin ? 'background: #FFF8E1; padding: 15px; border-radius: 5px;' : ''} ${hasMultipleSessions ? 'border-left: 5px solid #f44336;' : ''}">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <strong>${data.email}</strong>
-                ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold;"> 👑 АДМИН</span>' : ''}
-              </div>
-              <div style="font-size: 12px; color: ${hasMultipleSessions ? '#f44336' : '#4CAF50'};">
-                ${activeSessionCount} активных сессий
-                ${hasMultipleSessions ? ' ⚠️' : ''}
-              </div>
-            </div>
-            
-            <span class="admin-status ${data.allowed ? 'status-allowed' : 'status-pending'}">
-              ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}
-            </span>
-            <br>
-            
-            ${data.currentPassword 
-              ? `Текущий пароль: <code style="background: #f5f5f5; padding: 4px 8px; border-radius: 4px; font-family: monospace; ${isUserAdmin ? 'background: #FFECB3; font-weight: bold;' : ''}">${data.currentPassword}</code><br>`
-              : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span><br>'
-            }
-            
-            ${data.lastLogin 
-              ? `Последний вход: ${new Date(data.lastLogin?.toDate()).toLocaleString()}<br>` 
-              : ''
-            }
-            
-            ${data.lastSeen 
-              ? `Последняя активность: ${new Date(data.lastSeen?.toDate()).toLocaleString()}<br>` 
-              : ''
-            }
-            
-            <div style="margin-top: 10px;">
-              <button class="force-reset-btn" onclick="forcePasswordReset('${userId}', '${data.email}')">
-                🔄 Сбросить пароль
-              </button>
-              <button class="view-sessions-btn" onclick="viewUserSessions('${userId}', '${data.email}')" style="background: #9C27B0; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 5px;">
-                📱 Сессии (${activeSessionCount})
-              </button>
-              ${hasMultipleSessions ? 
-                `<button class="alert-btn" onclick="alertUser('${userId}', '${data.email}')" style="background: #f44336; color: white; padding: 5px 10px; border: none; border-radius: 3px; cursor: pointer; margin-left: 5px;">
-                  ⚠️ Предупредить
-                </button>` 
-                : ''
-              }
-            </div>
-          </div>
-          <hr>
-        `;
-      });
-      
-    } catch (error) {
-      console.error('Ошибка загрузки пользователей:', error);
-      usersHTML += `
-        <div style="color: #f44336; padding: 20px; text-align: center;">
-          <strong>Ошибка загрузки пользователей:</strong><br>
-          ${error.message}<br>
-          <small>Проверьте права доступа в правилах Firestore</small>
-        </div>
-      `;
-    }
-    
+    usersHTML += '<div id="usersList" style="display: none;"></div>';
     usersHTML += '</div>';
     
     const modal = document.createElement('div');
@@ -624,6 +572,7 @@ async function showAdminPanel() {
     
     document.body.appendChild(modal);
     
+    // Закрытие модального окна
     modal.querySelector('.close-modal').onclick = () => {
       document.body.removeChild(modal);
     };
@@ -632,6 +581,239 @@ async function showAdminPanel() {
       if (e.target === modal) {
         document.body.removeChild(modal);
       }
+    };
+    
+    // Загружаем пользователей асинхронно
+    loadUsersList();
+    
+    // Функция загрузки пользователей с подсчетом активных сессий
+    async function loadUsersList() {
+      try {
+        const usersListDiv = document.getElementById('usersList');
+        const loadingDiv = document.getElementById('adminLoading');
+        
+        if (!usersListDiv || !loadingDiv) return;
+        
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        const usersWithSessions = [];
+        
+        // Собираем всех пользователей
+        for (const docSnap of usersSnapshot.docs) {
+          const data = docSnap.data();
+          const userId = docSnap.id;
+          if (!data.email) continue;
+          
+          usersWithSessions.push({
+            id: userId,
+            data: data,
+            activeSessionCount: 0 // Заполним позже
+          });
+        }
+        
+        // Для каждого пользователя загружаем активные сессии
+        for (const user of usersWithSessions) {
+          try {
+            const sessionsSnapshot = await getDocs(collection(db, 'users', user.id, 'sessions'));
+            const now = Date.now();
+            const fiveMinutes = 5 * 60 * 1000;
+            let activeCount = 0;
+            
+            sessionsSnapshot.forEach((sessionDoc) => {
+              const session = sessionDoc.data();
+              const lastActive = session.lastActive?.toDate?.()?.getTime() || 0;
+              const isActive = session.isActive !== false && (now - lastActive) <= fiveMinutes;
+              
+              if (isActive) {
+                activeCount++;
+              }
+            });
+            
+            user.activeSessionCount = activeCount;
+          } catch (sessionError) {
+            console.log(`Не удалось загрузить сессии для ${user.data.email}:`, sessionError.message);
+            user.activeSessionCount = 0;
+          }
+        }
+        
+        // Сортируем: сначала пользователи с >3 активными сессиями, затем по алфавиту
+        usersWithSessions.sort((a, b) => {
+          // Сначала администраторы
+          if (a.data.email === ADMIN_EMAIL || a.data.isAdmin === true) return -1;
+          if (b.data.email === ADMIN_EMAIL || b.data.isAdmin === true) return 1;
+          
+          // Затем пользователи с >3 сессиями
+          const aManySessions = a.activeSessionCount > 3;
+          const bManySessions = b.activeSessionCount > 3;
+          if (aManySessions && !bManySessions) return -1;
+          if (!aManySessions && bManySessions) return 1;
+          
+          // Затем по email
+          return a.data.email.localeCompare(b.data.email);
+        });
+        
+        // Генерируем HTML
+        let usersListHTML = '';
+        
+        usersWithSessions.forEach(user => {
+          const data = user.data;
+          const userId = user.id;
+          const activeSessionCount = user.activeSessionCount;
+          const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
+          const hasManySessions = activeSessionCount > 3;
+          
+          // Определяем стиль в зависимости от количества сессий
+          let itemStyle = '';
+          if (isUserAdmin) {
+            itemStyle = 'background: #FFF8E1; border-left: 5px solid #FF9800;';
+          } else if (hasManySessions) {
+            itemStyle = 'background: #FFEBEE; border-left: 5px solid #f44336;';
+          } else if (activeSessionCount > 0) {
+            itemStyle = 'background: #E8F5E9; border-left: 5px solid #4CAF50;';
+          } else {
+            itemStyle = 'background: #f9f9f9; border-left: 5px solid #9E9E9E;';
+          }
+          
+          usersListHTML += `
+            <div class="admin-user-item" style="${itemStyle} padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <strong style="font-size: 16px;">${data.email}</strong>
+                    ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold; background: #FFECB3; padding: 2px 8px; border-radius: 10px; font-size: 12px;">👑 АДМИН</span>' : ''}
+                    <span class="admin-status ${data.allowed ? 'status-allowed' : 'status-pending'}" style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">
+                      ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}
+                    </span>
+                  </div>
+                  
+                  <div style="margin-bottom: 10px; font-size: 14px; color: #666;">
+                    ${data.currentPassword 
+                      ? `Пароль: <code style="background: ${isUserAdmin ? '#FFECB3' : '#f5f5f5'}; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: ${isUserAdmin ? 'bold' : 'normal'};">${data.currentPassword}</code>` 
+                      : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span>'
+                    }
+                  </div>
+                  
+                  <div style="display: flex; gap: 20px; margin-bottom: 15px; font-size: 13px; color: #777;">
+                    ${data.lastLogin 
+                      ? `<div>📅 Вход: ${new Date(data.lastLogin?.toDate()).toLocaleString()}</div>` 
+                      : '<div>📅 Вход: никогда</div>'
+                    }
+                    ${data.lastSeen 
+                      ? `<div>👁️ Активность: ${new Date(data.lastSeen?.toDate()).toLocaleString()}</div>` 
+                      : ''
+                    }
+                    <div style="color: ${hasManySessions ? '#f44336' : (activeSessionCount > 0 ? '#4CAF50' : '#9E9E9E')}; font-weight: ${hasManySessions ? 'bold' : 'normal'};">
+                      📱 Сессий: ${activeSessionCount}
+                      ${hasManySessions ? ' ⚠️' : ''}
+                    </div>
+                  </div>
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 5px; min-width: 200px;">
+                  <button class="force-reset-btn" onclick="forcePasswordReset('${userId}', '${data.email}')" 
+                          style="width: 100%; text-align: left; background: #FF9800; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                    🔄 Сбросить пароль
+                  </button>
+                  
+                  <button class="view-sessions-btn" onclick="viewUserSessions('${userId}', '${data.email}')" 
+                          style="width: 100%; text-align: left; background: #9C27B0; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                    📱 Управление сессиями (${activeSessionCount})
+                  </button>
+                  
+                  ${hasManySessions ? 
+                    `<button class="terminate-all-btn" onclick="terminateAllSessions('${userId}', '${data.email}')" 
+                            style="width: 100%; text-align: left; background: #f44336; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold;">
+                      🚫 Завершить все сессии
+                    </button>` 
+                    : ''
+                  }
+                  
+                  ${hasManySessions ? 
+                    `<button class="alert-btn" onclick="alertUser('${userId}', '${data.email}')" 
+                            style="width: 100%; text-align: left; background: #FF5722; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                      ⚠️ Предупредить пользователя
+                    </button>` 
+                    : ''
+                  }
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        
+        // Показываем статистику
+        const totalUsers = usersWithSessions.length;
+        const usersWithAccess = usersWithSessions.filter(u => u.data.allowed).length;
+        const usersWithManySessions = usersWithSessions.filter(u => u.activeSessionCount > 3).length;
+        const totalActiveSessions = usersWithSessions.reduce((sum, u) => sum + u.activeSessionCount, 0);
+        
+        usersListHTML = `
+          <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2196F3;">
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; text-align: center;">
+              <div>
+                <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${totalUsers}</div>
+                <div style="font-size: 12px; color: #666;">Всего пользователей</div>
+              </div>
+              <div>
+                <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${usersWithAccess}</div>
+                <div style="font-size: 12px; color: #666;">С доступом</div>
+              </div>
+              <div>
+                <div style="font-size: 24px; font-weight: bold; color: ${usersWithManySessions > 0 ? '#f44336' : '#4CAF50'};">${usersWithManySessions}</div>
+                <div style="font-size: 12px; color: #666;">>3 сессий</div>
+              </div>
+              <div>
+                <div style="font-size: 24px; font-weight: bold; color: #9C27B0;">${totalActiveSessions}</div>
+                <div style="font-size: 12px; color: #666;">Активных сессий</div>
+              </div>
+            </div>
+            ${usersWithManySessions > 0 ? 
+              `<div style="margin-top: 15px; padding: 10px; background: #FFF3E0; border-radius: 5px; border-left: 4px solid #FF9800; font-size: 14px;">
+                ⚠️ Внимание: ${usersWithManySessions} пользователей имеют более 3 активных сессий. Рекомендуется проверить на предмет несанкционированного доступа.
+              </div>` 
+              : ''
+            }
+          </div>
+          ${usersListHTML}
+        `;
+        
+        // Обновляем DOM
+        usersListDiv.innerHTML = usersListHTML;
+        loadingDiv.style.display = 'none';
+        usersListDiv.style.display = 'block';
+        
+      } catch (error) {
+        console.error('Ошибка загрузки пользователей:', error);
+        const usersListDiv = document.getElementById('usersList');
+        const loadingDiv = document.getElementById('adminLoading');
+        
+        if (loadingDiv) loadingDiv.style.display = 'none';
+        if (usersListDiv) {
+          usersListDiv.innerHTML = `
+            <div style="color: #f44336; padding: 40px; text-align: center;">
+              <strong>Ошибка загрузки пользователей:</strong><br>
+              ${error.message}<br>
+              <small>Проверьте права доступа в правилах Firestore</small>
+              <div style="margin-top: 20px;">
+                <button onclick="loadUsersList()" style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+                  🔄 Повторить
+                </button>
+              </div>
+            </div>
+          `;
+          usersListDiv.style.display = 'block';
+        }
+      }
+    }
+    
+    // Глобальная функция обновления
+    window.refreshAdminPanel = function() {
+      const usersListDiv = document.getElementById('usersList');
+      const loadingDiv = document.getElementById('adminLoading');
+      
+      if (loadingDiv) loadingDiv.style.display = 'block';
+      if (usersListDiv) usersListDiv.style.display = 'none';
+      
+      loadUsersList();
     };
     
   } catch (error) {
@@ -663,6 +845,12 @@ window.cleanupOldSessions = async function() {
           await updateDoc(doc(db, 'users', userDoc.id, 'sessions', sessionDoc.id), {
             isActive: false
           });
+          
+          await updateDoc(doc(db, 'users', userDoc.id), {
+            activeSessions: arrayRemove(sessionData.deviceId),
+            [`session_${sessionData.deviceId}.isActive`]: false
+          });
+          
           cleanedCount++;
         }
       }
@@ -679,123 +867,96 @@ window.cleanupOldSessions = async function() {
   }
 };
 
-// Предупредить пользователя о множественных сессиях
-window.alertUser = async function(userId, userEmail) {
-  if (!confirm(`Отправить предупреждение пользователю ${userEmail} о множественных сессиях?`)) return;
+// Завершить все сессии пользователя (кроме текущей)
+window.terminateAllSessions = async function(userId, userEmail) {
+  const currentUser = auth.currentUser;
+  const isCurrentUser = currentUser && currentUser.uid === userId;
+  
+  if (!confirm(`Завершить ВСЕ сессии пользователя ${userEmail}?\n${isCurrentUser ? '⚠️ Ваша текущая сессия не будет завершена.' : 'Все устройства будут разлогинены.'}`)) return;
   
   try {
-    await updateDoc(doc(db, 'users', userId), {
-      securityAlerts: arrayUnion({
-        type: 'admin_warning_multiple_sessions',
-        message: 'Администратор обнаружил несколько активных сессий на вашем аккаунте. Если это не вы, смените пароль!',
-        timestamp: serverTimestamp(),
-        read: false
-      }),
-      lastAdminWarning: serverTimestamp()
-    });
+    const sessionsSnapshot = await getDocs(collection(db, 'users', userId, 'sessions'));
+    const now = Date.now();
+    const fiveMinutes = 5 * 60 * 1000;
+    let terminatedCount = 0;
     
-    alert(`✅ Предупреждение отправлено пользователю ${userEmail}`);
-  } catch (error) {
-    console.error('Ошибка отправки предупреждения:', error);
-    alert('Ошибка отправки предупреждения');
-  }
-};
-
-// Показать все сессии
-window.showAllSessions = async function() {
-  try {
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      alert('Пользователь не авторизован');
-      return;
-    }
-    
-    if (currentUser.email !== ADMIN_EMAIL) {
-      alert('❌ Только администратор может просматривать все сессии.');
-      return;
-    }
-    
-    const usersSnapshot = await getDocs(collection(db, 'users'));
-    let sessionsHTML = '<div class="admin-modal-content" style="max-width: 800px;">';
-    sessionsHTML += '<h3>📱 Все активные сессии</h3>';
-    sessionsHTML += '<button class="close-modal">✕</button>';
-    
-    let hasSessions = false;
-    
-    for (const userDoc of usersSnapshot.docs) {
-      const userData = userDoc.data();
-      if (!userData.email) continue;
+    for (const sessionDoc of sessionsSnapshot.docs) {
+      const sessionData = sessionDoc.data();
+      const lastActive = sessionData.lastActive?.toDate?.()?.getTime() || 0;
+      const isRecentlyActive = (now - lastActive) <= fiveMinutes;
       
-      try {
-        const sessionsSnapshot = await getDocs(collection(db, 'users', userDoc.id, 'sessions'));
-        const activeSessions = [];
-        const now = Date.now();
-        const fiveMinutes = 5 * 60 * 1000;
-        
-        sessionsSnapshot.forEach(sessionDoc => {
-          const sessionData = sessionDoc.data();
-          const lastActive = sessionData.lastActive?.toDate?.()?.getTime() || 0;
-          
-          if (now - lastActive <= fiveMinutes && sessionData.isActive !== false) {
-            activeSessions.push(sessionData);
-          }
+      // Не завершаем текущую сессию, если это текущий пользователь
+      if (isCurrentUser && sessionData.deviceId === deviceId) {
+        console.log('Пропускаем текущую сессию');
+        continue;
+      }
+      
+      // Завершаем только активные сессии
+      if (isRecentlyActive && sessionData.isActive !== false) {
+        await updateDoc(doc(db, 'users', userId, 'sessions', sessionDoc.id), {
+          isActive: false,
+          terminatedBy: currentUser?.email || 'admin',
+          terminatedAt: serverTimestamp()
         });
         
-        if (activeSessions.length > 0) {
-          hasSessions = true;
-          sessionsHTML += `
-            <div style="margin-bottom: 20px; padding: 15px; background: #f9f9f9; border-radius: 5px;">
-              <strong>👤 ${userData.email}</strong>
-              <span style="color: ${activeSessions.length > 1 ? '#f44336' : '#4CAF50'}; margin-left: 10px;">
-                ${activeSessions.length} активных сессий
-              </span>
-              
-              ${activeSessions.map(session => `
-                <div style="margin-top: 10px; padding: 10px; background: white; border-radius: 3px; border-left: 4px solid ${session.deviceId === deviceId ? '#4CAF50' : '#FF9800'}">
-                  <strong>Устройство:</strong> ${session.deviceId?.substring(0, 15) || 'Неизвестно'}...<br>
-                  <strong>Платформа:</strong> ${session.platform || 'Неизвестно'}<br>
-                  <strong>User Agent:</strong> ${session.userAgent ? session.userAgent.substring(0, 40) + '...' : 'Неизвестно'}<br>
-                  <strong>Последняя активность:</strong> ${session.lastActive ? new Date(session.lastActive.toDate()).toLocaleString() : 'Неизвестно'}<br>
-                  ${session.deviceId === deviceId ? '<span style="color: #4CAF50; font-size: 12px;">← Это текущее устройство</span>' : ''}
-                </div>
-              `).join('')}
-            </div>
-          `;
-        }
-      } catch (sessionError) {
-        console.log(`Не удалось загрузить сессии для ${userData.email}:`, sessionError.message);
+        await updateDoc(doc(db, 'users', userId), {
+          activeSessions: arrayRemove(sessionData.deviceId),
+          [`session_${sessionData.deviceId}.isActive`]: false,
+          [`session_${sessionData.deviceId}.terminatedAt`]: serverTimestamp()
+        });
+        
+        terminatedCount++;
       }
     }
     
-    if (!hasSessions) {
-      sessionsHTML += '<p style="text-align: center; color: #666; padding: 40px;">Нет активных сессий</p>';
-    }
+    alert(`✅ Завершено ${terminatedCount} активных сессий пользователя ${userEmail}`);
     
-    sessionsHTML += '</div>';
-    
-    const modal = document.createElement('div');
-    modal.className = 'admin-modal';
-    modal.innerHTML = sessionsHTML;
-    
-    document.body.appendChild(modal);
-    
-    modal.querySelector('.close-modal').onclick = () => {
-      document.body.removeChild(modal);
-    };
-    
-    modal.onclick = (e) => {
-      if (e.target === modal) {
-        document.body.removeChild(modal);
-      }
-    };
+    // Обновляем панель админа
+    document.querySelector('.admin-modal')?.remove();
+    await showAdminPanel();
     
   } catch (error) {
-    console.error('Ошибка загрузки всех сессий:', error);
-    alert('Ошибка загрузки сессий: ' + error.message);
+    console.error('Ошибка завершения сессий:', error);
+    alert('Ошибка завершения сессий: ' + error.message);
   }
 };
 
-// Просмотр сессий пользователя
+// Завершить конкретную сессию
+window.terminateSession = async function(userId, sessionDeviceId, userEmail) {
+  if (!confirm(`Завершить сессию устройства ${sessionDeviceId.substring(0, 12)}...?\nПользователь ${userEmail} будет разлогинен на этом устройстве.`)) return;
+  
+  try {
+    await updateDoc(doc(db, 'users', userId, 'sessions', sessionDeviceId), {
+      isActive: false,
+      terminatedBy: auth.currentUser?.email || 'admin',
+      terminatedAt: serverTimestamp()
+    });
+    
+    await updateDoc(doc(db, 'users', userId), {
+      activeSessions: arrayRemove(sessionDeviceId),
+      [`session_${sessionDeviceId}.isActive`]: false,
+      [`session_${sessionDeviceId}.terminatedAt`]: serverTimestamp(),
+      securityAlerts: arrayUnion({
+        type: 'session_terminated_by_admin',
+        deviceId: sessionDeviceId,
+        timestamp: serverTimestamp(),
+        message: `Сессия завершена администратором`
+      })
+    });
+    
+    alert('✅ Сессия завершена');
+    
+    // Обновляем панель админа
+    document.querySelector('.admin-modal')?.remove();
+    await showAdminPanel();
+    
+  } catch (error) {
+    console.error('Ошибка завершения сессии:', error);
+    alert('Ошибка завершения сессии: ' + error.message);
+  }
+};
+
+// Просмотр сессий пользователя - ИЗМЕНЕНО: показываем только активные
 window.viewUserSessions = async function(userId, userEmail) {
   try {
     const currentUser = auth.currentUser;
@@ -809,16 +970,32 @@ window.viewUserSessions = async function(userId, userEmail) {
       return;
     }
     
-    let sessionsHTML = '<div class="admin-modal-content">';
+    let sessionsHTML = '<div class="admin-modal-content" style="max-width: 900px;">';
     sessionsHTML += `<h3>📱 Сессии пользователя: ${userEmail}</h3>`;
     sessionsHTML += '<button class="close-modal">✕</button>';
+    
+    // Кнопки управления
+    sessionsHTML += `
+      <div style="margin-bottom: 20px; display: flex; gap: 10px;">
+        <button onclick="terminateAllSessions('${userId}', '${userEmail}')" 
+                style="background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+          🚫 Завершить все сессии
+        </button>
+        <button onclick="refreshSessionsView('${userId}', '${userEmail}')" 
+                style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
+          🔄 Обновить
+        </button>
+      </div>
+    `;
     
     try {
       const sessionsSnapshot = await getDocs(collection(db, 'users', userId, 'sessions'));
       const now = Date.now();
       const fiveMinutes = 5 * 60 * 1000;
       
-      let activeCount = 0;
+      let activeSessions = [];
+      let inactiveSessions = [];
+      let totalActive = 0;
       
       if (sessionsSnapshot.empty) {
         sessionsHTML += '<p style="color: #666; text-align: center; padding: 20px;">Нет данных о сессиях</p>';
@@ -827,30 +1004,115 @@ window.viewUserSessions = async function(userId, userEmail) {
           const session = docSnap.data();
           const lastActive = session.lastActive?.toDate?.()?.getTime() || 0;
           const isRecentlyActive = (now - lastActive) <= fiveMinutes;
+          const isActive = isRecentlyActive && session.isActive !== false;
           
-          if (isRecentlyActive) activeCount++;
-          
-          sessionsHTML += `
-            <div style="margin: 10px 0; padding: 15px; background: ${isRecentlyActive ? '#E8F5E9' : '#FFEBEE'}; border-radius: 5px; border-left: 5px solid ${isRecentlyActive ? '#4CAF50' : '#f44336'}">
-              <strong>Устройство ID:</strong> ${session.deviceId || 'Неизвестно'}<br>
-              <strong>Статус:</strong> ${isRecentlyActive ? '🟢 Активна' : '🔴 Неактивна'}<br>
-              <strong>Платформа:</strong> ${session.platform || 'Неизвестно'}<br>
-              <strong>User Agent:</strong> ${session.userAgent ? session.userAgent.substring(0, 80) + '...' : 'Неизвестно'}<br>
-              <strong>Последняя активность:</strong> ${session.lastActive ? new Date(session.lastActive.toDate()).toLocaleString() : 'Никогда'}<br>
-              <strong>Первое подключение:</strong> ${session.firstSeen ? new Date(session.firstSeen.toDate()).toLocaleString() : 'Неизвестно'}<br>
-            </div>
-          `;
+          if (isActive) {
+            totalActive++;
+            activeSessions.push({
+              ...session,
+              id: docSnap.id,
+              isActive: true
+            });
+          } else {
+            inactiveSessions.push({
+              ...session,
+              id: docSnap.id,
+              isActive: false
+            });
+          }
         });
+        
+        // Сортируем: сначала активные
+        const allSessions = [...activeSessions, ...inactiveSessions];
+        
+        // Показываем активные сессии
+        if (activeSessions.length > 0) {
+          sessionsHTML += `<h4 style="color: #4CAF50; margin-top: 20px;">🟢 Активные сессии (${activeSessions.length})</h4>`;
+          
+          activeSessions.forEach(session => {
+            const isCurrentDevice = session.deviceId === deviceId;
+            sessionsHTML += `
+              <div style="margin: 10px 0; padding: 15px; background: ${isCurrentDevice ? '#E8F5E9' : '#F1F8E9'}; border-radius: 5px; border-left: 5px solid ${isCurrentDevice ? '#4CAF50' : '#8BC34A'}">
+                <div style="display: flex; justify-content: space-between; align-items: start;">
+                  <div style="flex: 1;">
+                    <strong>Устройство ID:</strong> ${session.deviceId || 'Неизвестно'}<br>
+                    <strong>Статус:</strong> 🟢 Активна ${isCurrentDevice ? '(Текущее устройство)' : ''}<br>
+                    <strong>Платформа:</strong> ${session.platform || 'Неизвестно'}<br>
+                    <strong>User Agent:</strong> ${session.userAgent ? session.userAgent.substring(0, 80) + '...' : 'Неизвестно'}<br>
+                    <strong>Последняя активность:</strong> ${session.lastActive ? new Date(session.lastActive.toDate()).toLocaleString() : 'Никогда'}<br>
+                    <strong>Первое подключение:</strong> ${session.firstSeen ? new Date(session.firstSeen.toDate()).toLocaleString() : 'Неизвестно'}<br>
+                    <strong>IP адрес:</strong> ${session.ipAddress || 'Неизвестно'}
+                  </div>
+                  <div>
+                    ${!isCurrentDevice ? `
+                      <button onclick="terminateSession('${userId}', '${session.deviceId}', '${userEmail}')" 
+                              style="background: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px;">
+                        🚫 Завершить
+                      </button>
+                    ` : ''}
+                  </div>
+                </div>
+              </div>
+            `;
+          });
+        }
+        
+        // Показываем неактивные сессии (сворачиваемый список)
+        if (inactiveSessions.length > 0) {
+          sessionsHTML += `
+            <h4 style="color: #9E9E9E; margin-top: 20px; cursor: pointer;" onclick="toggleInactiveSessions()">
+              ⚪ Неактивные сессии (${inactiveSessions.length}) ▼
+            </h4>
+            <div id="inactiveSessionsList" style="display: none;">
+          `;
+          
+          inactiveSessions.forEach(session => {
+            sessionsHTML += `
+              <div style="margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 5px; border-left: 5px solid #9E9E9E">
+                <strong>Устройство ID:</strong> ${session.deviceId?.substring(0, 20) || 'Неизвестно'}...<br>
+                <strong>Статус:</strong> ⚪ Неактивна<br>
+                <strong>Последняя активность:</strong> ${session.lastActive ? new Date(session.lastActive.toDate()).toLocaleString() : 'Никогда'}<br>
+                ${session.terminatedAt ? `<strong>Завершена:</strong> ${new Date(session.terminatedAt.toDate()).toLocaleString()}<br>` : ''}
+              </div>
+            `;
+          });
+          
+          sessionsHTML += `</div>`;
+        }
+        
+        // Статистика
+        sessionsHTML += `
+          <div style="margin-top: 30px; padding: 20px; background: ${totalActive > 3 ? '#FFF3E0' : '#E3F2FD'}; border-radius: 10px; border: 2px solid ${totalActive > 3 ? '#FF9800' : '#2196F3'}">
+            <h4 style="margin-top: 0; color: ${totalActive > 3 ? '#FF9800' : '#2196F3'}">📊 Статистика сессий</h4>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
+              <div style="text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${totalActive}</div>
+                <div style="font-size: 12px; color: #666;">Активных сессий</div>
+              </div>
+              <div style="text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; color: #9E9E9E;">${inactiveSessions.length}</div>
+                <div style="font-size: 12px; color: #666;">Неактивных сессий</div>
+              </div>
+              <div style="text-align: center;">
+                <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${sessionsSnapshot.size}</div>
+                <div style="font-size: 12px; color: #666;">Всего сессий</div>
+              </div>
+            </div>
+            ${totalActive > 3 ? `
+              <div style="margin-top: 15px; padding: 10px; background: #FFEBEE; border-radius: 5px; border-left: 5px solid #f44336;">
+                <strong>⚠️ ВНИМАНИЕ:</strong> Обнаружено ${totalActive} активных сессий (больше 3).<br>
+                Рекомендуется уведомить пользователя ${userEmail} о возможной проблеме безопасности.
+                <div style="margin-top: 10px;">
+                  <button onclick="alertUser('${userId}', '${userEmail}')" 
+                          style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">
+                    ⚠️ Уведомить пользователя
+                  </button>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        `;
       }
-      
-      sessionsHTML += `
-        <div style="margin-top: 20px; padding: 15px; background: ${activeCount > 1 ? '#FFF3E0' : '#E3F2FD'}; border-radius: 5px;">
-          <strong>Статистика:</strong><br>
-          • Всего сессий: ${sessionsSnapshot.size}<br>
-          • Активных сессий (последние 5 мин): <span style="color: ${activeCount > 1 ? '#f44336' : '#4CAF50'}">${activeCount}</span><br>
-          ${activeCount > 1 ? '<span style="color: #f44336; font-weight: bold;">⚠️ ВНИМАНИЕ: Обнаружено несколько активных сессий!</span>' : ''}
-        </div>
-      `;
       
     } catch (sessionsError) {
       console.error('Ошибка загрузки сессий:', sessionsError);
@@ -879,6 +1141,25 @@ window.viewUserSessions = async function(userId, userEmail) {
       if (e.target === modal) {
         document.body.removeChild(modal);
       }
+    };
+    
+    // Добавляем глобальную функцию для переключения неактивных сессий
+    window.toggleInactiveSessions = function() {
+      const list = document.getElementById('inactiveSessionsList');
+      const header = document.querySelector('h4[onclick="toggleInactiveSessions()"]');
+      if (list.style.display === 'none') {
+        list.style.display = 'block';
+        header.innerHTML = header.innerHTML.replace('▼', '▲');
+      } else {
+        list.style.display = 'none';
+        header.innerHTML = header.innerHTML.replace('▲', '▼');
+      }
+    };
+    
+    // Функция обновления вида
+    window.refreshSessionsView = function(userId, userEmail) {
+      document.querySelector('.admin-modal')?.remove();
+      viewUserSessions(userId, userEmail);
     };
     
   } catch (error) {
@@ -1674,3 +1955,4 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
