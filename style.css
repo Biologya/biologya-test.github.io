@@ -142,18 +142,21 @@ button.secondary { background: #81c784; }
 .authCard .muted { margin-top: 8px; color: #666; font-size: 14px; }
 .small-ghost { margin-top: 10px; background: transparent; color: #007bff; border: none; cursor: pointer; font-size: 14px; }
 
+/* ==== AUTH OVERLAY ==== */
+#authOverlay, #waitOverlay { ... }
 
 /* overlay всегда должен принимать клики */
 #authOverlay,
 #waitOverlay {
   pointer-events: auto;
-  display: none; /* скрыт по умолчанию */
+  display: none; /* по умолчанию скрыт */
 }
 
 /* small responsive tweaks */
 @media (max-width: 420px) {
   .authCard { padding: 18px; width: 92%; }
 }
+
 
 
 
