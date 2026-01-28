@@ -2,59 +2,61 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <title>Биология — тест (защищённый)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Биология — тест (защищённый)</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
   <!-- ====== Вертикальная панель вопросов ====== -->
   <div id="questionPanelWrapper">
-    <button id="togglePanelBtn">⇨</button>
-    <div id="questionPanel"></div>
-    <div id="pageNav"></div>
+    <button id="togglePanelBtn" aria-label="Свернуть панель">⇨</button>
+    <div id="questionPanel" role="navigation" aria-label="Панель вопросов"></div>
+    <div id="pageNav" aria-hidden="true"></div>
     <div id="resetWrapper">
       <button id="resetBtn">RESET</button>
     </div>
   </div>
 
   <!-- ====== Основное окно теста (скрываем по умолчанию) ====== -->
-  <div class="app" id="app" style="display:none">
-    <div class="header">
+  <main class="app" id="app" style="display:none" role="main">
+    <header class="header">
       <div id="topRow" style="display:flex; justify-content:space-between; align-items:center;">
         <div>
-          <div id="progressText">Вопрос 1 из 1</div>
-          <div class="progress-bar"><div id="progressFill" style="width:0%"></div></div>
+          <div id="progressText" aria-live="polite">Вопрос 1 из 1</div>
+          <div class="progress-bar" aria-hidden="true">
+            <div id="progressFill" style="width:0%"></div>
+          </div>
         </div>
         <div id="userControls" style="display:flex; gap:8px; align-items:center;">
-          <div id="userEmail" style="font-size:14px; color:#444"></div>
+          <div id="userEmail" style="font-size:14px; color:#444" aria-live="polite"></div>
           <button id="logoutBtn" class="secondary">Выйти</button>
         </div>
       </div>
-    </div>
+    </header>
 
-    <div class="card">
+    <section class="card" aria-labelledby="questionText">
       <h2 id="questionText">Тест будет показан после подтверждения</h2>
-      <div id="answers"></div>
-    </div>
+      <div id="answers" role="list"></div>
+    </section>
 
-    <div class="controls">
+    <div class="controls" role="region" aria-label="Управление тестом">
       <button id="prevBtn">Предыдущий</button>
       <button id="submitBtn">Ответить</button>
       <button id="nextBtn">Следующий вопрос</button>
-      <button id="exitErrorsBtn" style="display:none">Выйти из ошибок</button>
+      <!-- exitErrorsBtn добавляется динамически внутри app.js -->
     </div>
 
-    <div class="footer">
+    <footer class="footer">
       <button id="errorsBtn">Работа над ошибками</button>
-      <div id="stats"></div>
-    </div>
-  </div>
+      <div id="stats" aria-live="polite"></div>
+    </footer>
+  </main>
 
   <!-- ====== AUTH OVERLAY (видна, если не вошёл) ====== -->
-  <div id="authOverlay">
-    <div class="authCard">
-      <h1>Доступ к тесту</h1>
+  <div id="authOverlay" aria-hidden="true">
+    <div class="authCard" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+      <h1 id="authTitle">Доступ к тесту</h1>
       <input id="email" type="email" placeholder="Email" autocomplete="username" />
       <input id="password" type="password" placeholder="Пароль" autocomplete="current-password" />
       <button id="authBtn">Войти / Зарегистрироваться</button>
@@ -64,8 +66,8 @@
   </div>
 
   <!-- ====== WAITING OVERLAY (видна, пока allowed = false) ====== -->
-  <div id="waitOverlay" style="display:none">
-    <div class="authCard">
+  <div id="waitOverlay" style="display:none" aria-hidden="true">
+    <div class="authCard" role="dialog" aria-modal="true">
       <h1>⏳ Ожидание подтверждения</h1>
       <p class="muted">Ваша заявка принята. Администратор проверит и откроет доступ.</p>
       <p class="muted" style="font-size:13px">Админ: Firebase Console → Firestore → коллекция <strong>users</strong> → поменять <strong>allowed</strong> на <strong>true</strong>.</p>
@@ -73,162 +75,7 @@
     </div>
   </div>
 
-  <!-- Firebase + логика -->
-  <script type="module">
-    // Firebase imports (web SDK via <script type="module">)
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
-    import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-analytics.js";
-    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
-
-    // ---------- ВАШ CONFIG ----------
-    const firebaseConfig = {
-      apiKey: "AIzaSyD2UHJuUqGHkEFp4jgKBSK8a4G1HGB9chg",
-      authDomain: "myawesomedefense.firebaseapp.com",
-      projectId: "myawesomedefense",
-      storageBucket: "myawesomedefense.firebasestorage.app",
-      messagingSenderId: "644507684491",
-      appId: "1:644507684491:web:3793941b4d4a348c6bce8e",
-      measurementId: "G-387518YEP2"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    try { getAnalytics(app); } catch(e){ /* analytics may fail on some hosts */ }
-
-    const auth = getAuth(app);
-    const db = getFirestore(app);
-
-    // DOM
-    const authOverlay = document.getElementById('authOverlay');
-    const waitOverlay = document.getElementById('waitOverlay');
-    const appDiv = document.getElementById('app');
-    const authBtn = document.getElementById('authBtn');
-    const statusP = document.getElementById('authStatus');
-    const emailInput = document.getElementById('email');
-    const passInput = document.getElementById('password');
-    const logoutBtn = document.getElementById('logoutBtn');
-    const helpBtn = document.getElementById('helpBtn');
-    const signOutFromWait = document.getElementById('signOutFromWait');
-    const userEmailSpan = document.getElementById('userEmail');
-
-    function setStatus(text, isError = false) {
-      statusP.innerText = text;
-      statusP.style.color = isError ? '#e53935' : '#444';
-    }
-
-    // Auth button: try sign in; if user not found — create
-    authBtn.addEventListener('click', async () => {
-      const email = emailInput.value.trim();
-      const password = passInput.value;
-      if (!email || !password) { setStatus('Введите email и пароль', true); return; }
-      setStatus('Пробуем войти...');
-
-      try {
-        await signInWithEmailAndPassword(auth, email, password);
-        setStatus('Вход выполнен');
-      } catch (e) {
-        if (e.code === 'auth/user-not-found') {
-          setStatus('Учётной записи не найдено — создаём...');
-          try {
-            const cred = await createUserWithEmailAndPassword(auth, email, password);
-            await setDoc(doc(db, 'users', cred.user.uid), {
-              email: email,
-              allowed: false,
-              createdAt: serverTimestamp()
-            });
-            setStatus('Заявка отправлена. Ожидайте подтверждения.');
-          } catch (err2) {
-            setStatus(err2.message || 'Ошибка регистрации', true);
-          }
-        } else if (e.code === 'auth/wrong-password') {
-          setStatus('Неверный пароль', true);
-        } else {
-          setStatus(e.message || 'Ошибка авторизации', true);
-        }
-      }
-    });
-
-    // Sign out
-    logoutBtn.addEventListener('click', async () => {
-      await signOut(auth);
-      location.reload();
-    });
-    signOutFromWait.addEventListener('click', async () => {
-      await signOut(auth);
-      location.reload();
-    });
-
-    helpBtn.addEventListener('click', () => {
-      alert('Админ: зайдите в Firebase Console → Firestore → users → найдите пользователя → поставьте allowed = true.');
-    });
-
-    // Auth state change
-    onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        authOverlay.style.display = 'flex';
-        waitOverlay.style.display = 'none';
-        appDiv.style.display = 'none';
-        userEmailSpan.innerText = '';
-        return;
-      }
-
-      authOverlay.style.display = 'none';
-      try {
-        const uDocRef = doc(db, 'users', user.uid);
-        const uDoc = await getDoc(uDocRef);
-        if (!uDoc.exists()) {
-          // создаём профиль, если вдруг нет
-          await setDoc(uDocRef, {
-            email: user.email || '',
-            allowed: false,
-            createdAt: serverTimestamp()
-          });
-          setStatus('Заявка отправлена. Ожидайте подтверждения.');
-          waitOverlay.style.display = 'flex';
-          appDiv.style.display = 'none';
-          userEmailSpan.innerText = user.email || '';
-          return;
-        }
-
-        const data = uDoc.data();
-        userEmailSpan.innerText = user.email || '';
-
-        if (data.allowed === true) {
-          waitOverlay.style.display = 'none';
-          appDiv.style.display = 'block';
-          setStatus('');
-          // TODO: Инициализируй свой тест здесь (например: initTest())
-        } else {
-          waitOverlay.style.display = 'flex';
-          appDiv.style.display = 'none';
-          setStatus('Ожидайте подтверждения администратора.');
-        }
-      } catch (err) {
-        console.error(err);
-        setStatus('Ошибка при проверке доступа', true);
-        waitOverlay.style.display = 'flex';
-        appDiv.style.display = 'none';
-      }
-    });
-
-    // UI: сворачивание панели вопросов
-    const wrapper = document.getElementById("questionPanelWrapper");
-    const toggleBtn = document.getElementById("togglePanelBtn");
-    toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
-
-    // Demo: заполнение панели вопросами — замени на свою навигацию
-    const qPanel = document.getElementById('questionPanel');
-    for (let i=1;i<=12;i++){
-      const b = document.createElement('button');
-      b.textContent = i;
-      b.onclick = () => { /* implement: go to question i */ };
-      qPanel.appendChild(b);
-    }
-
-    // Если у тебя есть внешний app.js - подключи его внизу после этого скрип
-    // инициализируй тест только после проверки allowed === true
+  <!-- Подключаем главный модуль — в нём инициализация Firebase и запуск теста -->
   <script type="module" src="app.js"></script>
-
 </body>
 </html>
-
