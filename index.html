@@ -1,214 +1,233 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <title>Биология — тест</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="style.css">
-  <style>
-    /* ====== Вертикальная панель слева ====== */
-    #questionPanelWrapper {
-      position: fixed;
-      top: 50px;
-      left: 0;
-      width: 60px;
-      height: 90%;
-      background: #f5f5f5;
-      padding: 5px;
-      border-right: 1px solid #ccc;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-      z-index: 100;
-      transition: width 0.3s;
-    }
-
-    #questionPanelWrapper.collapsed { width: 20px; }
-
-    #togglePanelBtn {
-      margin-bottom: 10px;
-      cursor: pointer;
-      padding: 3px 6px;
-      font-size: 14px;
-    }
-
-    #questionPanel {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      overflow-y: auto;  /* вертикальный скролл */
-      flex-grow: 1;
-      text-align: center;
-      width: 100%;
-    }
-
-    #questionPanel button {
-      flex: 0 0 auto;       /* не растягиваться */
-      width: 45px;
-      height: 45px;
-      min-width: 45px;
-      min-height: 45px;
-      max-width: 45px;
-      max-height: 45px;
-      border-radius: 50%;
-      border: 1px solid #ccc;
-      cursor: pointer;
-      background: #eee;
-      color: #000;
-      font-size: 14px;
-      transition: background 0.2s;
-    }
-
-    #questionPanel button.correct { background: green; color: #fff; }
-    #questionPanel button.wrong { background: red; color: #fff; }
-
-    #pageNav {
-      margin-top: 8px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      justify-content: center;
-      width: 100%;
-    }
-
-    #pageNav button {
-      padding: 3px 6px;
-      cursor: pointer;
-      border-radius: 3px;
-      border: 1px solid #ccc;
-      background: #eee;
-      font-size: 12px;
-    }
-
-    #pageNav button.active { background: #007bff; color: #fff; }
-
-    #resetWrapper {
-      margin-top: 8px;
-    }
-
-    #resetBtn {
-      width: 50px;
-      padding: 3px 5px;
-      cursor: pointer;
-      border-radius: 3px;
-      border: 1px solid #f00;
-      background: #ff4d4d;
-      color: #fff;
-      font-size: 12px;
-    }
-
-    /* ====== Основной контент ====== */
-    .app {
-      margin-left:70px;
-      padding:15px;
-      max-width: 1000px;
-    }
-
-    .header {
-      margin-bottom: 15px;
-    }
-
-    .card {
-      margin-bottom: 15px;
-    }
-
-    .controls button {
-      margin-right: 6px;
-      padding: 8px 12px;
-      font-size: 16px;
-    }
-
-    /* ====== Адаптивность для телефонов ====== */
-    @media (max-width: 600px) {
-      #questionPanelWrapper {
-        width: 50px;
-        padding: 4px;
-      }
-
-      #questionPanel button {
-        width: 40px;
-        height: 40px;
-        font-size: 13px;
-      }
-
-      #pageNav button {
-        padding: 2px 4px;
-        font-size: 11px;
-      }
-
-      #resetBtn {
-        width: 45px;
-        font-size: 11px;
-        padding: 2px 4px;
-      }
-
-      .app {
-        margin-left:60px;
-        padding: 10px;
-      }
-
-      .controls button {
-        padding: 6px 10px;
-        font-size: 14px;
-      }
-
-      #questionText {
-        font-size: 18px;
-      }
-
-      .answer {
-        font-size: 16px;
-        padding: 8px;
-      }
-    }
-  </style>
+  <meta charset="utf-8" />
+  <title>Биология — тест (защищённый)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 
-<!-- ====== Вертикальная панель вопросов ====== -->
-<div id="questionPanelWrapper">
-  <button id="togglePanelBtn">⇨</button>
-  <div id="questionPanel"></div>
-  <div id="pageNav"></div>
-  <div id="resetWrapper">
-    <button id="resetBtn">RESET</button>
-  </div>
-</div>
-
-<!-- ====== Основное окно теста ====== -->
-<div class="app">
-  <div class="header">
-    <div id="progressText">Вопрос 1 из 1</div>
-    <div class="progress-bar">
-      <div id="progressFill"></div>
+  <!-- ====== Вертикальная панель вопросов ====== -->
+  <div id="questionPanelWrapper">
+    <button id="togglePanelBtn">⇨</button>
+    <div id="questionPanel"></div>
+    <div id="pageNav"></div>
+    <div id="resetWrapper">
+      <button id="resetBtn">RESET</button>
     </div>
   </div>
 
-  <div class="card">
-    <h2 id="questionText"></h2>
-    <div id="answers"></div>
+  <!-- ====== Основное окно теста (скрываем по умолчанию) ====== -->
+  <div class="app" id="app" style="display:none">
+    <div class="header">
+      <div id="topRow" style="display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <div id="progressText">Вопрос 1 из 1</div>
+          <div class="progress-bar"><div id="progressFill" style="width:0%"></div></div>
+        </div>
+        <div id="userControls" style="display:flex; gap:8px; align-items:center;">
+          <div id="userEmail" style="font-size:14px; color:#444"></div>
+          <button id="logoutBtn" class="secondary">Выйти</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 id="questionText">Тест будет показан после подтверждения</h2>
+      <div id="answers"></div>
+    </div>
+
+    <div class="controls">
+      <button id="prevBtn">Предыдущий</button>
+      <button id="submitBtn">Ответить</button>
+      <button id="nextBtn">Следующий вопрос</button>
+      <button id="exitErrorsBtn" style="display:none">Выйти из ошибок</button>
+    </div>
+
+    <div class="footer">
+      <button id="errorsBtn">Работа над ошибками</button>
+      <div id="stats"></div>
+    </div>
   </div>
 
-  <div class="controls">
-    <button id="prevBtn">Предыдущий</button>
-    <button id="submitBtn">Ответить</button>
-    <button id="nextBtn">Следующий вопрос</button>
-    <button id="exitErrorsBtn" style="display:none">Выйти из ошибок</button>
+  <!-- ====== AUTH OVERLAY (видна, если не вошёл) ====== -->
+  <div id="authOverlay">
+    <div class="authCard">
+      <h1>Доступ к тесту</h1>
+      <input id="email" type="email" placeholder="Email" autocomplete="username" />
+      <input id="password" type="password" placeholder="Пароль" autocomplete="current-password" />
+      <button id="authBtn">Войти / Зарегистрироваться</button>
+      <p id="authStatus" class="muted">Введите e-mail и пароль — если учётной записи нет, она создастся автоматически.</p>
+      <button id="helpBtn" class="small-ghost">Я администратор — где поменять доступ?</button>
+    </div>
   </div>
 
-  <div class="footer">
-    <button id="errorsBtn">Работа над ошибками</button>
-    <div id="stats"></div>
+  <!-- ====== WAITING OVERLAY (видна, пока allowed = false) ====== -->
+  <div id="waitOverlay" style="display:none">
+    <div class="authCard">
+      <h1>⏳ Ожидание подтверждения</h1>
+      <p class="muted">Ваша заявка принята. Администратор проверит и откроет доступ.</p>
+      <p class="muted" style="font-size:13px">Админ: Firebase Console → Firestore → коллекция <strong>users</strong> → поменять <strong>allowed</strong> на <strong>true</strong>.</p>
+      <button id="signOutFromWait" class="small-ghost">Выйти из аккаунта</button>
+    </div>
   </div>
-</div>
 
-<script src="app.js"></script>
-<script>
-  // ====== Кнопка открыть/закрыть панель ======
-  const wrapper = document.getElementById("questionPanelWrapper");
-  const toggleBtn = document.getElementById("togglePanelBtn");
-  toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
-</script>
+  <!-- Firebase + логика -->
+  <script type="module">
+    // Firebase imports (web SDK via <script type="module">)
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
+    import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-analytics.js";
+    import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
+
+    // ---------- ВАШ CONFIG ----------
+    const firebaseConfig = {
+      apiKey: "AIzaSyA_8x2YAjREKIg8TTtMLeB-v-mFbz_5ecc",
+      authDomain: "myawesomedefense.firebaseapp.com",
+      projectId: "myawesomedefense",
+      storageBucket: "myawesomedefense.firebasestorage.app",
+      messagingSenderId: "644507684491",
+      appId: "1:644507684491:web:9878c8504ed1da7e6bce8e",
+      measurementId: "G-PCMJGS1ZXL"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    try { getAnalytics(app); } catch(e){ /* analytics may fail on some hosts */ }
+
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // DOM
+    const authOverlay = document.getElementById('authOverlay');
+    const waitOverlay = document.getElementById('waitOverlay');
+    const appDiv = document.getElementById('app');
+    const authBtn = document.getElementById('authBtn');
+    const statusP = document.getElementById('authStatus');
+    const emailInput = document.getElementById('email');
+    const passInput = document.getElementById('password');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const helpBtn = document.getElementById('helpBtn');
+    const signOutFromWait = document.getElementById('signOutFromWait');
+    const userEmailSpan = document.getElementById('userEmail');
+
+    function setStatus(text, isError = false) {
+      statusP.innerText = text;
+      statusP.style.color = isError ? '#e53935' : '#444';
+    }
+
+    // Auth button: try sign in; if user not found — create
+    authBtn.addEventListener('click', async () => {
+      const email = emailInput.value.trim();
+      const password = passInput.value;
+      if (!email || !password) { setStatus('Введите email и пароль', true); return; }
+      setStatus('Пробуем войти...');
+
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+        setStatus('Вход выполнен');
+      } catch (e) {
+        if (e.code === 'auth/user-not-found') {
+          setStatus('Учётной записи не найдено — создаём...');
+          try {
+            const cred = await createUserWithEmailAndPassword(auth, email, password);
+            await setDoc(doc(db, 'users', cred.user.uid), {
+              email: email,
+              allowed: false,
+              createdAt: serverTimestamp()
+            });
+            setStatus('Заявка отправлена. Ожидайте подтверждения.');
+          } catch (err2) {
+            setStatus(err2.message || 'Ошибка регистрации', true);
+          }
+        } else if (e.code === 'auth/wrong-password') {
+          setStatus('Неверный пароль', true);
+        } else {
+          setStatus(e.message || 'Ошибка авторизации', true);
+        }
+      }
+    });
+
+    // Sign out
+    logoutBtn.addEventListener('click', async () => {
+      await signOut(auth);
+      location.reload();
+    });
+    signOutFromWait.addEventListener('click', async () => {
+      await signOut(auth);
+      location.reload();
+    });
+
+    helpBtn.addEventListener('click', () => {
+      alert('Админ: зайдите в Firebase Console → Firestore → users → найдите пользователя → поставьте allowed = true.');
+    });
+
+    // Auth state change
+    onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        authOverlay.style.display = 'flex';
+        waitOverlay.style.display = 'none';
+        appDiv.style.display = 'none';
+        userEmailSpan.innerText = '';
+        return;
+      }
+
+      authOverlay.style.display = 'none';
+      try {
+        const uDocRef = doc(db, 'users', user.uid);
+        const uDoc = await getDoc(uDocRef);
+        if (!uDoc.exists()) {
+          // создаём профиль, если вдруг нет
+          await setDoc(uDocRef, {
+            email: user.email || '',
+            allowed: false,
+            createdAt: serverTimestamp()
+          });
+          setStatus('Заявка отправлена. Ожидайте подтверждения.');
+          waitOverlay.style.display = 'flex';
+          appDiv.style.display = 'none';
+          userEmailSpan.innerText = user.email || '';
+          return;
+        }
+
+        const data = uDoc.data();
+        userEmailSpan.innerText = user.email || '';
+
+        if (data.allowed === true) {
+          waitOverlay.style.display = 'none';
+          appDiv.style.display = 'block';
+          setStatus('');
+          // TODO: Инициализируй свой тест здесь (например: initTest())
+        } else {
+          waitOverlay.style.display = 'flex';
+          appDiv.style.display = 'none';
+          setStatus('Ожидайте подтверждения администратора.');
+        }
+      } catch (err) {
+        console.error(err);
+        setStatus('Ошибка при проверке доступа', true);
+        waitOverlay.style.display = 'flex';
+        appDiv.style.display = 'none';
+      }
+    });
+
+    // UI: сворачивание панели вопросов
+    const wrapper = document.getElementById("questionPanelWrapper");
+    const toggleBtn = document.getElementById("togglePanelBtn");
+    toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
+
+    // Demo: заполнение панели вопросами — замени на свою навигацию
+    const qPanel = document.getElementById('questionPanel');
+    for (let i=1;i<=12;i++){
+      const b = document.createElement('button');
+      b.textContent = i;
+      b.onclick = () => { /* implement: go to question i */ };
+      qPanel.appendChild(b);
+    }
+
+    // Если у тебя есть внешний app.js - подключи его внизу после этого скрип
+    // инициализируй тест только после проверки allowed === true
+  <script type="module" src="app.js"></script>
+
 </body>
 </html>
