@@ -96,49 +96,79 @@ if (logoutBtn) logoutBtn.onclick = async ()=>{ await signOut(auth); location.rel
 if (signOutFromWait) signOutFromWait.onclick = async ()=>{ await signOut(auth); location.reload(); };
 if (helpBtn) helpBtn.onclick = ()=>{ alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); };
 
-/* ====== Когда изменился аутентифицированный юзер ====== */
-onAuthStateChanged(auth, async (user)=>{
-  
- if (!user) {
-    // Пользователь вышел или не вошёл
-    if (authOverlay) authOverlay.style.display = 'flex';
+// ---------- наблюдение за изменением аутентификации и realtime слушатель ----------
+let userUnsubscribe = null; // хранит функцию отписки от onSnapshot
+
+onAuthStateChanged(auth, async (user) => {
+
+  // если был старый слушатель для предыдущего пользователя — отписаться
+  if (userUnsubscribe) {
+    try { userUnsubscribe(); } catch (e) { /* ignore */ }
+    userUnsubscribe = null;
+  }
+
+  // если никто не залогинен — показать overlay входа и выйти
+  if (!user) {
+    if (authOverlay) {
+      // показываем оверлей и делаем доступным фокус
+      authOverlay.removeAttribute('inert');
+      authOverlay.style.display = 'flex';
+      // поставим фокус в поле email для удобства
+      setTimeout(() => emailInput?.focus(), 50);
+    }
     if (waitOverlay) waitOverlay.style.display = 'none';
     if (appDiv) appDiv.style.display = 'none';
     if (userEmailSpan) userEmailSpan.innerText = '';
+    // сброс флага инициализации (если хотите, чтобы при следующем входе тест заново инициализировался)
+    // quizInitialized = false; // при желании раскомментировать
     return;
   }
 
-  // Пользователь вошёл
-  if (authOverlay) authOverlay.style.display = 'none';
+  // пользователь вошёл — скрываем overlay входа
+  if (authOverlay) {
+    authOverlay.setAttribute('inert', '');
+    authOverlay.style.display = 'none';
+  }
   if (userEmailSpan) userEmailSpan.innerText = user.email || '';
 
+  // ссылки на документы в Firestore
   const uDocRef = doc(db, 'users', user.uid);
   progressDocRef = doc(db, 'usersanswer', user.uid);
 
-  // Создаём пользователя в БД, если его ещё нет
-  const uDocSnap = await getDoc(uDocRef);
-  if (!uDocSnap.exists()) {
-    await setDoc(uDocRef, {
-      email: user.email || '',
-      allowed: false,
-      createdAt: serverTimestamp()
-    });
-    if (waitOverlay) waitOverlay.style.display = 'flex';
-    if (appDiv) appDiv.style.display = 'none';
-    setStatus('Заявка отправлена. Ожидайте подтверждения.');
+  // создаём документ пользователя при отсутствии
+  try {
+    const uDocSnap = await getDoc(uDocRef);
+    if (!uDocSnap.exists()) {
+      await setDoc(uDocRef, {
+        email: user.email || '',
+        allowed: false,
+        createdAt: serverTimestamp()
+      });
+      if (waitOverlay) waitOverlay.style.display = 'flex';
+      if (appDiv) appDiv.style.display = 'none';
+      setStatus('Заявка отправлена. Ожидайте подтверждения.');
+    }
+  } catch (err) {
+    console.error('Ошибка чтения/создания user doc:', err);
+    setStatus('Ошибка доступа к БД', true);
+    // не прерываем — попытаемся подписаться дальше
   }
-  
-  // ===== Реальный-time слушатель =====
-  onSnapshot(uDocRef, (docSnap) => {
-    const data = docSnap.data();
-    if (!data) return;
 
-    if (data.allowed === true) {
-      waitOverlay.style.display = 'none';
-      appDiv.style.display = 'block';
+  // realtime: подписываемся на изменения документа пользователя
+  userUnsubscribe = onSnapshot(uDocRef, (docSnap) => {
+    const data = docSnap && docSnap.exists() ? docSnap.data() : null;
+    if (!data) return; // если нет данных — игнорируем
+
+    const allowed = data.allowed === true;
+
+    if (allowed) {
+      // доступ открыт
+      if (waitOverlay) waitOverlay.style.display = 'none';
+      if (appDiv) appDiv.style.display = 'block';
       setStatus('');
       document.body.classList.remove('blocked');
 
+      // генерация секретного пароля — только один раз
       if (!window.passwordResetDone) {
         window.passwordResetDone = true;
         const generateSecretPassword = (length = 20) => {
@@ -153,75 +183,29 @@ onAuthStateChanged(auth, async (user)=>{
         console.log("%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:", "color:lime;font-weight:bold;", newSecret);
       }
 
+      // инициализация теста ровно один раз
       if (!quizInitialized) {
         quizInstance = initQuiz(progressDocRef);
         quizInitialized = true;
       }
 
     } else {
-      waitOverlay.style.display = 'flex';
-      appDiv.style.display = 'none';
+      // доступ закрыт — мгновенно блокируем интерфейс
+      if (waitOverlay) waitOverlay.style.display = 'flex';
+      if (appDiv) appDiv.style.display = 'none';
       setStatus('Доступ закрыт администратором.');
+      // CSS-блокировка кликов (вставь в CSS .blocked { pointer-events:none; user-select:none; } )
       document.body.classList.add('blocked');
-      const answerEls = document.querySelectorAll('#answers .answer');
-      answerEls.forEach(el => el.classList.remove('selected'));
+      // снять визуальные выделения ответов
+      document.querySelectorAll('#answers .answer').forEach(el => el.classList.remove('selected'));
     }
+  }, (err) => {
+    // обработка ошибок snapshot
+    console.error('Ошибка realtime-слушателя пользователя:', err);
   });
 
-});
+}); // конец onAuthStateChanged
 
-// флаг — чтобы пароль не сбрасывался бесконечно
-    // ✅ ДОСТУП РАЗРЕШЁН
-    if (waitOverlay) waitOverlay.style.display = 'none';
-    if (appDiv) appDiv.style.display = 'block';
-    setStatus('');
-
-    // 🔓 разблокируем клики ПРАВИЛЬНО
-    document.body.classList.remove('blocked');
-
-    // 🔐 сброс секретного пароля — ОДИН РАЗ за вход
-    if (!window.passwordResetDone) {
-       window.passwordResetDone = true;
-
-      const generateSecretPassword = (length = 20) => {
-        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        let pwd = "";
-        for (let i = 0; i < length; i++) {
-          pwd += chars[Math.floor(Math.random() * chars.length)];
-        }
-        return pwd;
-      };
-
-      const newSecret = generateSecretPassword();
-
-      // ⚠️ updatePassword часто требует re-auth — поэтому просто логируем
-      console.log(
-        "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
-        "color:lime;font-weight:bold;",
-        newSecret
-      );
-    }
-
-    // ▶️ инициализируем тест ОДИН РАЗ
-    if (!quizInitialized) {
-      quizInstance = initQuiz(progressDocRef);
-      quizInitialized = true;
-    }
-
-  } else {
-    // 🔴 ДОСТУП ЗАКРЫТ — МГНОВЕННО
-    if (waitOverlay) waitOverlay.style.display = 'flex';
-    if (appDiv) appDiv.style.display = 'none';
-    setStatus('Доступ закрыт администратором.');
-
-    // 🚫 блокируем ВСЕ клики через CSS
-    document.body.classList.add('blocked');
-
-    // визуально снимаем выбор
-    const answerEls = document.querySelectorAll('#answers .answer');
-    answerEls.forEach(el => el.classList.remove('selected'));
-  }
-});
   
 /* ====== Тест с синхронизацией ====== */
 function initQuiz(progressRef){
@@ -699,6 +683,7 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
