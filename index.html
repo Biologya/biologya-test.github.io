@@ -2,29 +2,12 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <title>Биология — тест (защищённый)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Биология — тест (защищённый)</title>
   <link rel="stylesheet" href="style.css" />
+
+  <!-- ====== Встроенный стиль панели и адаптивность ====== -->
   <style>
-    :root {
-      --bg: #eaf5ea;
-      --card: #fff;
-      --text: #1b3d1b;
-      --primary: #4caf50;
-      --wrong: #e53935;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: var(--bg);
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      font-family: 'Segoe UI', sans-serif;
-      color: var(--text);
-    }
-
     /* ====== Вертикальная панель слева ====== */
     #questionPanelWrapper {
       position: fixed;
@@ -50,77 +33,57 @@
       cursor: pointer;
       padding: 3px 6px;
       font-size: 14px;
-      background: transparent;
-      border: none;
     }
 
     #questionPanel {
       display: flex;
       flex-direction: column;
       gap: 6px;
-      overflow-y: auto;  /* вертикальный скролл */
+      overflow-y: auto;
       flex-grow: 1;
       text-align: center;
       width: 100%;
     }
 
     #questionPanel button {
-      flex: 0 0 auto;       /* не растягиваться */
-      width: 36px;
-      height: 36px;
-      min-width: 36px;
-      min-height: 36px;
-      max-width: 36px;
-      max-height: 36px;
+      flex: 0 0 auto;
+      width: 45px;
+      height: 45px;
+      min-width: 45px;
+      min-height: 45px;
+      max-width: 45px;
+      max-height: 45px;
       border-radius: 50%;
-      border: 2px solid #ccc;
+      border: 1px solid #ccc;
       cursor: pointer;
-      background: #fff;
+      background: #eee;
       color: #000;
       font-size: 14px;
-      font-weight: bold;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background 0.2s, transform 0.15s;
+      transition: background 0.2s;
     }
 
-    #questionPanel button:hover { transform: scale(1.05); }
-
-    #questionPanel button.correct { background: #4caf50; color:#fff; border-color:#4caf50; }
-    #questionPanel button.wrong { background: #e53935; color:#fff; border-color:#e53935; }
+    #questionPanel button.correct { background: green; color: #fff; }
+    #questionPanel button.wrong { background: red; color: #fff; }
 
     #pageNav {
       margin-top: 8px;
       display: flex;
-      flex-direction: column;
-      gap: 8px;
-      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: center;
       width: 100%;
     }
 
     #pageNav button {
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      border: 2px solid var(--primary);
-      background: #fff;
-      color: var(--primary);
-      font-weight: bold;
+      padding: 3px 6px;
       cursor: pointer;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      transition: all 0.3s ease;
+      border-radius: 3px;
+      border: 1px solid #ccc;
+      background: #eee;
+      font-size: 12px;
     }
 
-    #pageNav button.active {
-      border: 2px solid #2196f3;
-      box-shadow: 0 0 6px rgba(33,150,243,0.7);
-    }
-
-    #pageNav button.correct { background:#4caf50; border-color:#4caf50; color:#fff; }
-    #pageNav button.wrong { background:#e53935; border-color:#e53935; color:#fff; }
+    #pageNav button.active { background: #007bff; color: #fff; }
 
     #resetWrapper {
       margin-top: 8px;
@@ -130,8 +93,8 @@
       width: 50px;
       padding: 3px 5px;
       cursor: pointer;
-      border-radius: 5px;
-      border: 2px solid #ff0000;
+      border-radius: 3px;
+      border: 1px solid #f00;
       background: #ff4d4d;
       color: #fff;
       font-size: 12px;
@@ -140,133 +103,67 @@
     /* ====== Основной контент ====== */
     .app {
       margin-left:70px;
-      padding:20px;
+      padding:15px;
       max-width: 1000px;
-      width: 100%;
-      box-sizing: border-box;
     }
 
-    .header { margin-bottom: 15px; }
+    .header {
+      margin-bottom: 15px;
+    }
 
     .card {
-      background: var(--card);
-      padding: 20px;
-      border-radius: 12px;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.06);
-      margin-bottom: 16px;
-    }
-
-    .controls, .footer {
-      display: flex;
-      gap: 10px;
-      margin-top: 12px;
-      flex-wrap: wrap;
+      margin-bottom: 15px;
     }
 
     .controls button {
-      padding: 10px 14px;
-      border: none;
-      border-radius: 10px;
-      background: var(--primary);
-      color: #fff;
-      cursor: pointer;
-      transition: background 0.2s, transform 0.08s;
+      margin-right: 6px;
+      padding: 8px 12px;
+      font-size: 16px;
     }
 
-    .controls button:hover { transform: translateY(-1px); }
-
-    .secondary {
-      background: #81c784;
-    }
-
-    .progress-bar {
-      height: 8px;
-      background: #cfe8cf;
-      border-radius: 4px;
-      overflow: hidden;
-      margin-top: 8px;
-    }
-
-    #progressFill {
-      height: 100%;
-      background: var(--primary);
-      transition: width 0.3s ease;
-    }
-
-    #answers {
-      margin-top: 16px;
-      display: grid;
-      gap: 10px;
-    }
-
-    .answer {
-      position: relative;
-      padding: 12px 16px;
-      border-radius: 12px;
-      border: 2px solid #cfe8cf;
-      cursor: pointer;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      background: #fff;
-    }
-
-    .answer:hover {
-      background: #f0faf0;
-      transform: scale(1.02);
-    }
-
-    .answer.selected { background: #c8e6c9; transform: scale(1.03); }
-    .answer.correct { border-color: var(--primary); background: #c8e6c9; }
-    .answer.wrong { border-color: var(--wrong); background: #ffcdd2; }
-
-    /* ====== AUTH OVERLAY, WAIT OVERLAY ====== */
-    #authOverlay, #waitOverlay {
-      position: fixed;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(0,0,0,0.45);
-      z-index: 200;
-    }
-
-    #authOverlay .authCard, #waitOverlay .authCard {
-      background: #fff;
-      padding: 20px;
-      border-radius: 12px;
-      width: 320px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.2);
-      text-align: center;
-    }
-
-    #authOverlay input, #authOverlay button, #waitOverlay button {
-      width: 100%;
-      margin-top: 10px;
-    }
-
-    .muted { color: #666; font-size: 14px; }
-
-    .small-ghost {
-      background: transparent;
-      border: 1px solid #ccc;
-      padding: 8px;
-      border-radius: 8px;
-      cursor: pointer;
-    }
-
-    /* ====== Адаптив ====== */
-    @media (max-width: 900px) {
-      #questionPanelWrapper { display: none; }
-      .app { margin-left: 16px; padding: 12px; }
-    }
-
+    /* ====== Адаптивность для телефонов ====== */
     @media (max-width: 600px) {
-      .card { padding: 14px; }
-      #answers .answer { padding: 10px; font-size: 15px; }
-      #pageNav { display: none; }
-    }
+      #questionPanelWrapper {
+        width: 50px;
+        padding: 4px;
+      }
 
+      #questionPanel button {
+        width: 40px;
+        height: 40px;
+        font-size: 13px;
+      }
+
+      #pageNav button {
+        padding: 2px 4px;
+        font-size: 11px;
+      }
+
+      #resetBtn {
+        width: 45px;
+        font-size: 11px;
+        padding: 2px 4px;
+      }
+
+      .app {
+        margin-left:60px;
+        padding: 10px;
+      }
+
+      .controls button {
+        padding: 6px 10px;
+        font-size: 14px;
+      }
+
+      #questionText {
+        font-size: 18px;
+      }
+
+      .answer {
+        font-size: 16px;
+        padding: 8px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -317,7 +214,7 @@
   </main>
 
   <!-- ====== AUTH OVERLAY (видна, если не вошёл) ====== -->
-  <div id="authOverlay" aria-hidden="true" style="display:flex">
+  <div id="authOverlay" aria-hidden="true">
     <div class="authCard" role="dialog" aria-modal="true" aria-labelledby="authTitle">
       <h1 id="authTitle">Доступ к тесту</h1>
       <input id="email" type="email" placeholder="Email" autocomplete="username" />
@@ -338,25 +235,13 @@
     </div>
   </div>
 
-  <!-- Подключаем главный модуль — в нём инициализация Firebase и запуск теста -->
+  <!-- ====== Скрипт панели и основной модуль ====== -->
   <script type="module" src="app.js"></script>
-
   <script>
-    // поведение кнопки сворачивания панели (простая логика)
+    // Кнопка открыть/закрыть панель
     const wrapper = document.getElementById("questionPanelWrapper");
     const toggleBtn = document.getElementById("togglePanelBtn");
     toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
-
-    // демонстрация — если в панель нужно добавить кнопки до инициализации
-    const qPanel = document.getElementById('questionPanel');
-    if (qPanel && qPanel.children.length === 0) {
-      for (let i = 1; i <= 12; i++) {
-        const b = document.createElement('button');
-        b.textContent = i;
-        b.onclick = () => { /* при инициализации заменить на навигацию */ };
-        qPanel.appendChild(b);
-      }
-    }
   </script>
 </body>
 </html>
