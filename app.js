@@ -665,7 +665,7 @@ function initQuiz() {
     }
   };
 
-  // === Errors mode ===
+   // === Errors mode ===
   const errorsBtn = document.getElementById("errorsBtn");
   if (errorsBtn) errorsBtn.onclick = () => {
     if (!state.errors.length) { alert("Ошибок пока нет 👍"); return; }
@@ -694,7 +694,7 @@ function initQuiz() {
     if (qText) qText.innerText = "Тест завершён 🎉";
     if (answersDiv) answersDiv.innerHTML = `<div>Правильные: ${state.stats.correct} (${correctPercent}%)</div><div>Неправильные: ${state.stats.wrong} (${wrongPercent}%)</div>`;
     if (submitBtn) submitBtn.style.display = nextBtn.style.display = "none";
-    exitErrorsBtn.style.display = "none";
+    if (exitErrorsBtn) exitErrorsBtn.style.display = "none";
   }
 
   // === Reset ===
@@ -714,8 +714,10 @@ function initQuiz() {
     loadQuestions,
     render,
   };
+
 } // end initQuiz
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
