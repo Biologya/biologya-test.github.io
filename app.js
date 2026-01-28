@@ -178,8 +178,7 @@ onAuthStateChanged(auth, async (user)=>{
       const answerEls = document.querySelectorAll('#answers .answer');
       answerEls.forEach(el => el.classList.remove('selected'));
     }
-  });
-
+  }
 });
 
 // флаг — чтобы пароль не сбрасывался бесконечно
@@ -711,4 +710,5 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
