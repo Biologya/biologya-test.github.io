@@ -121,6 +121,106 @@
       font-size: 16px;
     }
 
+    /* ====== Панель администратора ====== */
+    #adminPanel {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+    }
+
+    #adminPanel button {
+      background: #FF9800;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    /* ====== Модальное окно администратора ====== */
+    .admin-modal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0,0,0,0.7);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+
+    .admin-modal-content {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      max-width: 600px;
+      max-height: 400px;
+      overflow-y: auto;
+      width: 90%;
+      position: relative;
+    }
+
+    .admin-modal h3 {
+      margin-top: 0;
+      color: #333;
+      border-bottom: 2px solid #FF9800;
+      padding-bottom: 10px;
+    }
+
+    .admin-user-item {
+      border-bottom: 1px solid #eee;
+      padding: 10px 0;
+    }
+
+    .admin-user-item strong {
+      color: #333;
+      font-size: 16px;
+    }
+
+    .admin-user-item code {
+      background: #f0f0f0;
+      padding: 2px 5px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 14px;
+      margin: 5px 0;
+      display: inline-block;
+    }
+
+    .admin-status {
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+
+    .status-allowed {
+      background: #4CAF50;
+      color: white;
+    }
+
+    .status-pending {
+      background: #FF9800;
+      color: white;
+    }
+
+    .close-modal {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: #f44336;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+
     /* ====== Адаптивность для телефонов ====== */
     @media (max-width: 600px) {
       #questionPanelWrapper {
@@ -162,6 +262,21 @@
       .answer {
         font-size: 16px;
         padding: 8px;
+      }
+
+      #adminPanel {
+        top: 5px;
+        right: 5px;
+      }
+
+      #adminPanel button {
+        padding: 6px 12px;
+        font-size: 12px;
+      }
+
+      .admin-modal-content {
+        width: 95%;
+        max-height: 350px;
       }
     }
   </style>
@@ -235,16 +350,27 @@
     </div>
   </div>
 
+  <!-- ====== Панель администратора (показывается только админу) ====== -->
+  <div id="adminPanel"></div>
+
   <!-- ====== Скрипт панели и основной модуль ====== -->
-<script type="module" src="app.js"></script>
+  <script type="module" src="app.js"></script>
   <script>
+    // Кнопка сворачивания панели вопросов
     const wrapper = document.getElementById("questionPanelWrapper");
     const toggleBtn = document.getElementById("togglePanelBtn");
     toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
+    
+    // Изменяем стрелку при сворачивании
+    wrapper.addEventListener('transitionend', () => {
+      if (wrapper.classList.contains('collapsed')) {
+        toggleBtn.textContent = '⇦';
+        toggleBtn.title = 'Развернуть панель';
+      } else {
+        toggleBtn.textContent = '⇨';
+        toggleBtn.title = 'Свернуть панель';
+      }
+    });
   </script>
 </body>
 </html>
-
-
-
-
