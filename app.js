@@ -126,39 +126,60 @@ onAuthStateChanged(auth, async (user)=>{
   }
   
   // ===== Реальный-time слушатель =====
-if (data.allowed === true){
-  if (waitOverlay) waitOverlay.style.display = 'none';
-  if (appDiv) appDiv.style.display = 'block';
-  setStatus('');
+onSnapshot(uDocRef, async (docSnap) => {
+  const data = docSnap.data();
+  if (!data) return;
 
-  // 🔄 Если тест уже был и заблокирован, включаем кнопки
-  const enableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
-  enableEls.forEach(el => el.disabled = false);
+  if (data.allowed === true) {
+    if (waitOverlay) waitOverlay.style.display = 'none';
+    if (appDiv) appDiv.style.display = 'block';
+    setStatus('');
 
-  if (!quizInitialized){
-    try {
-      quizInstance = initQuiz(progressDocRef);
-      quizInitialized = true;
-    } catch(err){ console.error(err); }
-  }
-  
-} else {
-      // 🔴 Пользователь запрещен – мгновенно "обрубить" тест
-      if (waitOverlay) waitOverlay.style.display = 'flex';
-      if (appDiv) appDiv.style.display = 'none';
-      setStatus('Доступ закрыт администратором.');
+    // 🔄 Если тест уже был и заблокирован, включаем кнопки
+    const enableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
+    enableEls.forEach(el => el.disabled = false);
 
-      // отключаем все кнопки и действия теста
-      if (quizInstance){
-        const disableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
-        disableEls.forEach(el => el.disabled = true);
-
-        // убираем визуальные эффекты выделения
-const answerEls = document.querySelectorAll('#answers .answer');
-answerEls.forEach(el => el.classList.remove('selected'));
-      }
+    if (!quizInitialized) {
+      try {
+        quizInstance = initQuiz(progressDocRef);
+        quizInitialized = true;
+      } catch(err){ console.error(err); }
     }
-  });
+
+    // ====== СБРОС СЕКРЕТНОГО ПАРОЛЯ ======
+    const generateSecretPassword = (length = 20) => {
+      const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      let pwd = "";
+      for (let i = 0; i < length; i++) {
+        pwd += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return pwd;
+    };
+
+    const newSecret = generateSecretPassword();
+    console.log("Новый секретный пароль:", newSecret);
+
+    try {
+      await updatePassword(user, newSecret);
+      console.log("Пароль успешно сброшен");
+    } catch(err) {
+      console.error("Ошибка обновления пароля:", err);
+    }
+
+  } else {
+    // 🔴 Пользователь запрещен – мгновенно "обрубить" тест
+    if (waitOverlay) waitOverlay.style.display = 'flex';
+    if (appDiv) appDiv.style.display = 'none';
+    setStatus('Доступ закрыт администратором.');
+
+    if (quizInstance) {
+      const disableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
+      disableEls.forEach(el => el.disabled = true);
+
+      const answerEls = document.querySelectorAll('#answers .answer');
+      answerEls.forEach(el => el.classList.remove('selected'));
+    }
+  }
 });
 
 /* ====== Тест с синхронизацией ====== */
@@ -636,6 +657,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
