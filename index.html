@@ -162,14 +162,14 @@
     }
 
     /* ====== Панель администратора ====== */
-    #adminPanel {
+    #adminPanelContainer {
       position: fixed;
       top: 10px;
       right: 10px;
       z-index: 1000;
     }
 
-    #adminPanel button {
+    #adminPanelContainer button {
       background: #FF9800;
       color: white;
       border: none;
@@ -181,7 +181,7 @@
       transition: all 0.2s;
     }
 
-    #adminPanel button:hover {
+    #adminPanelContainer button:hover {
       background: #F57C00;
       transform: translateY(-2px);
       box-shadow: 0 4px 8px rgba(0,0,0,0.2);
@@ -301,8 +301,8 @@
       background: #2196F3;
       color: white;
       border: none;
-      padding: 4px 10px;
-      border-radius: 3px;
+      padding: 6px 12px;
+      border-radius: 4px;
       cursor: pointer;
       font-size: 12px;
       margin-top: 8px;
@@ -317,6 +317,60 @@
       height: 1px;
       background: #eee;
       margin: 10px 0;
+    }
+
+    /* ====== Уведомление о новом пароле ====== */
+    .password-alert {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #4CAF50;
+      color: white;
+      padding: 15px;
+      border-radius: 8px;
+      z-index: 10000;
+      max-width: 400px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+      animation: slideInRight 0.5s;
+    }
+
+    @keyframes slideInRight {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .password-alert strong {
+      display: block;
+      margin-bottom: 5px;
+      font-size: 16px;
+    }
+
+    .password-alert code {
+      font-family: 'Courier New', monospace;
+      font-size: 18px;
+      background: rgba(0,0,0,0.2);
+      padding: 5px 10px;
+      border-radius: 4px;
+      margin: 5px 0;
+      display: inline-block;
+      font-weight: bold;
+    }
+
+    .password-alert small {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+
+    .close-alert {
+      position: absolute;
+      top: 5px;
+      right: 5px;
+      background: none;
+      border: none;
+      color: white;
+      cursor: pointer;
+      font-size: 20px;
+      line-height: 1;
     }
 
     /* ====== Адаптивность для телефонов ====== */
@@ -366,12 +420,12 @@
         padding: 8px;
       }
 
-      #adminPanel {
+      #adminPanelContainer {
         top: 5px;
         right: 5px;
       }
 
-      #adminPanel button {
+      #adminPanelContainer button {
         padding: 6px 12px;
         font-size: 12px;
       }
@@ -389,6 +443,13 @@
       .admin-user-item code {
         font-size: 12px;
         padding: 3px 6px;
+      }
+
+      .password-alert {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
       }
     }
 
@@ -527,9 +588,6 @@
       <button id="signOutFromWait" class="small-ghost">Выйти из аккаунта</button>
     </div>
   </div>
-
-  <!-- ====== Панель администратора (показывается только админу) ====== -->
-  <div id="adminPanel"></div>
 
   <!-- ====== Скрипт панели и основной модуль ====== -->
   <script type="module" src="app.js"></script>
