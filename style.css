@@ -149,9 +149,22 @@ button.secondary { background: #81c784; }
   pointer-events: auto;
 }
 
+/* ===== ГЛОБАЛЬНАЯ БЛОКИРОВКА ПОЛЬЗОВАТЕЛЯ ===== */
+body.blocked {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* overlays всегда кликабельны */
+body.blocked #authOverlay,
+body.blocked #waitOverlay {
+  pointer-events: auto;
+}
+
 /* small responsive tweaks */
 @media (max-width: 420px) {
   .authCard { padding: 18px; width: 92%; }
 }
+
 
 
