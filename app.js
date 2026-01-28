@@ -183,13 +183,6 @@ onAuthStateChanged(auth, async (user)=>{
 });
 
 // флаг — чтобы пароль не сбрасывался бесконечно
-window.passwordResetDone = window.passwordResetDone || false;
-
-onSnapshot(uDocRef, async (docSnap) => {
-  const data = docSnap.data();
-  if (!data) return;
-
-  if (data.allowed === true) {
     // ✅ ДОСТУП РАЗРЕШЁН
     if (waitOverlay) waitOverlay.style.display = 'none';
     if (appDiv) appDiv.style.display = 'block';
@@ -718,3 +711,4 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
