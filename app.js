@@ -154,23 +154,26 @@ onAuthStateChanged(auth, async (user) => {
     // не прерываем — попытаемся подписаться дальше
   }
 
-  // realtime: подписываемся на изменения документа пользователя
-  userUnsubscribe = onSnapshot(uDocRef, (docSnap) => {
-    const data = docSnap && docSnap.exists() ? docSnap.data() : null;
-    if (!data) return; // если нет данных — игнорируем
+// realtime: подписываемся на изменения документа пользователя
+userUnsubscribe = onSnapshot(
+  uDocRef,
+  (docSnap) => {
+    if (!docSnap.exists()) return;
 
+    const data = docSnap.data();
     const allowed = data.allowed === true;
 
     if (allowed) {
-      // доступ открыт
+      // ✅ ДОСТУП РАЗРЕШЁН
+      if (authOverlay) authOverlay.style.display = 'none';
       if (waitOverlay) waitOverlay.style.display = 'none';
       if (appDiv) appDiv.style.display = 'block';
       setStatus('');
-      document.body.classList.remove('blocked');
 
-      // генерация секретного пароля — только один раз
+      // 🔐 генерация секретного пароля — ОДИН РАЗ
       if (!window.passwordResetDone) {
         window.passwordResetDone = true;
+
         const generateSecretPassword = (length = 20) => {
           const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
           let pwd = "";
@@ -179,34 +182,49 @@ onAuthStateChanged(auth, async (user) => {
           }
           return pwd;
         };
+
         const newSecret = generateSecretPassword();
-        console.log("%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:", "color:lime;font-weight:bold;", newSecret);
+        console.log(
+          "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
+          "color:lime;font-weight:bold;",
+          newSecret
+        );
       }
 
-      // инициализация теста ровно один раз
+      // ▶️ инициализация теста — ОДИН РАЗ
       if (!quizInitialized) {
         quizInstance = initQuiz(progressDocRef);
         quizInitialized = true;
       }
 
     } else {
-      // доступ закрыт — мгновенно блокируем интерфейс
+      // 🔴 ДОСТУП ЗАКРЫТ
+      if (authOverlay) authOverlay.style.display = 'none';
       if (waitOverlay) waitOverlay.style.display = 'flex';
       if (appDiv) appDiv.style.display = 'none';
+
       setStatus('Доступ закрыт администратором.');
-      // CSS-блокировка кликов (вставь в CSS .blocked { pointer-events:none; user-select:none; } )
-      document.body.classList.add('blocked');
-      // снять визуальные выделения ответов
-      document.querySelectorAll('#answers .answer').forEach(el => el.classList.remove('selected'));
+
+      // визуально снимаем ответы
+      document
+        .querySelectorAll('#answers .answer')
+        .forEach(el => el.classList.remove('selected'));
     }
-  }, (err) => {
-    // обработка ошибок snapshot
+  },
+  (err) => {
     console.error('Ошибка realtime-слушателя пользователя:', err);
-  });
+  }
+);
 
-}); // конец onAuthStateChanged
+// доступ разрешён
+waitOverlay.style.display = 'none';
+authOverlay.style.display = 'none';
+appDiv.style.display = 'block';
 
-  
+// доступ запрещён
+waitOverlay.style.display = 'flex';
+appDiv.style.display = 'none';
+
 /* ====== Тест с синхронизацией ====== */
 function initQuiz(progressRef){
   const state = JSON.parse(localStorage.getItem("bioState"))||{
@@ -683,6 +701,7 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
