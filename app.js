@@ -18,13 +18,13 @@ import {
 
 /* ====== CONFIG: вставь свой конфиг если нужно ====== */
 const firebaseConfig = {
-  apiKey: "AIzaSyA_8x2YAjREKIg8TTtMLeB-v-mFbz_5ecc",
-  authDomain: "myawesomedefense.firebaseapp.com",
-  projectId: "myawesomedefense",
-  storageBucket: "myawesomedefense.firebasestorage.app",
-  messagingSenderId: "644507684491",
-  appId: "1:644507684491:web:3793941b4d4a348c6bce8e",
-  measurementId: "G-387518YEP2"
+  apiKey: "AIzaSyDE2nXjacnKSrkoTIzcVUCrmZbw5uZ3D7M",
+  authDomain: "myawesome-d2811.firebaseapp.com",
+  projectId: "myawesome-d2811",
+  storageBucket: "myawesome-d2811.firebasestorage.app",
+  messagingSenderId: "291210003836",
+  appId: "1:291210003836:web:90d23cd0a79672746fd0f9",
+  measurementId: "G-X7E0RXB6XD"
 };
 
 /* ====== Firebase init ====== */
@@ -593,6 +593,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
