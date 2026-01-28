@@ -98,9 +98,10 @@ if (signOutFromWait) signOutFromWait.onclick = async ()=>{ await signOut(auth); 
 if (helpBtn) helpBtn.onclick = ()=>{ alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); };
 
 /* ====== Когда изменился аутентифицированный юзер ====== */
-
 onAuthStateChanged(auth, async (user)=>{
-  if (!user){
+  
+ if (!user) {
+    // Пользователь вышел или не вошёл
     if (authOverlay) authOverlay.style.display = 'flex';
     if (waitOverlay) waitOverlay.style.display = 'none';
     if (appDiv) appDiv.style.display = 'none';
@@ -108,18 +109,20 @@ onAuthStateChanged(auth, async (user)=>{
     return;
   }
 
+  // Пользователь вошёл
   if (authOverlay) authOverlay.style.display = 'none';
-  if (userEmailSpan) userEmailSpan.innerText = user.email||'';
+  if (userEmailSpan) userEmailSpan.innerText = user.email || '';
 
-  const uDocRef = doc(db,'users',user.uid);
-  progressDocRef = doc(db,'usersanswer',user.uid);
+  const uDocRef = doc(db, 'users', user.uid);
+  progressDocRef = doc(db, 'usersanswer', user.uid);
 
+  // Создаём пользователя в БД, если его ещё нет
   const uDocSnap = await getDoc(uDocRef);
-  if (!uDocSnap.exists()){
-    await setDoc(uDocRef,{
-      email: user.email||'',
-      allowed:false,
-      createdAt:serverTimestamp()
+  if (!uDocSnap.exists()) {
+    await setDoc(uDocRef, {
+      email: user.email || '',
+      allowed: false,
+      createdAt: serverTimestamp()
     });
     if (waitOverlay) waitOverlay.style.display = 'flex';
     if (appDiv) appDiv.style.display = 'none';
@@ -127,58 +130,57 @@ onAuthStateChanged(auth, async (user)=>{
   }
   
   // ===== Реальный-time слушатель =====
-onSnapshot(uDocRef, async (docSnap) => {
-  const data = docSnap.data();
-  if (!data) return;
+  onSnapshot(uDocRef, (docSnap) => {
+    const data = docSnap.data();
+    if (!data) return;
 
-  if (data.allowed === true) {
-    // ✅ ДОСТУП РАЗРЕШЁН
-    if (waitOverlay) waitOverlay.style.display = 'none';
-    if (appDiv) appDiv.style.display = 'block';
-    setStatus('');
+    if (data.allowed === true) {
+      // ✅ ДОСТУП РАЗРЕШЁН
+      if (waitOverlay) waitOverlay.style.display = 'none';
+      if (appDiv) appDiv.style.display = 'block';
+      setStatus('');
 
-    // 🔓 разблокируем клики
-    document.body.classList.remove('blocked');
+      // Разблокируем тестовое окно
+      if (appDiv) appDiv.classList.remove('blocked');
 
-    // 🔐 сброс секретного пароля ОДИН РАЗ за вход
-    if (!passwordResetDone) {
-      passwordResetDone = true;
+      // Генерация нового пароля один раз
+      if (!passwordResetDone) {
+        passwordResetDone = true;
 
-      const generateSecretPassword = (length = 20) => {
-        const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        let pwd = "";
-        for (let i = 0; i < length; i++) {
-          pwd += chars[Math.floor(Math.random() * chars.length)];
-        }
-        return pwd;
-      };
+        const generateSecretPassword = (length = 20) => {
+          const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+          let pwd = "";
+          for (let i = 0; i < length; i++) {
+            pwd += chars[Math.floor(Math.random() * chars.length)];
+          }
+          return pwd;
+        };
 
-      const newSecret = generateSecretPassword();
-      console.log(
-        "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
-        "color:lime;font-weight:bold;",
-        newSecret
-      );
+        const newSecret = generateSecretPassword();
+        console.log("%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:", "color:lime;font-weight:bold;", newSecret);
+      }
 
-      // ❗ ВАЖНО: updatePassword работает ТОЛЬКО если пользователь недавно вошёл
-      // Поэтому просто логируем (реальный сброс — через админку или Cloud Function)
+      // Инициализация теста один раз
+      if (!quizInitialized) {
+        quizInstance = initQuiz(progressDocRef);
+        quizInitialized = true;
+      }
+
+    } else {
+      // 🔴 ДОСТУП ЗАКРЫТ
+      if (waitOverlay) waitOverlay.style.display = 'flex';
+      if (appDiv) appDiv.style.display = 'none';
+      setStatus('Доступ закрыт администратором.');
+
+      // Блокируем только тестовое окно
+      if (appDiv) appDiv.classList.add('blocked');
+
+      // Снимаем визуальный выбор ответов
+      const answerEls = document.querySelectorAll('#answers .answer');
+      answerEls.forEach(el => el.classList.remove('selected'));
     }
+  });
 
-    // ▶️ инициализация теста ОДИН РАЗ
-    if (!quizInitialized) {
-      quizInstance = initQuiz(progressDocRef);
-      quizInitialized = true;
-    }
-
-  } else {
-    // 🔴 ДОСТУП ЗАКРЫТ — МГНОВЕННО
-    if (waitOverlay) waitOverlay.style.display = 'flex';
-    if (appDiv) appDiv.style.display = 'none';
-    setStatus('Доступ закрыт администратором.');
-
-    // 🚫 блокируем ВСЕ клики
-    document.body.classList.add('blocked');
-  }
 });
 
 // флаг — чтобы пароль не сбрасывался бесконечно
@@ -716,3 +718,4 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
