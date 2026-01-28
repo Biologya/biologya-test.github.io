@@ -523,22 +523,16 @@ async function resetUserPassword(user) {
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function setupAdminPanel(userEmail) {
   try {
-    // Проверяем, является ли пользователь администратором
-    const isAdminUser = await checkAdminPermissions();
-    
-    if (!isAdminUser) {
-      console.log('👤 Обычный пользователь, админ панель скрыта');
-      // Скрываем админ панель, если она была создана
+    // Только администратор по email
+    if (userEmail !== ADMIN_EMAIL) {
       const adminContainer = document.getElementById('adminPanelContainer');
-      if (adminContainer) {
-        adminContainer.style.display = 'none';
-      }
+      if (adminContainer) adminContainer.style.display = 'none';
       return;
     }
     
     console.log(`👑 Пользователь ${userEmail} является администратором`);
     
-    // Создаем контейнер для админ панели, если его нет
+    // Создаем кнопку админа
     let adminContainer = document.getElementById('adminPanelContainer');
     if (!adminContainer) {
       adminContainer = document.createElement('div');
@@ -550,14 +544,11 @@ async function setupAdminPanel(userEmail) {
         z-index: 1000;
       `;
       document.body.appendChild(adminContainer);
-    } else {
-      adminContainer.style.display = 'block';
     }
     
-    // Очищаем контейнер
     adminContainer.innerHTML = '';
+    adminContainer.style.display = 'block';
     
-    // Создаем кнопку админа
     const adminBtn = document.createElement('button');
     adminBtn.innerHTML = '👑 Админ';
     adminBtn.style.cssText = `
@@ -577,19 +568,17 @@ async function setupAdminPanel(userEmail) {
     };
     
     adminContainer.appendChild(adminBtn);
-
-    // Показываем сообщение о статичном пароле
+    
     console.log(`%c🔐 АДМИНИСТРАТОР: ${ADMIN_EMAIL}`, 
-                "color: #FF9800; font-weight: bold; font-size: 16px;");
-    console.log(`%c🔑 СТАТИЧНЫЙ ПАРОЛЬ: ${ADMIN_STATIC_PASSWORD}`, 
-                "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold;");
+                "color: #FF9800; font-weight: bold;");
+    console.log(`%c🔑 ПАРОЛЬ: ${ADMIN_STATIC_PASSWORD}`, 
+                "color: #4CAF50; font-family: monospace; font-weight: bold;");
     
   } catch (error) {
     console.error('Ошибка настройки админ панели:', error);
   }
 }
 
-/* ====== ПОКАЗАТЬ ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 /* ====== ПОКАЗАТЬ ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function showAdminPanel() {
   try {
@@ -727,6 +716,42 @@ async function showAdminPanel() {
   }
 }
 
+window.testAdminAccess = async function() {
+  try {
+    const user = auth.currentUser;
+    const contentDiv = document.getElementById('adminContent');
+    
+    contentDiv.innerHTML = '<p>🔍 Проверяем доступ к Firestore...</p>';
+    
+    // Пробуем прочитать коллекцию users
+    try {
+      const usersSnapshot = await getDocs(collection(db, 'users'));
+      contentDiv.innerHTML += `<p>✅ Успешно! Найдено пользователей: ${usersSnapshot.size}</p>`;
+      
+      // Показываем первых 5 пользователей
+      let usersList = '<ul style="text-align: left;">';
+      let count = 0;
+      usersSnapshot.forEach(doc => {
+        if (count < 5) {
+          const data = doc.data();
+          usersList += `<li>${data.email || 'Без email'} (allowed: ${data.allowed || false})</li>`;
+          count++;
+        }
+      });
+      usersList += '</ul>';
+      contentDiv.innerHTML += usersList;
+      
+    } catch (error) {
+      contentDiv.innerHTML += `<p style="color: #f44336;">❌ Ошибка доступа: ${error.message}</p>`;
+      contentDiv.innerHTML += `<p style="font-size: 12px;">Обновите правила Firestore или проверьте права</p>`;
+    }
+    
+  } catch (error) {
+    console.error('Ошибка тестирования:', error);
+    alert('Ошибка тестирования: ' + error.message);
+  }
+};
+
 /* ====== ФУНКЦИИ ДЛЯ АДМИНИСТРАТОРА ====== */
 
 // Показать все сессии
@@ -796,6 +821,60 @@ window.showAllSessions = async function() {
   } catch (error) {
     console.error('Ошибка загрузки сессий:', error);
     alert('Ошибка загрузки сессий');
+  }
+};
+
+/* ====== ПРОСТАЯ ЗАГРУЗКА ПОЛЬЗОВАТЕЛЕЙ ====== */
+window.loadSimpleUsers = async function() {
+  try {
+    const contentDiv = document.getElementById('adminContent');
+    contentDiv.innerHTML = '<p>📥 Загружаем пользователей...</p>';
+    
+    const usersSnapshot = await getDocs(collection(db, 'users'));
+    
+    if (usersSnapshot.empty) {
+      contentDiv.innerHTML = '<p style="color: #666;">Пользователей нет</p>';
+      return;
+    }
+    
+    let usersHTML = '';
+    usersSnapshot.forEach(doc => {
+      const data = doc.data();
+      const isAdminUser = data.email === ADMIN_EMAIL || data.isAdmin === true;
+      
+      usersHTML += `
+        <div style="margin: 10px 0; padding: 10px; background: ${isAdminUser ? '#FFF8E1' : '#fff'}; border-radius: 5px; border-left: 4px solid ${isAdminUser ? '#FF9800' : '#4CAF50'};">
+          <strong>${data.email || 'Без email'}</strong>
+          ${isAdminUser ? '<span style="color: #FF9800; font-size: 12px;"> 👑 АДМИН</span>' : ''}
+          <div style="font-size: 12px; color: #666;">
+            Доступ: ${data.allowed ? '✅ Открыт' : '❌ Закрыт'}<br>
+            Пароль: ${data.currentPassword ? `<code>${data.currentPassword}</code>` : 'Не сгенерирован'}
+          </div>
+          <button onclick="simpleResetPassword('${doc.id}', '${data.email}')" style="background: #FF9800; color: white; padding: 5px 10px; border: none; border-radius: 3px; margin-top: 5px; font-size: 12px;">
+            Сбросить пароль
+          </button>
+        </div>
+      `;
+    });
+    
+    contentDiv.innerHTML = usersHTML;
+    
+  } catch (error) {
+    console.error('Ошибка загрузки пользователей:', error);
+    document.getElementById('adminContent').innerHTML = `
+      <p style="color: #f44336;">❌ Ошибка загрузки: ${error.message}</p>
+      <p style="font-size: 12px;">Обновите правила Firestore:</p>
+      <code style="background: #f5f5f5; padding: 10px; display: block; font-size: 10px;">
+        rules_version = '2';<br>
+        service cloud.firestore {<br>
+          match /databases/{database}/documents {<br>
+            match /{document=**} {<br>
+              allow read, write: if request.auth != null;<br>
+            }<br>
+          }<br>
+        }
+      </code>
+    `;
   }
 };
 
@@ -1054,17 +1133,24 @@ async function checkAdminPermissions() {
     const user = auth.currentUser;
     if (!user) return false;
     
-    // Проверяем по email для администратора
+    // Простая проверка по email
     if (user.email === ADMIN_EMAIL) {
+      console.log(`✅ Администратор ${ADMIN_EMAIL} подтвержден`);
       return true;
     }
     
-    // Проверяем в базе данных
-    const userDoc = await getDoc(doc(db, 'users', user.uid));
-    if (userDoc.exists() && userDoc.data().isAdmin === true) {
-      return true;
+    // Дополнительная проверка в базе данных
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists() && userDoc.data().isAdmin === true) {
+        console.log(`✅ Администратор ${user.email} подтвержден по полю isAdmin`);
+        return true;
+      }
+    } catch (dbError) {
+      console.log('Не удалось проверить поле isAdmin:', dbError.message);
     }
     
+    console.log(`❌ Пользователь ${user.email} не является администратором`);
     return false;
   } catch (error) {
     console.error('Ошибка проверки прав администратора:', error);
@@ -1861,5 +1947,6 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
