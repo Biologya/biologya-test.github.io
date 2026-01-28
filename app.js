@@ -96,6 +96,8 @@ let quizInitialized = false;
 let progressDocRef = null;
 
 /* ====== Когда изменился аутентифицированный юзер ====== */
+let quizInstance = null; // глобально
+
 onAuthStateChanged(auth, async (user)=>{
   if (!user){
     if (authOverlay) authOverlay.style.display = 'flex';
@@ -109,7 +111,7 @@ onAuthStateChanged(auth, async (user)=>{
   if (userEmailSpan) userEmailSpan.innerText = user.email||'';
 
   const uDocRef = doc(db,'users',user.uid);
-  progressDocRef = doc(db,'usersanswer',user.uid);
+  const progressDocRef = doc(db,'usersanswer',user.uid);
 
   const uDocSnap = await getDoc(uDocRef);
   if (!uDocSnap.exists()){
@@ -128,20 +130,34 @@ onAuthStateChanged(auth, async (user)=>{
     const data = docSnap.data();
     if (!data) return;
 
-    if (data.allowed===true){
+    if (data.allowed === true){
       if (waitOverlay) waitOverlay.style.display = 'none';
       if (appDiv) appDiv.style.display = 'block';
       setStatus('');
       if (!quizInitialized){
-        try { initQuiz(progressDocRef); quizInitialized=true; } catch(err){ console.error(err); }
+        try {
+          quizInstance = initQuiz(progressDocRef);
+          quizInitialized = true;
+        } catch(err){ console.error(err); }
       }
     } else {
+      // 🔴 Пользователь запрещен – мгновенно "обрубить" тест
       if (waitOverlay) waitOverlay.style.display = 'flex';
       if (appDiv) appDiv.style.display = 'none';
-      setStatus('Ожидайте подтверждения администратора.');
+      setStatus('Доступ закрыт администратором.');
+
+      // отключаем все кнопки и действия теста
+      if (quizInstance){
+        const disableEls = document.querySelectorAll('#answers .answer, #submitBtn, #nextBtn, #prevBtn, #resetBtn, #errorsBtn');
+        disableEls.forEach(el => el.disabled = true);
+      }
     }
   });
 });
+
+// убираем визуальные эффекты выделения
+const answerEls = document.querySelectorAll('#answers .answer');
+answerEls.forEach(el => el.classList.remove('selected'));
 
 /* ====== Тест с синхронизацией ====== */
 function initQuiz(progressRef){
@@ -618,6 +634,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
