@@ -12,9 +12,11 @@ body {
   background: var(--bg);
   display: flex;
   justify-content: center;
-  align-items: center;
+  align-items: flex-start;
   font-family: 'Segoe UI', sans-serif;
   color: var(--text);
+  padding: 20px;
+  box-sizing: border-box;
 }
 
 body.dark {
@@ -23,216 +25,124 @@ body.dark {
   --text: #e0e0e0;
 }
 
-.app {
-  width: 100%;
-  max-width: 480px;
-  padding: 16px;
+/* ====== Вертикальная панель слева ====== */
+#questionPanelWrapper {
+  position: fixed;
+  top: 50px;
+  left: 0;
+  width: 60px;
+  height: 90%;
+  background: #f5f5f5;
+  padding: 5px;
+  border-right: 1px solid #ccc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+  z-index: 100;
+  transition: width 0.3s;
 }
+#questionPanelWrapper.collapsed { width: 20px; }
+#togglePanelBtn { margin-bottom: 10px; cursor: pointer; padding: 3px 6px; font-size: 14px; }
+#questionPanel { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex-grow: 1; text-align: center; width: 100%; }
+#questionPanel button { flex: 0 0 auto; width: 45px; height: 45px; min-width: 45px; min-height: 45px; max-width: 45px; max-height: 45px; border-radius: 50%; border: 1px solid #ccc; cursor: pointer; background: #eee; color: #000; font-size: 14px; transition: background 0.2s; }
+#questionPanel button.correct { background: green; color: #fff; }
+#questionPanel button.wrong { background: red; color: #fff; }
+#pageNav { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; width: 100%; }
+#pageNav button { padding: 3px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #ccc; background: #eee; font-size: 12px; }
+#pageNav button.active { background: #007bff; color: #fff; }
+#resetWrapper { margin-top: 8px; }
+#resetBtn { width: 50px; padding: 3px 5px; cursor: pointer; border-radius: 3px; border: 1px solid #f00; background: #ff4d4d; color: #fff; font-size: 12px; }
 
+/* ====== Основной контент ====== */
+.app {
+  margin-left:70px;
+  padding:15px;
+  max-width: 1000px;
+  width: calc(100% - 120px);
+  box-sizing: border-box;
+}
+.header { margin-bottom: 15px; }
+.card { margin-bottom: 15px; }
+.controls button { margin-right: 6px; padding: 8px 12px; font-size: 16px; }
+
+/* ====== Интерфейс теста (карточки/ответы) ====== */
 .card {
   background: var(--card);
   padding: 20px;
-  border-radius: 16px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.1);
-  transition: all 0.3s ease;
-}
-
-/* ================== Анимации ================== */
-.fade {
-  animation: fade 0.3s ease;
-}
-
-@keyframes fade {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-#answers {
-  margin-top: 16px;
-  display: grid;
-  gap: 10px;
-}
-
-.answer {
-  position: relative;
-  padding: 12px 16px;
   border-radius: 12px;
-  border: 2px solid #cfe8cf;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-}
-
-.answer:hover {
-  background: #dff3df;
-  transform: scale(1.03);
-}
-
-/* ===== Статусы ответов ===== */
-.answer.selected { 
-  background: #c8e6c9;
-  transform: scale(1.05);
-}
-
-.answer.correct {
-  border-color: var(--primary);
-  background: #c8e6c9;
-  transform: scale(1.05);
-}
-
-.answer.wrong {
-  border-color: var(--wrong);
-  background: #ffcdd2;
-  transform: scale(1.05);
-}
-
-/* FIX: correct / wrong сильнее selected */
-.answer.correct.selected,
-.answer.wrong.selected {
-  background: inherit;
-  transform: scale(1.05);
-}
-
-/* ================== Панель вопросов сбоку ================== */
-#questionPanel button {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 2px solid #ccc;
-  background: #fff;
-  color: #000;
-  font-weight: bold;
-  cursor: pointer;
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.06);
   transition: all 0.3s ease;
 }
+.fade { animation: fade 0.3s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+#answers { margin-top: 16px; display: grid; gap: 10px; }
+.answer { position: relative; padding: 12px 16px; border-radius: 12px; border: 2px solid #cfe8cf; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; }
+.answer:hover { background: #dff3df; transform: scale(1.03); }
+.answer.selected { background: #c8e6c9; transform: scale(1.05); }
+.answer.correct { border-color: var(--primary); background: #c8e6c9; transform: scale(1.05); }
+.answer.wrong { border-color: var(--wrong); background: #ffcdd2; transform: scale(1.05); }
 
-#questionPanel button.active {
-  border: 2px solid #2196f3;
-  box-shadow: 0 0 6px rgba(33,150,243,0.7);
-}
+/* Панель вопросов (варианты стилей) */
+#questionPanel button { width: 36px; height: 36px; border-radius: 50%; border: 2px solid #ccc; background: #fff; color: #000; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.3s ease; }
+#questionPanel button.active { border: 2px solid #2196f3; box-shadow: 0 0 6px rgba(33,150,243,0.7); }
+#questionPanel button.correct { background: #4caf50; border-color: #4caf50; color: #fff; }
+#questionPanel button.wrong { background: #e53935; border-color: #e53935; color: #fff; }
 
-#questionPanel button.correct {
-  background: #4caf50;
-  border-color: #4caf50;
-  color: #fff;
-}
+#pageNav { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; align-items: center; }
+#pageNav button { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--primary); background: #fff; color: var(--primary); font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.3s ease; }
+#pageNav button.active { border: 2px solid #2196f3; box-shadow: 0 0 6px rgba(33,150,243,0.7); }
+#pageNav button.correct { background: #4caf50; border-color: #4caf50; color: #fff; }
+#pageNav button.wrong { background: #e53935; border-color: #e53935; color: #fff; }
+#pageNav button:hover { transform: scale(1.1); }
 
-#questionPanel button.wrong {
-  background: #e53935;
-  border-color: #e53935;
-  color: #fff;
-}
+/* Кнопки и прогресс */
+.controls, .footer { display: flex; gap: 10px; margin-top: 12px; }
+button { flex: 1; padding: 10px; border: none; border-radius: 14px; background: var(--primary); color: #fff; cursor: pointer; transition: all 0.3s ease; }
+button:hover { background: #81c784; }
+button.secondary { background: #81c784; }
+.progress-bar { height: 8px; background: #cfe8cf; border-radius: 4px; overflow: hidden; margin-top: 12px; }
+#progressFill { height: 100%; background: var(--primary); transition: width 0.3s ease; }
 
-/* ================== Панель страниц (pageNav) ================== */
-#pageNav {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 16px;
-  align-items: center;
-}
+/* Reset / theme toggle */
+#themeToggle { position: fixed; right: 16px; top: 50%; cursor: pointer; }
+#resetBtn { padding: 5px 10px; background: #ff4d4d; color: #fff; border: 2px solid #ff0000; border-radius: 5px; cursor: pointer; width: 50px; font-size: 12px; text-align: center; transition: all 0.2s ease; }
+#resetBtn:hover { background: #ff1a1a; }
 
-#pageNav button {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 2px solid var(--primary);
-  background: #fff;
-  color: var(--primary);
-  font-weight: bold;
-  cursor: pointer;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  transition: all 0.3s ease;
-}
-
-#pageNav button.active {
-  border: 2px solid #2196f3;
-  box-shadow: 0 0 6px rgba(33,150,243,0.7);
-}
-
-#pageNav button.correct {
-  background: #4caf50;
-  border-color: #4caf50;
-  color: #fff;
-}
-
-#pageNav button.wrong {
-  background: #e53935;
-  border-color: #e53935;
-  color: #fff;
-}
-
-#pageNav button:hover {
-  transform: scale(1.1);
-}
-
-/* ================== Навигация, кнопки управления ================== */
-.controls, .footer {
-  display: flex;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-button {
-  flex: 1;
-  padding: 10px;
-  border: none;
-  border-radius: 14px;
-  background: var(--primary);
-  color: #fff;
-  cursor: pointer;
-  transition: all 0.3s ease;
-}
-
-button:hover {
-  background: #81c784;
-}
-
-button.secondary { 
-  background: #81c784; 
-}
-
-.progress-bar {
-  height: 8px;
-  background: #cfe8cf;
-  border-radius: 4px;
-  overflow: hidden;
-  margin-top: 12px;
-}
-
-#progressFill {
-  height: 100%;
-  background: var(--primary);
-  transition: width 0.3s ease;
-}
-
-/* ================== Специальные кнопки ================== */
-#themeToggle {
+/* ==== AUTH OVERLAY ==== */
+#authOverlay, #waitOverlay {
   position: fixed;
-  right: 16px;
-  top: 50%;
-  cursor: pointer;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(30,60,114,0.92), rgba(42,82,152,0.92));
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
 }
-
-#resetBtn {
-  padding: 5px 10px;
-  background: #ff4d4d;
-  color: #fff;
-  border: 2px solid #ff0000;
-  border-radius: 5px;
-  cursor: pointer;
-  width: 50px;
-  font-size: 12px;
+.authCard {
+  background: white;
+  padding: 26px;
+  border-radius: 12px;
+  width: 360px;
+  max-width: calc(100% - 40px);
   text-align: center;
-  transition: all 0.2s ease;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.35);
 }
+.authCard h1 { margin: 0 0 12px 0; font-size: 20px; color: #123; }
+.authCard input {
+  width: 100%;
+  padding: 10px;
+  margin: 8px 0;
+  font-size: 15px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  box-sizing: border-box;
+}
+.authCard button { width: 100%; padding: 10px; margin-top: 8px; background: #007bff; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
+.authCard .muted { margin-top: 8px; color: #666; font-size: 14px; }
+.small-ghost { margin-top: 10px; background: transparent; color: #007bff; border: none; cursor: pointer; font-size: 14px; }
 
-#resetBtn:hover {
-  background: #ff1a1a;
+/* small responsive tweaks */
+@media (max-width: 420px) {
+  .authCard { padding: 18px; width: 92%; }
 }
