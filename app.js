@@ -18,7 +18,7 @@ import {
 
 /* ====== CONFIG: вставь свой конфиг если нужно ====== */
 const firebaseConfig = {
-  apiKey: "AIzaSyD5_ynOe6G5GcaMf9nUiWXJX6to_t2Zb5s",
+  apiKey: "AIzaSyA_8x2YAjREKIg8TTtMLeB-v-mFbz_5ecc",
   authDomain: "myawesomedefense.firebaseapp.com",
   projectId: "myawesomedefense",
   storageBucket: "myawesomedefense.firebasestorage.app",
@@ -593,5 +593,6 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
