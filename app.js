@@ -29,7 +29,7 @@ const firebaseConfig = {
 
 /* ====== Firebase init ====== */
 const app = initializeApp(firebaseConfig);
-try { getAnalytics(app); } catch (e) { /* ignore */ }
+try { getAnalytics(app); } catch(e){ }
 const auth = getAuth(app);
 const db = getFirestore(app);
 
@@ -46,7 +46,7 @@ const helpBtn = document.getElementById('helpBtn');
 const signOutFromWait = document.getElementById('signOutFromWait');
 const userEmailSpan = document.getElementById('userEmail');
 
-function setStatus(text, isError = false) {
+function setStatus(text, isError=false){
   if (!statusP) return;
   statusP.innerText = text;
   statusP.style.color = isError ? '#e53935' : '#444';
@@ -54,52 +54,50 @@ function setStatus(text, isError = false) {
 
 /* ====== Авторизация: кнопка входа/регистрации ====== */
 if (authBtn) {
-  authBtn.addEventListener('click', async () => {
-    const email = (emailInput && emailInput.value || '').trim();
-    const password = (passInput && passInput.value || '');
-    if (!email || !password) { setStatus('Введите email и пароль', true); return; }
+  authBtn.addEventListener('click', async ()=>{
+    const email = (emailInput?.value||'').trim();
+    const password = passInput?.value||'';
+    if (!email || !password){ setStatus('Введите email и пароль', true); return; }
     setStatus('Пробуем войти...');
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth,email,password);
       setStatus('Вход выполнен');
-    } catch (e) {
-      if (e.code === 'auth/user-not-found') {
+    } catch(e){
+      if (e.code==='auth/user-not-found'){
         setStatus('Учётной записи не найдено — создаём...');
         try {
-          const cred = await createUserWithEmailAndPassword(auth, email, password);
-          await setDoc(doc(db, 'users', cred.user.uid), {
+          const cred = await createUserWithEmailAndPassword(auth,email,password);
+          await setDoc(doc(db,'users',cred.user.uid),{
             email: email,
             allowed: false,
             createdAt: serverTimestamp()
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
-        } catch (err2) {
-          setStatus(err2.message || 'Ошибка регистрации', true);
+        } catch(err2){
+          setStatus(err2.message||'Ошибка регистрации',true);
         }
-      } else if (e.code === 'auth/wrong-password') {
-        setStatus('Неверный пароль', true);
+      } else if (e.code==='auth/wrong-password'){
+        setStatus('Неверный пароль',true);
       } else {
-        setStatus(e.message || 'Ошибка авторизации', true);
+        setStatus(e.message||'Ошибка авторизации',true);
       }
     }
   });
 }
 
 /* ====== Выход ====== */
-if (logoutBtn) logoutBtn.addEventListener('click', async () => { await signOut(auth); location.reload(); });
-if (signOutFromWait) signOutFromWait.addEventListener('click', async () => { await signOut(auth); location.reload(); });
-
-if (helpBtn) helpBtn.addEventListener('click', () => {
-  alert('Админ: зайдите в Firebase Console → Firestore → collection "users" → найдите пользователя → поставьте allowed = true.');
-});
+if (logoutBtn) logoutBtn.onclick = async ()=>{ await signOut(auth); location.reload(); };
+if (signOutFromWait) signOutFromWait.onclick = async ()=>{ await signOut(auth); location.reload(); };
+if (helpBtn) helpBtn.onclick = ()=>{ alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); };
 
 /* ====== Флаг чтобы инициализировать тест один раз ====== */
 let quizInitialized = false;
+let progressDocRef = null;
 
 /* ====== Когда изменился аутентифицированный юзер ====== */
-onAuthStateChanged(auth, async (user) => {
-  if (!user) {
+onAuthStateChanged(auth, async (user)=>{
+  if (!user){
     if (authOverlay) authOverlay.style.display = 'flex';
     if (waitOverlay) waitOverlay.style.display = 'none';
     if (appDiv) appDiv.style.display = 'none';
@@ -108,48 +106,53 @@ onAuthStateChanged(auth, async (user) => {
   }
 
   if (authOverlay) authOverlay.style.display = 'none';
+  if (userEmailSpan) userEmailSpan.innerText = user.email||'';
 
-  try {
-    const uDocRef = doc(db, 'users', user.uid);
-    const uDoc = await getDoc(uDocRef);
+  const uDocRef = doc(db,'users',user.uid);
+  progressDocRef = doc(db,'usersanswer',user.uid);
 
-    if (!uDoc.exists()) {
-      await setDoc(uDocRef, {
-        email: user.email || '',
-        allowed: false,
-        createdAt: serverTimestamp()
-      });
-      setStatus('Заявка отправлена. Ожидайте подтверждения.');
-      if (waitOverlay) waitOverlay.style.display = 'flex';
-      if (appDiv) appDiv.style.display = 'none';
-      if (userEmailSpan) userEmailSpan.innerText = user.email || '';
-      return;
-    }
+  const uDocSnap = await getDoc(uDocRef);
+  if (!uDocSnap.exists()){
+    await setDoc(uDocRef,{
+      email: user.email||'',
+      allowed:false,
+      createdAt:serverTimestamp()
+    });
+    if (waitOverlay) waitOverlay.style.display = 'flex';
+    if (appDiv) appDiv.style.display = 'none';
+    setStatus('Заявка отправлена. Ожидайте подтверждения.');
+  }
+  
+  // ===== Реальный-time слушатель =====
+ onSnapshot(uDocRef,(docSnap)=>{
+    const data = docSnap.data();
+    if (!data) return;
 
-    const data = uDoc.data();
-    if (userEmailSpan) userEmailSpan.innerText = user.email || '';
-
-    if (data.allowed === true) {
+    if (data.allowed===true){
       if (waitOverlay) waitOverlay.style.display = 'none';
       if (appDiv) appDiv.style.display = 'block';
       setStatus('');
-      if (!quizInitialized) {
-        // Запускаем initQuiz — код теста
-        try { initQuiz(); quizInitialized = true; } catch (err) { console.error('initQuiz error:', err); }
+      if (!quizInitialized){
+        try { initQuiz(progressDocRef); quizInitialized=true; } catch(err){ console.error(err); }
       }
     } else {
       if (waitOverlay) waitOverlay.style.display = 'flex';
       if (appDiv) appDiv.style.display = 'none';
       setStatus('Ожидайте подтверждения администратора.');
     }
-  } catch (err) {
-    console.error(err);
-    setStatus('Ошибка при проверке доступа', true);
-    if (waitOverlay) waitOverlay.style.display = 'flex';
-    if (appDiv) appDiv.style.display = 'none';
-  }
+  });
 });
 
+/* ====== Тест с синхронизацией ====== */
+function initQuiz(progressRef){
+  const state = JSON.parse(localStorage.getItem("bioState"))||{
+    queueType:"main", index:0, mainIndex:0, stats:{correct:0,wrong:0},
+    errors:[], errorAttempts:{}, history:{}, mainQueue:null, answersOrder:{}, errorQueue:[]
+  };
+
+  let questions=[], mainQueue=[], errorQueue=[];
+  let selected = new Set(), checked=false;
+  
 /* ===================================================================
    Ниже — ваш существующий код теста, обёрнут в функцию initQuiz().
    Я старался не менять логику — только поместил всё в scope функции.
@@ -182,6 +185,33 @@ function initQuiz() {
   const submitBtn = document.getElementById("submitBtn");
   const nextBtn = document.getElementById("nextBtn");
   const resetBtn = document.getElementById("resetBtn");
+
+  /* ====== Подгружаем прогресс из Firestore ====== */
+  (async ()=>{
+    if (!progressRef) return;
+    try{
+      const snap = await getDoc(progressRef);
+      if (snap.exists()){
+        const data = snap.data();
+        if (data.progress){
+          const savedState = JSON.parse(data.progress);
+          Object.assign(state, savedState);
+        }
+      }
+    } catch(e){ console.error('Ошибка загрузки прогресса:',e); }
+    render();
+  })();
+
+  /* ====== Функция сохранения прогресса ====== */
+  function saveState(){
+    localStorage.setItem("bioState",JSON.stringify(state));
+    if (progressRef){
+      updateDoc(progressRef,{
+        progress: JSON.stringify(state),
+        updatedAt: serverTimestamp()
+      }).catch(err=>console.error('Ошибка сохранения прогресса:',err));
+    }
+  }
 
   // === Exit errors button (append once) ===
   let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
@@ -548,11 +578,6 @@ function initQuiz() {
     render();
   };
 
-  // === Save state ===
-  function saveState() {
-    localStorage.setItem("bioState", JSON.stringify(state));
-  }
-
   // === UI update ===
   function updateUI() {
     const queue = currentQueue();
@@ -593,6 +618,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
