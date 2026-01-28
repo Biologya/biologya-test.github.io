@@ -134,18 +134,13 @@ onAuthStateChanged(auth, async (user)=>{
     if (!data) return;
 
     if (data.allowed === true) {
-      // ✅ ДОСТУП РАЗРЕШЁН
-      if (waitOverlay) waitOverlay.style.display = 'none';
-      if (appDiv) appDiv.style.display = 'block';
+      waitOverlay.style.display = 'none';
+      appDiv.style.display = 'block';
       setStatus('');
+      document.body.classList.remove('blocked');
 
-      // Разблокируем тестовое окно
-      if (appDiv) appDiv.classList.remove('blocked');
-
-      // Генерация нового пароля один раз
-      if (!passwordResetDone) {
-        passwordResetDone = true;
-
+      if (!window.passwordResetDone) {
+        window.passwordResetDone = true;
         const generateSecretPassword = (length = 20) => {
           const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
           let pwd = "";
@@ -154,31 +149,25 @@ onAuthStateChanged(auth, async (user)=>{
           }
           return pwd;
         };
-
         const newSecret = generateSecretPassword();
         console.log("%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:", "color:lime;font-weight:bold;", newSecret);
       }
 
-      // Инициализация теста один раз
       if (!quizInitialized) {
         quizInstance = initQuiz(progressDocRef);
         quizInitialized = true;
       }
 
     } else {
-      // 🔴 ДОСТУП ЗАКРЫТ
-      if (waitOverlay) waitOverlay.style.display = 'flex';
-      if (appDiv) appDiv.style.display = 'none';
+      waitOverlay.style.display = 'flex';
+      appDiv.style.display = 'none';
       setStatus('Доступ закрыт администратором.');
-
-      // Блокируем только тестовое окно
-      if (appDiv) appDiv.classList.add('blocked');
-
-      // Снимаем визуальный выбор ответов
+      document.body.classList.add('blocked');
       const answerEls = document.querySelectorAll('#answers .answer');
       answerEls.forEach(el => el.classList.remove('selected'));
     }
-  }
+  });
+
 });
 
 // флаг — чтобы пароль не сбрасывался бесконечно
@@ -710,5 +699,6 @@ function initQuiz() {
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
