@@ -14,7 +14,7 @@
       top: 50px;
       left: 0;
       width: 60px;
-      height: 90%;
+      height: calc(100vh - 60px);
       background: #f5f5f5;
       padding: 5px;
       border-right: 1px solid #ccc;
@@ -26,13 +26,24 @@
       transition: width 0.3s;
     }
 
-    #questionPanelWrapper.collapsed { width: 20px; }
+    #questionPanelWrapper.collapsed { 
+      width: 20px; 
+    }
+
+    #questionPanelWrapper.collapsed #questionPanel,
+    #questionPanelWrapper.collapsed #pageNav,
+    #questionPanelWrapper.collapsed #resetWrapper {
+      display: none;
+    }
 
     #togglePanelBtn {
       margin-bottom: 10px;
       cursor: pointer;
       padding: 3px 6px;
       font-size: 14px;
+      background: #fff;
+      border: 1px solid #ccc;
+      border-radius: 3px;
     }
 
     #questionPanel {
@@ -43,6 +54,7 @@
       flex-grow: 1;
       text-align: center;
       width: 100%;
+      padding: 5px 0;
     }
 
     #questionPanel button {
@@ -59,11 +71,24 @@
       background: #eee;
       color: #000;
       font-size: 14px;
-      transition: background 0.2s;
+      transition: all 0.2s;
     }
 
-    #questionPanel button.correct { background: green; color: #fff; }
-    #questionPanel button.wrong { background: red; color: #fff; }
+    #questionPanel button:hover {
+      transform: scale(1.05);
+    }
+
+    #questionPanel button.correct { 
+      background: #4CAF50; 
+      color: #fff; 
+      border-color: #4CAF50;
+    }
+    
+    #questionPanel button.wrong { 
+      background: #e53935; 
+      color: #fff; 
+      border-color: #e53935;
+    }
 
     #pageNav {
       margin-top: 8px;
@@ -81,12 +106,20 @@
       border: 1px solid #ccc;
       background: #eee;
       font-size: 12px;
+      min-width: 25px;
     }
 
-    #pageNav button.active { background: #007bff; color: #fff; }
+    #pageNav button.active { 
+      background: #007bff; 
+      color: #fff; 
+      border-color: #007bff;
+    }
 
     #resetWrapper {
       margin-top: 8px;
+      width: 100%;
+      display: flex;
+      justify-content: center;
     }
 
     #resetBtn {
@@ -105,6 +138,7 @@
       margin-left:70px;
       padding:15px;
       max-width: 1000px;
+      min-height: calc(100vh - 30px);
     }
 
     .header {
@@ -113,12 +147,18 @@
 
     .card {
       margin-bottom: 15px;
+      padding: 20px;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
     .controls button {
       margin-right: 6px;
       padding: 8px 12px;
       font-size: 16px;
+      border-radius: 4px;
+      cursor: pointer;
     }
 
     /* ====== Панель администратора ====== */
@@ -137,6 +177,14 @@
       border-radius: 5px;
       cursor: pointer;
       font-weight: bold;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      transition: all 0.2s;
+    }
+
+    #adminPanel button:hover {
+      background: #F57C00;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }
 
     /* ====== Модальное окно администратора ====== */
@@ -151,6 +199,12 @@
       justify-content: center;
       align-items: center;
       z-index: 9999;
+      animation: fadeIn 0.3s;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
     }
 
     .admin-modal-content {
@@ -158,10 +212,16 @@
       padding: 20px;
       border-radius: 10px;
       max-width: 600px;
-      max-height: 400px;
+      max-height: 80vh;
       overflow-y: auto;
       width: 90%;
       position: relative;
+      animation: slideIn 0.3s;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateY(-20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
     }
 
     .admin-modal h3 {
@@ -169,34 +229,45 @@
       color: #333;
       border-bottom: 2px solid #FF9800;
       padding-bottom: 10px;
+      margin-bottom: 15px;
     }
 
     .admin-user-item {
       border-bottom: 1px solid #eee;
-      padding: 10px 0;
+      padding: 12px 0;
+      font-size: 14px;
+    }
+
+    .admin-user-item:last-child {
+      border-bottom: none;
     }
 
     .admin-user-item strong {
       color: #333;
-      font-size: 16px;
+      font-size: 15px;
+      display: inline-block;
+      margin-bottom: 5px;
     }
 
     .admin-user-item code {
-      background: #f0f0f0;
-      padding: 2px 5px;
-      border-radius: 3px;
-      font-family: monospace;
+      background: #f5f5f5;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
       font-size: 14px;
       margin: 5px 0;
       display: inline-block;
+      border: 1px solid #ddd;
+      color: #d63384;
     }
 
     .admin-status {
-      padding: 2px 8px;
-      border-radius: 3px;
+      padding: 3px 10px;
+      border-radius: 12px;
       font-size: 12px;
       font-weight: bold;
       margin-left: 10px;
+      display: inline-block;
     }
 
     .status-allowed {
@@ -216,9 +287,36 @@
       background: #f44336;
       color: white;
       border: none;
-      padding: 5px 10px;
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .close-modal:hover {
+      background: #d32f2f;
+    }
+
+    .force-reset-btn {
+      background: #2196F3;
+      color: white;
+      border: none;
+      padding: 4px 10px;
       border-radius: 3px;
       cursor: pointer;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .force-reset-btn:hover {
+      background: #1976D2;
+    }
+
+    hr {
+      border: none;
+      height: 1px;
+      background: #eee;
+      margin: 10px 0;
     }
 
     /* ====== Адаптивность для телефонов ====== */
@@ -226,6 +324,8 @@
       #questionPanelWrapper {
         width: 50px;
         padding: 4px;
+        top: 40px;
+        height: calc(100vh - 50px);
       }
 
       #questionPanel button {
@@ -237,6 +337,7 @@
       #pageNav button {
         padding: 2px 4px;
         font-size: 11px;
+        min-width: 20px;
       }
 
       #resetBtn {
@@ -253,6 +354,7 @@
       .controls button {
         padding: 6px 10px;
         font-size: 14px;
+        margin-bottom: 5px;
       }
 
       #questionText {
@@ -276,8 +378,84 @@
 
       .admin-modal-content {
         width: 95%;
-        max-height: 350px;
+        max-height: 70vh;
+        padding: 15px;
       }
+
+      .admin-user-item {
+        font-size: 13px;
+      }
+
+      .admin-user-item code {
+        font-size: 12px;
+        padding: 3px 6px;
+      }
+    }
+
+    /* ====== Стили для оверлеев ====== */
+    #authOverlay, #waitOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255, 255, 255, 0.95);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1000;
+    }
+
+    .authCard {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      max-width: 400px;
+      width: 90%;
+      text-align: center;
+    }
+
+    .authCard h1 {
+      margin-top: 0;
+      color: #333;
+      margin-bottom: 20px;
+    }
+
+    .authCard input {
+      width: 100%;
+      padding: 12px;
+      margin-bottom: 15px;
+      border: 1px solid #ddd;
+      border-radius: 5px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+
+    .authCard button {
+      width: 100%;
+      padding: 12px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-bottom: 15px;
+    }
+
+    .muted {
+      color: #666;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .small-ghost {
+      background: transparent;
+      color: #666;
+      border: 1px solid #ddd;
+      padding: 8px 12px;
+      font-size: 14px;
     }
   </style>
 </head>
@@ -285,11 +463,11 @@
 
   <!-- ====== Вертикальная панель вопросов ====== -->
   <div id="questionPanelWrapper">
-    <button id="togglePanelBtn" aria-label="Свернуть панель">⇨</button>
+    <button id="togglePanelBtn" aria-label="Свернуть панель" title="Свернуть панель">⇨</button>
     <div id="questionPanel" role="navigation" aria-label="Панель вопросов"></div>
-    <div id="pageNav" aria-hidden="true"></div>
+    <div id="pageNav" aria-label="Навигация по страницам"></div>
     <div id="resetWrapper">
-      <button id="resetBtn">RESET</button>
+      <button id="resetBtn" title="Сбросить весь прогресс">RESET</button>
     </div>
   </div>
 
@@ -359,10 +537,9 @@
     // Кнопка сворачивания панели вопросов
     const wrapper = document.getElementById("questionPanelWrapper");
     const toggleBtn = document.getElementById("togglePanelBtn");
-    toggleBtn.onclick = () => wrapper.classList.toggle("collapsed");
     
-    // Изменяем стрелку при сворачивании
-    wrapper.addEventListener('transitionend', () => {
+    toggleBtn.onclick = () => {
+      wrapper.classList.toggle("collapsed");
       if (wrapper.classList.contains('collapsed')) {
         toggleBtn.textContent = '⇦';
         toggleBtn.title = 'Развернуть панель';
@@ -370,7 +547,10 @@
         toggleBtn.textContent = '⇨';
         toggleBtn.title = 'Свернуть панель';
       }
-    });
+    };
+    
+    // Открываем панель по умолчанию
+    wrapper.classList.remove("collapsed");
   </script>
 </body>
 </html>
