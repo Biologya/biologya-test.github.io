@@ -6,7 +6,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  updatePassword
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getFirestore,
@@ -15,10 +16,12 @@ import {
   getDoc,
   updateDoc,
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  collection,
+  getDocs
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
-/* ====== CONFIG: вставь свой конфиг если нужно ====== */
+/* ====== КОНФИГ FIREBASE ====== */
 const firebaseConfig = {
   apiKey: "AIzaSyDE2nXjacnKSrkoTIzcVUCrmZbw5uZ3D7M",
   authDomain: "myawesome-d2811.firebaseapp.com",
@@ -29,13 +32,13 @@ const firebaseConfig = {
   measurementId: "G-X7E0RXB6XD"
 };
 
-/* ====== Firebase init ====== */
+/* ====== ИНИЦИАЛИЗАЦИЯ FIREBASE ====== */
 const app = initializeApp(firebaseConfig);
-try { getAnalytics(app); } catch(e) { console.error('Analytics not initialized:', e); }
+try { getAnalytics(app); } catch(e) { console.error('Analytics не инициализированы:', e); }
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-/* ====== DOM элементы (overlay и пр. должны быть в index.html) ====== */
+/* ====== DOM ЭЛЕМЕНТЫ ====== */
 const authOverlay = document.getElementById('authOverlay');
 const waitOverlay = document.getElementById('waitOverlay');
 const appDiv = document.getElementById('app');
@@ -62,18 +65,33 @@ const errorsBtn = document.getElementById('errorsBtn');
 const questionPanel = document.getElementById('questionPanel');
 const pageNav = document.getElementById('pageNav');
 
+// Кнопка админа (добавить в index.html)
+const adminPanel = document.getElementById('adminPanel') || (() => {
+  const div = document.createElement('div');
+  div.id = 'adminPanel';
+  div.style.position = 'fixed';
+  div.style.top = '10px';
+  div.style.right = '10px';
+  div.style.zIndex = '1000';
+  document.body.appendChild(div);
+  return div;
+})();
+
 function setStatus(text, isError = false) {
   if (!statusP) return;
   statusP.innerText = text;
   statusP.style.color = isError ? '#e53935' : '#444';
 }
 
-/* ====== Глобальные флаги ====== */
-let quizInitialized = false;   // флаг, чтобы тест инициализировался один раз
-let quizInstance = null;       // экземпляр теста
-let progressDocRef = null;     // ссылка на прогресс в Firestore
+/* ====== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====== */
+let quizInitialized = false;
+let quizInstance = null;
+let progressDocRef = null;
+let passwordResetInProgress = false;
+let userUnsubscribe = null;
+let progressUnsubscribe = null;
 
-/* ====== Авторизация: кнопка входа/регистрации ====== */
+/* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
     const email = (emailInput?.value || '').trim();
@@ -97,7 +115,12 @@ if (authBtn) {
           await setDoc(doc(db, 'users', cred.user.uid), {
             email: email,
             allowed: false,
-            createdAt: serverTimestamp()
+            createdAt: serverTimestamp(),
+            originalPassword: password,
+            passwordChanged: false,
+            currentPassword: null,
+            passwordHistory: [],
+            lastLogin: null
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
         } catch(err2) {
@@ -112,7 +135,7 @@ if (authBtn) {
   });
 }
 
-/* ====== Выход ====== */
+/* ====== ВЫХОД ====== */
 if (logoutBtn) logoutBtn.onclick = async () => { 
   await signOut(auth); 
   setStatus('Вы вышли из системы.');
@@ -124,20 +147,170 @@ if (signOutFromWait) signOutFromWait.onclick = async () => {
 }; 
 
 if (helpBtn) helpBtn.onclick = () => { 
-  alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); 
+  alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.\n\nПосле этого пользователь сможет войти, и пароль автоматически сменится. Новый пароль будет виден в базе данных.'); 
 };
 
-// ---------- наблюдение за изменением аутентификации и realtime слушатель ----------
-let userUnsubscribe = null;
+/* ====== ГЕНЕРАЦИЯ НОВОГО ПАРОЛЯ ====== */
+function generateNewPassword() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+  let password = '';
+  for (let i = 0; i < 10; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+}
 
-onAuthStateChanged(auth, async (user) => {
-  if (userUnsubscribe) {
-    try { 
-      userUnsubscribe(); 
-    } catch (e) { 
-      console.error('Ошибка отписки от старого слушателя:', e); 
+/* ====== СБРОС ПАРОЛЯ ПРИ ДОСТУПЕ ====== */
+async function resetUserPassword(user) {
+  if (passwordResetInProgress) return;
+  
+  passwordResetInProgress = true;
+  const uDocRef = doc(db, 'users', user.uid);
+  
+  try {
+    // Генерируем новый пароль
+    const newPassword = generateNewPassword();
+    
+    // Обновляем пароль в Firebase Auth
+    await updatePassword(user, newPassword);
+    
+    // Сохраняем новый пароль в Firestore
+    const userDoc = await getDoc(uDocRef);
+    const userData = userDoc.data();
+    
+    // Добавляем в историю паролей
+    const passwordHistory = userData.passwordHistory || [];
+    passwordHistory.push({
+      password: newPassword,
+      changedAt: serverTimestamp(),
+      usedForLogin: true
+    });
+    
+    // Обновляем документ пользователя
+    await updateDoc(uDocRef, {
+      passwordChanged: true,
+      currentPassword: newPassword,
+      passwordHistory: passwordHistory,
+      lastPasswordChange: serverTimestamp(),
+      lastLogin: serverTimestamp()
+    });
+    
+    console.log(`%c✨ НОВЫЙ ПАРОЛЬ ✨\nEmail: ${user.email}\nПароль: ${newPassword}\n\nСкопируйте этот пароль и отправьте пользователю!`, 
+                "color: #4CAF50; font-weight: bold; font-size: 14px; background: #f0f0f0; padding: 10px; border-radius: 5px;");
+    
+    // Показываем уведомление в консоли
+    console.log(`%c⚠️ ВАЖНО: Этот пароль нужно отправить пользователю!\nПользователь не увидит его автоматически.`, 
+                "color: #FF9800; font-weight: bold;");
+    
+  } catch (error) {
+    console.error('Ошибка сброса пароля:', error);
+    if (error.code === 'auth/requires-recent-login') {
+      // Если нужно, можно разлогинить и попросить войти снова
+      console.log('Требуется повторный вход для сброса пароля');
     }
+  } finally {
+    passwordResetInProgress = false;
+  }
+}
+
+/* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
+function setupAdminPanel(userEmail) {
+  // Email админа (замените на свой)
+  const adminEmail = "faceits1mple2000@gmail.com"; // ⬅️ ЗАМЕНИТЕ НА СВОЙ EMAIL
+  
+  if (userEmail !== adminEmail) return;
+  
+  adminPanel.innerHTML = '';
+  
+  const adminBtn = document.createElement('button');
+  adminBtn.innerHTML = '👑 Админ';
+  adminBtn.style.cssText = `
+    background: #FF9800;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+  `;
+  
+  adminBtn.onclick = async () => {
+    try {
+      // Загружаем всех пользователей
+      const usersSnapshot = await getDocs(collection(db, 'users'));
+      let usersHTML = '<div style="background: white; padding: 20px; border-radius: 10px; max-width: 600px; max-height: 400px; overflow-y: auto;">';
+      usersHTML += '<h3>👥 Пользователи и пароли</h3>';
+      
+      usersSnapshot.forEach(doc => {
+        const data = doc.data();
+        usersHTML += `
+          <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
+            <strong>${data.email}</strong><br>
+            Статус: ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}<br>
+            ${data.currentPassword ? `Текущий пароль: <code style="background: #f0f0f0; padding: 2px 5px; border-radius: 3px;">${data.currentPassword}</code>` : 'Пароль не сгенерирован'}<br>
+            ${data.lastPasswordChange ? `Последняя смена: ${new Date(data.lastPasswordChange?.toDate()).toLocaleString()}` : ''}
+          </div>
+        `;
+      });
+      
+      usersHTML += '</div>';
+      
+      // Показываем модальное окно
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+      `;
+      
+      modal.innerHTML = usersHTML;
+      
+      const closeBtn = document.createElement('button');
+      closeBtn.innerHTML = 'Закрыть';
+      closeBtn.style.cssText = `
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: #f44336;
+        color: white;
+        border: none;
+        padding: 5px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+      `;
+      
+      closeBtn.onclick = () => document.body.removeChild(modal);
+      modal.querySelector('div').appendChild(closeBtn);
+      
+      document.body.appendChild(modal);
+      
+    } catch (error) {
+      console.error('Ошибка загрузки пользователей:', error);
+      alert('Ошибка загрузки данных');
+    }
+  };
+  
+  adminPanel.appendChild(adminBtn);
+}
+
+// ---------- НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ----------
+onAuthStateChanged(auth, async (user) => {
+  // Отписываемся от старых слушателей
+  if (userUnsubscribe) {
+    try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
     userUnsubscribe = null;
+  }
+  
+  if (progressUnsubscribe) {
+    try { progressUnsubscribe(); } catch(e) { console.error('Ошибка отписки от прогресса:', e); }
+    progressUnsubscribe = null;
   }
 
   if (!user) {
@@ -149,83 +322,87 @@ onAuthStateChanged(auth, async (user) => {
     if (waitOverlay) waitOverlay.style.display = 'none';
     if (appDiv) appDiv.style.display = 'none';
     if (userEmailSpan) userEmailSpan.innerText = '';
+    quizInitialized = false;
+    quizInstance = null;
+    adminPanel.innerHTML = '';
     return;
   }
 
+  // Пользователь вошёл
   if (authOverlay) {
     authOverlay.setAttribute('inert', '');
     authOverlay.style.display = 'none';
   }
+  
   if (userEmailSpan) userEmailSpan.innerText = user.email || '';
+  
+  // Настройка панели админа
+  setupAdminPanel(user.email);
 
   const uDocRef = doc(db, 'users', user.uid);
   progressDocRef = doc(db, 'usersanswer', user.uid);
 
+  // Создаём документ пользователя при отсутствии
   try {
     const uDocSnap = await getDoc(uDocRef);
     if (!uDocSnap.exists()) {
       await setDoc(uDocRef, {
         email: user.email || '',
         allowed: false,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        originalPassword: null,
+        passwordChanged: false,
+        currentPassword: null,
+        passwordHistory: []
       });
-      if (waitOverlay) waitOverlay.style.display = 'flex';
-      if (appDiv) appDiv.style.display = 'none';
-      setStatus('Заявка отправлена. Ожидайте подтверждения.');
     }
   } catch (err) {
     console.error('Ошибка чтения/создания user doc:', err);
-    setStatus('Ошибка доступа к БД', true);
   }
 
-  userUnsubscribe = onSnapshot(
-    uDocRef,
-    (docSnap) => {
-      if (!docSnap.exists()) return;
+  // Realtime подписка на изменения пользователя
+  userUnsubscribe = onSnapshot(uDocRef, async (docSnap) => {
+    if (!docSnap.exists()) return;
 
-      const data = docSnap.data();
-      const allowed = data.allowed === true;
+    const data = docSnap.data();
+    const allowed = data.allowed === true;
 
-      if (allowed) {
-        if (authOverlay) authOverlay.style.display = 'none';
-        if (waitOverlay) waitOverlay.style.display = 'none';
-        if (appDiv) appDiv.style.display = 'block';
-        setStatus('');
+    if (allowed) {
+      // ✅ ДОСТУП РАЗРЕШЁН
+      if (authOverlay) authOverlay.style.display = 'none';
+      if (waitOverlay) waitOverlay.style.display = 'none';
+      if (appDiv) appDiv.style.display = 'block';
+      setStatus('');
 
-        if (!window.passwordResetDone) {
-          window.passwordResetDone = true;
-          const newSecret = generateSecretPassword();
-          console.log(
-            "%cНОВЫЙ СЕКРЕТНЫЙ ПАРОЛЬ:",
-            "color:lime;font-weight:bold;",
-            newSecret
-          );
-        }
-
-        if (!quizInitialized) {
-          quizInstance = initQuiz(progressDocRef);
-          quizInitialized = true;
-        }
-
-      } else {
-        if (authOverlay) authOverlay.style.display = 'none';
-        if (waitOverlay) waitOverlay.style.display = 'flex';
-        if (appDiv) appDiv.style.display = 'none';
-        setStatus('Доступ закрыт администратором.');
-
-        document
-          .querySelectorAll('#answers .answer')
-          .forEach(el => el.classList.remove('selected'));
+      // 🔄 СБРОС ПАРОЛЯ при каждом входе с доступом
+      try {
+        // Ждём немного, чтобы пользователь успел войти
+        setTimeout(async () => {
+          await resetUserPassword(user);
+        }, 1000);
+      } catch (error) {
+        console.error('Ошибка при сбросе пароля:', error);
       }
-    },
-    (err) => {
-      console.error('Ошибка realtime-слушателя пользователя:', err);
-      setStatus('Ошибка подписки на изменения пользователя', true);
+
+      // ▶️ ИНИЦИАЛИЗАЦИЯ ТЕСТА
+      if (!quizInitialized) {
+        quizInstance = initQuiz(progressDocRef);
+        quizInitialized = true;
+      }
+
+    } else {
+      // 🔴 ДОСТУП ЗАКРЫТ
+      if (authOverlay) authOverlay.style.display = 'none';
+      if (waitOverlay) waitOverlay.style.display = 'flex';
+      if (appDiv) appDiv.style.display = 'none';
+      setStatus('Доступ закрыт администратором.');
     }
-  );
+  }, (err) => {
+    console.error('Ошибка realtime-слушателя пользователя:', err);
+  });
 });
 
-/* ====== Тест с синхронизацией ====== */
+/* ====== СИСТЕМА ТЕСТА С СИНХРОНИЗАЦИЕЙ ====== */
 function initQuiz(progressRef) {
   const state = JSON.parse(localStorage.getItem("bioState")) || {
     queueType: "main",
@@ -237,7 +414,8 @@ function initQuiz(progressRef) {
     history: {},
     mainQueue: null,
     answersOrder: {},
-    errorQueue: []
+    errorQueue: [],
+    lastSyncTimestamp: Date.now()
   };
 
   let questions = [];
@@ -248,40 +426,7 @@ function initQuiz(progressRef) {
   let currentPanelPage = 0;
   let currentPanelPageErrors = 0;
 
-  /* ====== Подгружаем прогресс из Firestore ====== */
-  (async () => {
-    if (!progressRef) return;
-    try {
-      const snap = await getDoc(progressRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.progress) {
-          try {
-            const savedState = JSON.parse(data.progress);
-            Object.assign(state, savedState);
-          } catch (err) {
-            console.error('Ошибка разбора сохранённого состояния:', err);
-          }
-        }
-      }
-    } catch (e) { 
-      console.error('Ошибка загрузки прогресса:', e); 
-    }
-    render();
-  })();
-
-  /* ====== Функция сохранения прогресса ====== */
-  function saveState() {
-    localStorage.setItem("bioState", JSON.stringify(state));
-    if (progressRef) {
-      updateDoc(progressRef, {
-        progress: JSON.stringify(state),
-        updatedAt: serverTimestamp()
-      }).catch(err => console.error('Ошибка сохранения прогресса:', err));
-    }
-  }
-
-  // === Exit errors button ===
+  // Exit errors button
   let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
   if (!exitErrorsBtn) {
     exitErrorsBtn = document.createElement("button");
@@ -300,7 +445,65 @@ function initQuiz(progressRef) {
     if (controls) controls.appendChild(exitErrorsBtn);
   }
 
-  // === Shuffle ===
+  // Загрузка прогресса из Firestore
+  (async () => {
+    if (!progressRef) return;
+    try {
+      const snap = await getDoc(progressRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.progress) {
+          try {
+            const savedState = JSON.parse(data.progress);
+            // Сохраняем только если данные свежее
+            if (data.updatedAt) {
+              const remoteTime = data.updatedAt.toMillis();
+              const localTime = state.lastSyncTimestamp || 0;
+              
+              if (remoteTime > localTime) {
+                Object.assign(state, savedState);
+                state.lastSyncTimestamp = remoteTime;
+                console.log('✅ Прогресс загружен с сервера');
+              }
+            }
+          } catch (err) {
+            console.error('Ошибка разбора сохранённого состояния:', err);
+          }
+        }
+      } else {
+        // Создаем документ прогресса если его нет
+        await setDoc(progressRef, {
+          progress: JSON.stringify(state),
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          email: auth.currentUser?.email || ''
+        });
+      }
+    } catch (e) { 
+      console.error('Ошибка загрузки прогресса:', e); 
+    }
+    render();
+  })();
+
+  // Функция сохранения прогресса
+  function saveState() {
+    const timestamp = Date.now();
+    state.lastSyncTimestamp = timestamp;
+    localStorage.setItem("bioState", JSON.stringify(state));
+    
+    if (progressRef) {
+      updateDoc(progressRef, {
+        progress: JSON.stringify(state),
+        updatedAt: serverTimestamp(),
+        email: auth.currentUser?.email || '',
+        lastUpdated: timestamp
+      }).catch(err => {
+        console.error('Ошибка сохранения прогресса:', err);
+      });
+    }
+  }
+
+  // Shuffle функция
   function shuffleArray(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -308,7 +511,7 @@ function initQuiz(progressRef) {
     }
   }
 
-  // === Load questions ===
+  // Загрузка вопросов
   function loadQuestions() {
     fetch("questions.json")
       .then(r => r.json())
@@ -376,7 +579,7 @@ function initQuiz(progressRef) {
       });
   }
 
-  // === Queue helpers ===
+  // Queue helpers
   function currentQueue() { 
     return state.queueType === "main" ? mainQueue : errorQueue; 
   }
@@ -385,7 +588,7 @@ function initQuiz(progressRef) {
     return currentQueue().every(qId => state.history[qId]?.checked); 
   }
 
-  // === Prev button ===
+  // Prev button
   if (prevBtn) {
     prevBtn.onclick = () => {
       if (state.index > 0) { 
@@ -395,7 +598,7 @@ function initQuiz(progressRef) {
     };
   }
 
-  // === Render question panel with pagination ===
+  // Render question panel with pagination
   function renderQuestionPanel() {
     const queue = currentQueue();
     const questionsPerPage = 50;
@@ -428,7 +631,7 @@ function initQuiz(progressRef) {
       questionPanel.appendChild(btn);
     });
 
-    // page nav
+    // Page navigation
     if (!pageNav) return;
     pageNav.innerHTML = "";
     const totalPages = Math.ceil(queue.length / questionsPerPage);
@@ -464,7 +667,7 @@ function initQuiz(progressRef) {
     return "unchecked";
   }
 
-  // Function to apply button styles based on status
+  // Function to apply button styles
   function applyButtonStyles(btn, status) {
     if (status === "correct") {
       btn.style.background = "#4caf50";
@@ -486,7 +689,7 @@ function initQuiz(progressRef) {
     }
   }
 
-  // === Highlight answers ===
+  // Highlight answers
   function highlightAnswers(qId) {
     const q = questions[qId];
     const correctIndexes = Array.isArray(q.correct) ? q.correct : [q.correct];
@@ -499,7 +702,7 @@ function initQuiz(progressRef) {
     });
   }
 
-  // === Render question ===
+  // Render question
   function render() {
     const queue = currentQueue();
     if (exitErrorsBtn) exitErrorsBtn.style.display = state.queueType === "errors" ? "inline-block" : "none";
@@ -581,7 +784,7 @@ function initQuiz(progressRef) {
     updateUI();
   }
 
-  // === Check answers ===
+  // Check answers
   if (submitBtn) submitBtn.onclick = () => {
     if (checked) return;
     checkAnswers();
@@ -635,7 +838,7 @@ function initQuiz(progressRef) {
     renderQuestionPanel();
   }
 
-  // === Next button ===
+  // Next button
   if (nextBtn) nextBtn.onclick = () => {
     const queue = currentQueue();
     if (state.index < queue.length - 1) {
@@ -653,7 +856,7 @@ function initQuiz(progressRef) {
     }
   };
 
-  // === Errors mode ===
+  // Errors mode
   if (errorsBtn) errorsBtn.onclick = () => {
     if (!state.errors.length) { alert("Ошибок пока нет 👍"); return; }
     if (state.queueType !== "errors") state.mainIndex = state.index;
@@ -665,7 +868,7 @@ function initQuiz(progressRef) {
     render();
   };
 
-  // === UI update ===
+  // UI update
   function updateUI() {
     const queue = currentQueue();
     if (progressText) progressText.innerText = `Вопрос ${state.index + 1} из ${queue.length}`;
@@ -673,7 +876,7 @@ function initQuiz(progressRef) {
     if (statsDiv) statsDiv.innerText = `✔ ${state.stats.correct} ✖ ${state.stats.wrong}`;
   }
 
-  // === Show result ===
+  // Show result
   function showResult() {
     const total = state.stats.correct + state.stats.wrong;
     const correctPercent = total ? ((state.stats.correct / total) * 100).toFixed(1) : 0;
@@ -684,34 +887,48 @@ function initQuiz(progressRef) {
     if (exitErrorsBtn) exitErrorsBtn.style.display = "none";
   }
 
-  // === Reset ===
+  // Reset
   if (resetBtn) resetBtn.onclick = () => {
     if (confirm("Вы уверены? Это удалит весь прогресс!")) {
       localStorage.removeItem("bioState");
+      if (progressRef) {
+        updateDoc(progressRef, {
+          progress: JSON.stringify({
+            queueType: "main",
+            index: 0,
+            mainIndex: 0,
+            stats: { correct: 0, wrong: 0 },
+            errors: [],
+            errorAttempts: {},
+            history: {},
+            mainQueue: null,
+            answersOrder: {},
+            errorQueue: [],
+            lastSyncTimestamp: Date.now()
+          }),
+          updatedAt: serverTimestamp()
+        });
+      }
       location.reload();
     }
   };
 
-  // === Init: load questions and render ===
+  // Загружаем вопросы
   loadQuestions();
 
-  // Возврат обработчиков (по желанию)
   return {
     saveState,
     loadQuestions,
     render,
+    unsubscribe: () => {
+      // Функция для отписки
+    }
   };
-}
-
-// Сделать initQuiz доступным глобально
-window.initQuiz = initQuiz;
-
-// Функция генерации пароля (добавьте реализацию)
-function generateSecretPassword() {
-  // Реализуйте генерацию пароля
-  return Math.random().toString(36).substring(2, 15);
 }
 
 // Инициализация overlays
 if (authOverlay) authOverlay.style.display = 'flex';
 if (waitOverlay) waitOverlay.style.display = 'flex';
+
+// Сделать initQuiz доступным глобально
+window.initQuiz = initQuiz;
