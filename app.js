@@ -92,7 +92,7 @@ if (signOutFromWait) signOutFromWait.onclick = async ()=>{ await signOut(auth); 
 if (helpBtn) helpBtn.onclick = ()=>{ alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); };
 
 /* ====== Глобальные флаги ====== */
-let quizInitialized = false;  // тест инициализируется один раз
+quizInitialized = true; // присваиваем, не объявляем 
 let quizInstance = null;      // экземпляр теста
 let progressDocRef = null;    // ссылка на прогресс в Firestore
 let passwordResetDone = false; // сброс пароля один раз
@@ -716,6 +716,7 @@ function initQuiz() {
 
 // Экспортируем initQuiz (если потребуется)
 export { initQuiz };
+
 
 
 
