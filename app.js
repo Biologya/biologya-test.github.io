@@ -15,12 +15,18 @@ import {
   setDoc,
   getDoc,
   updateDoc,
+  deleteDoc,
   onSnapshot,
   serverTimestamp,
   collection,
   getDocs,
+  query,
+  where,
+  orderBy,
+  limit,
   arrayUnion,
-  arrayRemove
+  arrayRemove,
+  writeBatch
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
@@ -34,10 +40,16 @@ const firebaseConfig = {
   measurementId: "G-X7E0RXB6XD"
 };
 
+/* ====== КОЛЛЕКЦИИ FIREBASE ====== */
+const USERS_COLLECTION = "users";
+const ADMIN_LOGS_COLLECTION = "admin_logs";
+const QUIZ_ANALYTICS_COLLECTION = "quiz_analytics";
+const SESSIONS_SUBCOLLECTION = "sessions";
+const USERS_PROGRESS_COLLECTION = "users_progress";
+
 /* ====== КОНФИГУРАЦИЯ АДМИНИСТРАТОРА ====== */
 const ADMIN_EMAIL = "faceits1mple2000@gmail.com";
 const ADMIN_STATIC_PASSWORD = "20092009";
-let isAdmin = false;
 
 /* ====== ИНИЦИАЛИЗАЦИЯ FIREBASE ====== */
 const app = initializeApp(firebaseConfig);
@@ -81,15 +93,12 @@ function setStatus(text, isError = false) {
 /* ====== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====== */
 let quizInitialized = false;
 let quizInstance = null;
-let progressDocRef = null;
 let passwordResetInProgress = false;
 let userUnsubscribe = null;
-let progressUnsubscribe = null;
 let sessionCheckInterval = null;
 let deviceId = null;
 
 /* ====== СИСТЕМА СЕССИЙ ====== */
-// Генерация уникального ID устройства
 function generateDeviceId() {
   let storedId = localStorage.getItem('deviceId');
   if (!storedId) {
@@ -100,12 +109,10 @@ function generateDeviceId() {
     }
     storedId = `${randomPart}_${Date.now()}`;
     localStorage.setItem('deviceId', storedId);
-    console.log('📱 Сгенерирован новый deviceId:', storedId);
   }
   return storedId;
 }
 
-// Регистрация активной сессии
 async function registerSession(userId) {
   if (!deviceId) deviceId = generateDeviceId();
   
@@ -114,58 +121,54 @@ async function registerSession(userId) {
     userAgent: navigator.userAgent.substring(0, 100),
     platform: navigator.platform,
     screenResolution: `${window.screen.width}x${window.screen.height}`,
-    lastActive: serverTimestamp(),
+    ipAddress: await getIPAddress(),
     isActive: true,
     firstSeen: serverTimestamp(),
-    ipAddress: await getIPAddress()
+    lastActive: serverTimestamp()
   };
   
-  const sessionRef = doc(db, 'users', userId, 'sessions', deviceId);
+  const sessionRef = doc(db, USERS_COLLECTION, userId, SESSIONS_SUBCOLLECTION, deviceId);
+  const userRef = doc(db, USERS_COLLECTION, userId);
   
   try {
-    await setDoc(sessionRef, sessionData, { merge: true });
-    
-    await updateDoc(doc(db, 'users', userId), {
+    const batch = writeBatch(db);
+    batch.set(sessionRef, sessionData, { merge: true });
+    batch.update(userRef, {
       activeSessions: arrayUnion(deviceId),
-      lastSeen: serverTimestamp(),
-      [`session_${deviceId}`]: sessionData
+      lastSeen: serverTimestamp()
     });
-    
-    console.log('📱 Сессия зарегистрирована:', deviceId);
+    await batch.commit();
   } catch (error) {
     console.error('Ошибка регистрации сессии:', error);
   }
 }
 
-// Получение IP адреса через внешний сервис
 async function getIPAddress() {
   try {
     const response = await fetch('https://api.ipify.org?format=json');
     const data = await response.json();
     return data.ip;
   } catch (error) {
-    console.log('Не удалось получить IP адрес');
     return 'unknown';
   }
 }
 
-// Обновление активности сессии
 async function updateSessionActivity(userId) {
   if (!deviceId || !userId) return;
   
-  const sessionRef = doc(db, 'users', userId, 'sessions', deviceId);
+  const sessionRef = doc(db, USERS_COLLECTION, userId, SESSIONS_SUBCOLLECTION, deviceId);
+  const userRef = doc(db, USERS_COLLECTION, userId);
   
   try {
-    await updateDoc(sessionRef, {
+    const batch = writeBatch(db);
+    batch.update(sessionRef, {
       lastActive: serverTimestamp(),
       isActive: true
     });
-    
-    await updateDoc(doc(db, 'users', userId), {
-      lastSeen: serverTimestamp(),
-      [`session_${deviceId}.lastActive`]: serverTimestamp(),
-      [`session_${deviceId}.isActive`]: true
+    batch.update(userRef, {
+      lastSeen: serverTimestamp()
     });
+    await batch.commit();
   } catch (error) {
     if (error.code === 'not-found') {
       await registerSession(userId);
@@ -173,78 +176,64 @@ async function updateSessionActivity(userId) {
   }
 }
 
-// Проверка активных сессий при входе - ИЗМЕНЕНО: предупреждение при >3 сессий
 async function checkActiveSessions(userId, userEmail) {
   try {
-    if (userEmail === ADMIN_EMAIL) {
-      console.log('👑 Администратор: доступны все сессии');
-      return;
-    }
+    if (userEmail === ADMIN_EMAIL) return;
     
-    const userDoc = await getDoc(doc(db, 'users', userId));
-    if (!userDoc.exists()) return;
+    const sessionsQuery = query(
+      collection(db, USERS_COLLECTION, userId, SESSIONS_SUBCOLLECTION),
+      where("isActive", "==", true),
+      where("deviceId", "!=", deviceId)
+    );
     
-    const userData = userDoc.data();
-    const activeSessions = userData.activeSessions || [];
-    
-    const sessionsSnapshot = await getDocs(collection(db, 'users', userId, 'sessions'));
+    const sessionsSnapshot = await getDocs(sessionsQuery);
     const now = Date.now();
     const fiveMinutes = 5 * 60 * 1000;
     
-    let activeCount = 0;
-    let otherSessions = [];
+    let activeOtherSessions = [];
     
-    // Собираем только действительно активные сессии
     sessionsSnapshot.forEach((docSnap) => {
       const session = docSnap.data();
       const lastActive = session.lastActive?.toDate?.()?.getTime() || 0;
-      const isActive = session.isActive !== false && (now - lastActive) <= fiveMinutes;
+      const isRecentlyActive = (now - lastActive) <= fiveMinutes;
       
-      if (isActive) {
-        activeCount++;
-        
-        if (session.deviceId !== deviceId) {
-          otherSessions.push({
-            deviceId: session.deviceId,
-            userAgent: session.userAgent,
-            lastActive: new Date(lastActive).toLocaleString(),
-            platform: session.platform,
-            isActive: true
-          });
-        }
+      if (isRecentlyActive) {
+        activeOtherSessions.push({
+          deviceId: session.deviceId,
+          userAgent: session.userAgent,
+          lastActive: new Date(lastActive).toLocaleString(),
+          platform: session.platform,
+          ipAddress: session.ipAddress
+        });
       }
     });
     
-    // Показываем предупреждение только если больше 3 активных сессий
-    if (activeCount > 3) {
-      console.warn(`⚠️ Обнаружено ${activeCount} активных сессий (включая текущую):`, otherSessions);
-      
-      const warningMsg = `
-      ⚠️ ВНИМАНИЕ! Обнаружено ${activeCount} активных сессий.
-      
-      Ваш аккаунт используется на других устройствах:
-      ${otherSessions.map(s => `• Устройство: ${s.deviceId.substring(0, 8)}... (${s.platform})\n  Последняя активность: ${s.lastActive}`).join('\n')}
-      
-      Если это не вы, срочно смените пароль!
-      `;
+    if (activeOtherSessions.length > 3) {
+      await updateDoc(doc(db, USERS_COLLECTION, userId), {
+        securityAlerts: arrayUnion({
+          type: 'multiple_sessions_detected',
+          count: activeOtherSessions.length,
+          timestamp: serverTimestamp(),
+          currentDevice: deviceId,
+          otherDevices: activeOtherSessions
+        })
+      });
       
       if (!sessionStorage.getItem('sessionWarningShown')) {
+        const warningMsg = `
+        ⚠️ ВНИМАНИЕ! Обнаружено ${activeOtherSessions.length} активных сессий на других устройствах.
+        
+        ${activeOtherSessions.map(s => 
+          `• Устройство: ${s.deviceId.substring(0, 8)}... (${s.platform})\n  IP: ${s.ipAddress}\n  Последняя активность: ${s.lastActive}`
+        ).join('\n')}
+        
+        Если это не вы, срочно смените пароль!
+        `;
+        
         alert(warningMsg);
         sessionStorage.setItem('sessionWarningShown', 'true');
-        
-        await updateDoc(doc(db, 'users', userId), {
-          securityAlerts: arrayUnion({
-            type: 'multiple_sessions',
-            count: activeCount,
-            timestamp: serverTimestamp(),
-            currentDevice: deviceId,
-            otherDevices: otherSessions,
-            message: `Обнаружено ${activeCount} активных сессий`
-          })
-        });
       }
     }
-    
   } catch (error) {
     console.error('Ошибка проверки сессий:', error);
   }
@@ -271,7 +260,7 @@ if (authBtn) {
         setStatus('Учётной записи не найдено — создаём...');
         try {
           const cred = await createUserWithEmailAndPassword(auth, email, password);
-          await setDoc(doc(db, 'users', cred.user.uid), {
+          await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
             email: email,
             allowed: false,
             createdAt: serverTimestamp(),
@@ -296,36 +285,26 @@ if (authBtn) {
 }
 
 /* ====== ВЫХОД ====== */
-if (logoutBtn) logoutBtn.onclick = async () => { 
-  await handleLogout(); 
-  setStatus('Вы вышли из системы.');
-};
-
-if (signOutFromWait) signOutFromWait.onclick = async () => { 
-  await handleLogout();
-  setStatus('Вы вышли из системы.');
-};
-
 async function handleLogout() {
   const user = auth.currentUser;
   
   if (user && deviceId) {
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        activeSessions: arrayRemove(deviceId),
-        [`session_${deviceId}.isActive`]: false,
-        [`session_${deviceId}.lastActive`]: serverTimestamp(),
-        [`session_${deviceId}.logoutAt`]: serverTimestamp()
-      });
+      const batch = writeBatch(db);
+      const sessionRef = doc(db, USERS_COLLECTION, user.uid, SESSIONS_SUBCOLLECTION, deviceId);
+      const userRef = doc(db, USERS_COLLECTION, user.uid);
       
-      const sessionRef = doc(db, 'users', user.uid, 'sessions', deviceId);
-      await updateDoc(sessionRef, {
+      batch.update(sessionRef, {
         isActive: false,
         lastActive: serverTimestamp(),
         logoutAt: serverTimestamp()
       });
       
-      console.log('📱 Сессия завершена:', deviceId);
+      batch.update(userRef, {
+        activeSessions: arrayRemove(deviceId)
+      });
+      
+      await batch.commit();
     } catch (error) {
       console.error('Ошибка завершения сессии:', error);
     }
@@ -340,11 +319,21 @@ async function handleLogout() {
   sessionStorage.removeItem('sessionWarningShown');
 }
 
-if (helpBtn) helpBtn.onclick = () => { 
-  alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.\n\nПосле этого пользователь сможет войти, и пароль автоматически сменится. Новый пароль будет виден в базе данных.'); 
+if (logoutBtn) logoutBtn.onclick = async () => { 
+  await handleLogout(); 
+  setStatus('Вы вышли из системы.');
 };
 
-/* ====== ГЕНЕРАЦИЯ НОВОГО ПАРОЛЯ ====== */
+if (signOutFromWait) signOutFromWait.onclick = async () => { 
+  await handleLogout();
+  setStatus('Вы вышли из системы.');
+};
+
+if (helpBtn) helpBtn.onclick = () => { 
+  alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); 
+};
+
+/* ====== ГЕНЕРАЦИЯ ПАРОЛЯ ====== */
 function generateNewPassword() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
   let password = '';
@@ -354,107 +343,59 @@ function generateNewPassword() {
   return password;
 }
 
-/* ====== СБРОС ПАРОЛЯ ПРИ ДОСТУПЕ ====== */
+/* ====== СБРОС ПАРОЛЯ ====== */
 async function resetUserPassword(user) {
-  if (passwordResetInProgress) {
-    console.log('Сброс пароля уже в процессе');
-    return;
-  }
+  if (passwordResetInProgress) return;
   
-  // ✅ ПРОВЕРКА: если это админ - НЕ сбрасываем пароль!
   if (user.email === ADMIN_EMAIL) {
-    console.log(`🔒 Администратор ${ADMIN_EMAIL}: пароль не сбрасывается (статичный)`);
-    
-    const uDocRef = doc(db, 'users', user.uid);
-    try {
-      await updateDoc(uDocRef, {
-        currentPassword: ADMIN_STATIC_PASSWORD,
-        passwordChanged: true,
-        lastPasswordChange: serverTimestamp(),
-        isAdmin: true,
-        lastLogin: serverTimestamp(),
-        lastSeen: serverTimestamp()
-      });
-      console.log(`%c🔐 СТАТИЧНЫЙ ПАРОЛЬ АДМИНА: ${ADMIN_STATIC_PASSWORD}`, 
-                  "color: #FF9800; font-weight: bold; font-size: 16px; background: #000; padding: 10px; border-radius: 5px;");
-    } catch (error) {
-      console.error('Ошибка обновления данных админа:', error);
-    }
-    
+    await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
+      currentPassword: ADMIN_STATIC_PASSWORD,
+      passwordChanged: true,
+      lastPasswordChange: serverTimestamp(),
+      isAdmin: true,
+      lastLogin: serverTimestamp(),
+      lastSeen: serverTimestamp()
+    });
     passwordResetInProgress = false;
     return;
   }
   
   passwordResetInProgress = true;
-  const uDocRef = doc(db, 'users', user.uid);
-  
-  console.log(`🔄 Проверяем пароль для ${user.email}`);
+  const uDocRef = doc(db, USERS_COLLECTION, user.uid);
   
   try {
     const userDoc = await getDoc(uDocRef);
     if (!userDoc.exists()) {
-      console.error('Документ пользователя не найден');
       passwordResetInProgress = false;
       return;
     }
     
     const userData = userDoc.data();
     
-    // 🔄 СБРАСЫВАЕМ ПАРОЛЬ ТОЛЬКО ПРИ ПЕРВОМ ДОСТУПЕ ИЛИ ЕСЛИ ЕГО НЕТ
     if (!userData.currentPassword) {
-      console.log(`🔧 У пользователя ${user.email} нет пароля, создаем...`);
-      
       const newPassword = generateNewPassword();
-      console.log(`🔧 Сгенерирован пароль для ${user.email}: ${newPassword}`);
       
       try {
-        // Обновляем пароль в Firebase Auth
-        console.log('Обновляем пароль в Firebase Auth...');
         await updatePassword(user, newPassword);
-        console.log('✅ Пароль обновлен в Firebase Auth');
-        
       } catch (authError) {
-        console.error('❌ Ошибка обновления пароля в Auth:', authError);
-        
-        if (authError.code === 'auth/requires-recent-login') {
-          console.log('⚠️ Требуется повторная аутентификация');
-          // Сохраняем пароль в базу, но не обновляем в Auth
-          // Пользователь войдет со старым паролем
-        }
+        console.error('Ошибка обновления пароля в Auth:', authError);
       }
       
-      // Сохраняем пароль в Firestore
-      try {
-        console.log('Сохраняем пароль в Firestore...');
-        
-        await updateDoc(uDocRef, {
-          passwordChanged: true,
-          currentPassword: newPassword,
-          lastPasswordChange: serverTimestamp(),
-          lastLogin: serverTimestamp(),
-          isAdmin: false,
-          lastSeen: serverTimestamp()
-        });
-        
-        // Ярко выводим пароль в консоль
-        console.log(`%c✨✨✨ НОВЫЙ ПАРОЛЬ ✨✨✨`, 
-                    "color: #4CAF50; font-weight: bold; font-size: 20px; background: #000; padding: 15px; border-radius: 10px;");
-        console.log(`%c📧 Email: ${user.email}`, 
-                    "color: #2196F3; font-size: 16px; font-weight: bold;");
-        console.log(`%c🔑 Пароль: ${newPassword}`, 
-                    "color: #FF9800; font-family: 'Courier New', monospace; font-size: 22px; font-weight: bold; background: #f0f0f0; padding: 15px; border: 3px solid #FF9800; border-radius: 8px;");
-        console.log(`%c⚠️ ВАЖНО: Этот пароль нужно отправить пользователю! ⚠️`, 
-                    "color: #f44336; font-weight: bold; font-size: 16px;");
-        
-      } catch (firestoreError) {
-        console.error('❌ Ошибка сохранения пароля в Firestore:', firestoreError);
-      }
+      await updateDoc(uDocRef, {
+        passwordChanged: true,
+        currentPassword: newPassword,
+        lastPasswordChange: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+        lastSeen: serverTimestamp()
+      });
       
+      console.log(`%c✨✨✨ НОВЫЙ ПАРОЛЬ ✨✨✨`, 
+                  "color: #4CAF50; font-weight: bold; font-size: 20px;");
+      console.log(`%c📧 Email: ${user.email}`, 
+                  "color: #2196F3; font-size: 16px; font-weight: bold;");
+      console.log(`%c🔑 Пароль: ${newPassword}`, 
+                  "color: #FF9800; font-family: 'Courier New', monospace; font-size: 22px;");
     } else {
-      console.log(`✅ У пользователя ${user.email} уже есть пароль: ${userData.currentPassword}`);
-      console.log(`📧 Пользователь может использовать этот пароль для входа на других устройствах`);
-      
-      // Обновляем только время последнего входа
       await updateDoc(uDocRef, {
         lastLogin: serverTimestamp(),
         lastSeen: serverTimestamp()
@@ -462,7 +403,7 @@ async function resetUserPassword(user) {
     }
     
   } catch (error) {
-    console.error('❌ Общая ошибка проверки пароля:', error);
+    console.error('Ошибка проверки пароля:', error);
   } finally {
     setTimeout(() => {
       passwordResetInProgress = false;
@@ -478,8 +419,6 @@ async function setupAdminPanel(userEmail) {
       if (adminContainer) adminContainer.style.display = 'none';
       return;
     }
-    
-    console.log(`👑 Пользователь ${userEmail} является администратором`);
     
     let adminContainer = document.getElementById('adminPanelContainer');
     if (!adminContainer) {
@@ -516,11 +455,6 @@ async function setupAdminPanel(userEmail) {
     };
     
     adminContainer.appendChild(adminBtn);
-    
-    console.log(`%c🔐 АДМИНИСТРАТОР: ${ADMIN_EMAIL}`, 
-                "color: #FF9800; font-weight: bold;");
-    console.log(`%c🔑 ПАРОЛЬ: ${ADMIN_STATIC_PASSWORD}`, 
-                "color: #4CAF50; font-family: monospace; font-weight: bold;");
     
   } catch (error) {
     console.error('Ошибка настройки админ панели:', error);
@@ -1539,16 +1473,11 @@ window.showAccessStatistics = async function() {
   }
 };
 
-// ---------- НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ----------
+/* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ====== */
 onAuthStateChanged(auth, async (user) => {
   if (userUnsubscribe) {
     try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
     userUnsubscribe = null;
-  }
-  
-  if (progressUnsubscribe) {
-    try { progressUnsubscribe(); } catch(e) { console.error('Ошибка отписки от прогресса:', e); }
-    progressUnsubscribe = null;
   }
   
   if (sessionCheckInterval) {
@@ -1569,13 +1498,10 @@ onAuthStateChanged(auth, async (user) => {
     quizInstance = null;
     
     const adminContainer = document.getElementById('adminPanelContainer');
-    if (adminContainer) {
-      adminContainer.innerHTML = '';
-    }
+    if (adminContainer) adminContainer.innerHTML = '';
     return;
   }
 
-  // Пользователь вошёл
   if (authOverlay) {
     authOverlay.setAttribute('inert', '');
     authOverlay.style.display = 'none';
@@ -1595,8 +1521,7 @@ onAuthStateChanged(auth, async (user) => {
 
   await setupAdminPanel(user.email);
 
-  const uDocRef = doc(db, 'users', user.uid);
-  progressDocRef = doc(db, 'usersanswer', user.uid);
+  const uDocRef = doc(db, USERS_COLLECTION, user.uid);
 
   try {
     const uDocSnap = await getDoc(uDocRef);
@@ -1629,55 +1554,33 @@ onAuthStateChanged(auth, async (user) => {
       if (appDiv) appDiv.style.display = 'block';
       setStatus('');
 
-     // 🔄 СБРОС ПАРОЛЯ при каждом входе с доступом (КРОМЕ АДМИНА)
-try {
-  // Проверяем условия для сброса пароля:
-  let shouldReset = false;
-  let reason = '';
-  
-  if (!data.passwordChanged) {
-    shouldReset = true;
-    reason = 'пароль никогда не менялся';
-  } else if (!data.currentPassword) {
-    shouldReset = true;
-    reason = 'текущий пароль отсутствует в базе';
-  }
-  
-  // ❌ НЕ сбрасываем пароль для администратора
-  if (user.email === ADMIN_EMAIL) {
-    console.log('🔒 Администратор: пароль остается статичным');
-    shouldReset = false;
-  }
-  
-  if (shouldReset && !passwordResetInProgress) {
-    console.log(`🔄 Запуск сброса пароля (${reason})...`);
-    // Даем время для загрузки интерфейса
-    setTimeout(async () => {
-      await resetUserPassword(user);
-    }, 1000);
-  } else if (passwordResetInProgress) {
-    console.log('Сброс пароля уже в процессе...');
-  } else if (user.email === ADMIN_EMAIL) {
-    console.log('✅ Администратор: статичный пароль актуален');
-  } else {
-    console.log('✅ Пароль уже актуален, пользователь может входить на других устройствах');
-    // Обновляем время последнего входа
-    const uDocRef = doc(db, 'users', user.uid);
-    try {
-      await updateDoc(uDocRef, {
-        lastLogin: serverTimestamp(),
-        lastSeen: serverTimestamp()
-      });
-    } catch (error) {
-      console.error('Ошибка обновления времени входа:', error);
-    }
-  }
-} catch (error) {
-  console.error('Ошибка при проверке сброса пароля:', error);
-}
+      try {
+        let shouldReset = false;
+        
+        if (!data.passwordChanged || !data.currentPassword) {
+          shouldReset = true;
+        }
+        
+        if (user.email === ADMIN_EMAIL) {
+          shouldReset = false;
+        }
+        
+        if (shouldReset && !passwordResetInProgress) {
+          setTimeout(async () => {
+            await resetUserPassword(user);
+          }, 1000);
+        } else {
+          await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
+            lastLogin: serverTimestamp(),
+            lastSeen: serverTimestamp()
+          });
+        }
+      } catch (error) {
+        console.error('Ошибка при проверке сброса пароля:', error);
+      }
       
       if (!quizInitialized) {
-        quizInstance = initQuiz(progressDocRef);
+        quizInstance = initQuiz(user.uid);
         quizInitialized = true;
       }
 
@@ -1687,13 +1590,11 @@ try {
       if (appDiv) appDiv.style.display = 'none';
       setStatus('Доступ закрыт администратором.');
     }
-  }, (err) => {
-    console.error('Ошибка realtime-слушателя пользователя:', err);
   });
 });
 
-/* ====== СИСТЕМА ТЕСТА С СИНХРОНИЗАЦИЕЙ ====== */
-function initQuiz(progressRef) {
+/* ====== СИСТЕМА ТЕСТА ====== */
+function initQuiz(userId) {
   const state = JSON.parse(localStorage.getItem("bioState")) || {
     queueType: "main",
     index: 0,
@@ -1716,7 +1617,7 @@ function initQuiz(progressRef) {
   let currentPanelPage = 0;
   let currentPanelPageErrors = 0;
 
-  // Exit errors button
+  // Выход из режима ошибок
   let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
   if (!exitErrorsBtn) {
     exitErrorsBtn = document.createElement("button");
@@ -1735,183 +1636,72 @@ function initQuiz(progressRef) {
     if (controls) controls.appendChild(exitErrorsBtn);
   }
 
-  // Загрузка прогресса из Firestore
-(async () => {
-  if (!progressRef) return;
-  try {
-    const snap = await getDoc(progressRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      if (data.progress) {
-        try {
-          const savedState = JSON.parse(data.progress);
-          if (data.updatedAt) {
-            const remoteTime = data.updatedAt.toMillis();
+  // Загрузка прогресса
+  (async () => {
+    if (!userId) return;
+    
+    try {
+      const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
+      const snap = await getDoc(progressRef);
+      
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.progress) {
+          try {
+            const savedState = JSON.parse(data.progress);
+            const remoteTime = data.updatedAt?.toMillis() || 0;
             const localTime = state.lastSyncTimestamp || 0;
             
-            // Используем стратегию "последний запись побеждает"
             if (remoteTime > localTime) {
-              console.log('📥 Загрузка прогресса с сервера...');
-              const currentIndex = state.index;
-              const currentQueueType = state.queueType;
-              
-              // Сохраняем некоторые локальные значения, которые не нужно перезаписывать
-              const tempState = { ...state };
-              
-              // Обновляем только основные поля состояния
-              Object.keys(savedState).forEach(key => {
-                if (key !== 'answersOrder' && key !== 'history' && key !== 'mainQueue' && key !== 'errorQueue') {
-                  state[key] = savedState[key];
-                }
-              });
-              
-              // Сохраняем локальные данные о порядке вопросов и истории
-              state.answersOrder = tempState.answersOrder || savedState.answersOrder || {};
-              state.history = tempState.history || savedState.history || {};
-              state.mainQueue = tempState.mainQueue || savedState.mainQueue || null;
-              state.errorQueue = tempState.errorQueue || savedState.errorQueue || [];
-              
+              Object.assign(state, savedState);
               state.lastSyncTimestamp = remoteTime;
-              
-              // Восстанавливаем текущую позицию
-              if (currentQueueType === state.queueType) {
-                const queueLength = state.queueType === "main" ? 
-                  (state.mainQueue?.length || 0) : 
-                  (state.errorQueue?.length || 0);
-                
-                if (currentIndex < queueLength) {
-                  state.index = currentIndex;
-                }
-              }
-              
-              console.log('✅ Прогресс синхронизирован с сервера');
-            } else if (localTime > remoteTime) {
-              // Локальные данные новее, сохраняем на сервер
-              console.log('📤 Локальные данные новее, отправляем на сервер...');
-              await updateDoc(progressRef, {
-                progress: JSON.stringify(state),
-                updatedAt: serverTimestamp(),
-                lastUpdated: localTime
-              });
+              console.log('✅ Прогресс загружен с сервера');
             }
+          } catch (err) {
+            console.error('Ошибка разбора прогресса:', err);
           }
-        } catch (err) {
-          console.error('Ошибка разбора сохранённого состояния:', err);
         }
+      } else {
+        // Создаем новый документ прогресса
+        await setDoc(doc(db, USERS_PROGRESS_COLLECTION, userId), {
+          progress: JSON.stringify(state),
+          updatedAt: serverTimestamp(),
+          email: auth.currentUser?.email || '',
+          lastUpdated: Date.now(),
+          deviceId: deviceId,
+          userId: userId
+        });
       }
-    } else {
-      // Создаем документ только с необходимыми полями
-      const initialData = {
+    } catch (e) { 
+      console.error('Ошибка загрузки прогресса:', e); 
+    }
+    
+    loadQuestions();
+  })();
+
+
+  // Сохранение прогресса
+  function saveState() {
+    const timestamp = Date.now();
+    state.lastSyncTimestamp = timestamp;
+    localStorage.setItem("bioState", JSON.stringify(state));
+    
+    if (userId) {
+      const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
+      const updateData = {
         progress: JSON.stringify(state),
-        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        email: auth.currentUser?.email || '',
-        lastSync: Date.now(),
-        deviceId: deviceId,
-        userId: auth.currentUser?.uid || ''
+        lastUpdated: timestamp,
+        deviceId: deviceId
       };
       
-      await setDoc(progressRef, initialData);
-      console.log('📝 Создан новый документ прогресса');
+      updateDoc(progressRef, updateData)
+        .then(() => console.log('💾 Прогресс сохранен'))
+        .catch(err => console.error('Ошибка сохранения:', err));
     }
-  } catch (e) { 
-    console.error('Ошибка загрузки прогресса:', e); 
   }
-  
-  loadQuestions();
-})();
 
-  // Функция для удаления дубликатов сессий
-window.removeDuplicateSessions = async function() {
-  if (!confirm('Удалить дублирующиеся сессии?\n\nЭто удалит старые копии сессий и оставит только одну последнюю.')) return;
-  
-  try {
-    const usersSnapshot = await getDocs(collection(db, 'users'));
-    let removedCount = 0;
-    
-    for (const userDoc of usersSnapshot.docs) {
-      const sessionsRef = collection(db, 'users', userDoc.id, 'sessions');
-      const sessionsSnapshot = await getDocs(sessionsRef);
-      
-      const sessionsByDevice = {};
-      
-      // Группируем сессии по deviceId
-      sessionsSnapshot.forEach(sessionDoc => {
-        const session = sessionDoc.data();
-        const deviceId = session.deviceId;
-        
-        if (!sessionsByDevice[deviceId]) {
-          sessionsByDevice[deviceId] = [];
-        }
-        
-        sessionsByDevice[deviceId].push({
-          id: sessionDoc.id,
-          data: session
-        });
-      });
-      
-      // Для каждого устройства оставляем только самую новую сессию
-      for (const deviceId in sessionsByDevice) {
-        const sessions = sessionsByDevice[deviceId];
-        
-        if (sessions.length > 1) {
-          // Сортируем по времени создания (самая новая последняя)
-          sessions.sort((a, b) => {
-            const timeA = a.data.firstSeen?.toDate?.()?.getTime() || 0;
-            const timeB = b.data.firstSeen?.toDate?.()?.getTime() || 0;
-            return timeA - timeB;
-          });
-          
-          // Оставляем последнюю, остальные удаляем
-          const sessionToKeep = sessions.pop();
-          
-          for (const session of sessions) {
-            await deleteDoc(doc(db, 'users', userDoc.id, 'sessions', session.id));
-            removedCount++;
-          }
-        }
-      }
-    }
-    
-    alert(`✅ Удалено ${removedCount} дублирующихся сессий`);
-    
-    // Обновляем админ-панель
-    document.querySelector('.admin-modal')?.remove();
-    await showAdminPanel();
-    
-  } catch (error) {
-    console.error('Ошибка удаления дубликатов сессий:', error);
-    alert('Ошибка удаления дубликатов сессий: ' + error.message);
-  }
-};
-
-  // Функция сохранения прогресса (синхронизация)
-function saveState() {
-  const timestamp = Date.now();
-  state.lastSyncTimestamp = timestamp;
-  localStorage.setItem("bioState", JSON.stringify(state));
-  
-  if (progressRef) {
-    // Создаем объект с данными для обновления
-    const updateData = {
-      progress: JSON.stringify(state),
-      updatedAt: serverTimestamp(),
-      email: auth.currentUser?.email || '',
-      lastUpdated: timestamp,
-      deviceId: deviceId
-    };
-    
-    updateDoc(progressRef, updateData)
-      .then(() => {
-        console.log('💾 Прогресс сохранен в Firestore');
-      })
-      .catch(err => {
-        console.error('Ошибка сохранения прогресса:', err);
-      });
-  }
-}
-
-  // Shuffle функция
+  // Перемешивание
   function shuffleArray(arr) {
     const newArr = [...arr];
     for (let i = newArr.length - 1; i > 0; i--) {
@@ -2377,5 +2167,6 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
