@@ -527,7 +527,7 @@ async function setupAdminPanel(userEmail) {
   }
 }
 
-/* ====== ПОКАЗАТЬ ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
+/* ====== ФУНКЦИЯ ПОКАЗА АДМИН ПАНЕЛИ ====== */
 async function showAdminPanel() {
   try {
     const currentUser = auth.currentUser;
@@ -554,6 +554,29 @@ async function showAdminPanel() {
     usersHTML += '</div>';
     usersHTML += '</div>';
     usersHTML += '<button class="close-modal">✕</button>';
+
+    usersHTML += `
+  <div style="margin-bottom: 20px; padding: 15px; background: #f0f8ff; border-radius: 8px; border: 2px solid #2196F3;">
+    <h4 style="margin-top: 0; color: #2196F3;">🚀 Массовые операции с доступом</h4>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+      <button onclick="bulkAccessControl('grant_all')" 
+              style="background: #4CAF50; color: white; padding: 10px 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+        ✅ Открыть доступ ВСЕМ
+      </button>
+      <button onclick="bulkAccessControl('revoke_all')" 
+              style="background: #f44336; color: white; padding: 10px 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+        ❌ Закрыть доступ ВСЕМ
+      </button>
+      <button onclick="showAccessStatistics()" 
+              style="background: #9C27B0; color: white; padding: 10px 16px; border: none; border-radius: 5px; cursor: pointer;">
+        📊 Статистика доступа
+      </button>
+    </div>
+    <p style="margin-top: 10px; color: #666; font-size: 12px;">
+      ⚠️ Внимание: закрытие доступа завершит все активные сессии пользователей
+    </p>
+  </div>
+`;    
     
     // Показываем загрузку
     usersHTML += '<div id="adminLoading" style="text-align: center; padding: 40px;">';
@@ -635,11 +658,15 @@ async function showAdminPanel() {
           }
         }
         
-        // Сортируем: сначала пользователи с >3 активными сессиями, затем по алфавиту
+        // Сортируем
         usersWithSessions.sort((a, b) => {
           // Сначала администраторы
           if (a.data.email === ADMIN_EMAIL || a.data.isAdmin === true) return -1;
           if (b.data.email === ADMIN_EMAIL || b.data.isAdmin === true) return 1;
+          
+          // Затем пользователи с доступом
+          if (a.data.allowed && !b.data.allowed) return -1;
+          if (!a.data.allowed && b.data.allowed) return 1;
           
           // Затем пользователи с >3 сессиями
           const aManySessions = a.activeSessionCount > 3;
@@ -660,11 +687,14 @@ async function showAdminPanel() {
           const activeSessionCount = user.activeSessionCount;
           const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
           const hasManySessions = activeSessionCount > 3;
+          const hasAccess = data.allowed === true;
           
-          // Определяем стиль в зависимости от количества сессий
+          // Определяем стиль в зависимости от статуса
           let itemStyle = '';
           if (isUserAdmin) {
             itemStyle = 'background: #FFF8E1; border-left: 5px solid #FF9800;';
+          } else if (!hasAccess) {
+            itemStyle = 'background: #f5f5f5; border-left: 5px solid #9E9E9E;';
           } else if (hasManySessions) {
             itemStyle = 'background: #FFEBEE; border-left: 5px solid #f44336;';
           } else if (activeSessionCount > 0) {
@@ -680,8 +710,11 @@ async function showAdminPanel() {
                   <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                     <strong style="font-size: 16px;">${data.email}</strong>
                     ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold; background: #FFECB3; padding: 2px 8px; border-radius: 10px; font-size: 12px;">👑 АДМИН</span>' : ''}
-                    <span class="admin-status ${data.allowed ? 'status-allowed' : 'status-pending'}" style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold;">
-                      ${data.allowed ? '✅ Доступ открыт' : '❌ Ожидает'}
+                    <span class="admin-status ${hasAccess ? 'status-allowed' : 'status-pending'}" 
+                          style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; 
+                                 background: ${hasAccess ? '#4CAF50' : '#FF9800'}; color: white; cursor: pointer;"
+                          onclick="toggleUserAccess('${userId}', '${data.email}', ${hasAccess})">
+                      ${hasAccess ? '✅ Доступ открыт (нажми чтобы закрыть)' : '❌ Доступ закрыт (нажми чтобы открыть)'}
                     </span>
                   </div>
                   
@@ -719,7 +752,7 @@ async function showAdminPanel() {
                     📱 Управление сессиями (${activeSessionCount})
                   </button>
                   
-                  ${hasManySessions ? 
+                  ${hasAccess ? 
                     `<button class="terminate-all-btn" onclick="terminateAllSessions('${userId}', '${data.email}')" 
                             style="width: 100%; text-align: left; background: #f44336; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold;">
                       🚫 Завершить все сессии
@@ -740,7 +773,7 @@ async function showAdminPanel() {
           `;
         });
         
-        // Показываем статистику
+        // Статистика
         const totalUsers = usersWithSessions.length;
         const usersWithAccess = usersWithSessions.filter(u => u.data.allowed).length;
         const usersWithManySessions = usersWithSessions.filter(u => u.activeSessionCount > 3).length;
@@ -765,6 +798,9 @@ async function showAdminPanel() {
                 <div style="font-size: 24px; font-weight: bold; color: #9C27B0;">${totalActiveSessions}</div>
                 <div style="font-size: 12px; color: #666;">Активных сессий</div>
               </div>
+            </div>
+            <div style="margin-top: 15px; font-size: 14px; color: #666;">
+              💡 <strong>Инструкция:</strong> Нажмите на статус пользователя (зеленый/оранжевый) чтобы открыть/закрыть доступ
             </div>
             ${usersWithManySessions > 0 ? 
               `<div style="margin-top: 15px; padding: 10px; background: #FFF3E0; border-radius: 5px; border-left: 4px solid #FF9800; font-size: 14px;">
@@ -821,6 +857,186 @@ async function showAdminPanel() {
     alert('Ошибка открытия админ панели: ' + error.message);
   }
 }
+
+/* ====== ФУНКЦИЯ ПЕРЕКЛЮЧЕНИЯ ДОСТУПА ====== */
+window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
+  const newAccess = !currentAccess;
+  
+  const confirmMsg = newAccess 
+    ? `Открыть доступ пользователю ${userEmail}?\n\nПосле этого:`
+    : `Закрыть доступ пользователю ${userEmail}?\n\nПосле этого:`;
+  
+  const details = newAccess 
+    ? `• Пользователь сможет войти в систему\n• Будет автоматически сгенерирован пароль\n• Пароль появится в этом окне`
+    : `• Пользователь будет разлогинен\n• Все его сессии будут завершены\n• При следующем входе потребуется повторное открытие доступа`;
+  
+  if (!confirm(`${confirmMsg}\n${details}`)) return;
+  
+  try {
+    // Обновляем доступ в Firestore
+    const userRef = doc(db, 'users', userId);
+    
+    const updateData = {
+      allowed: newAccess,
+      [`status_${Date.now()}`]: {
+        action: newAccess ? 'access_granted' : 'access_revoked',
+        by: auth.currentUser?.email || 'admin',
+        timestamp: serverTimestamp()
+      }
+    };
+    
+    // Если закрываем доступ - завершаем все сессии
+    if (!newAccess && currentAccess) {
+      updateData.activeSessions = [];
+      
+      // Завершаем все активные сессии
+      const sessionsSnapshot = await getDocs(collection(db, 'users', userId, 'sessions'));
+      const batchPromises = [];
+      
+      sessionsSnapshot.forEach(sessionDoc => {
+        const sessionRef = doc(db, 'users', userId, 'sessions', sessionDoc.id);
+        batchPromises.push(
+          updateDoc(sessionRef, {
+            isActive: false,
+            accessRevoked: true,
+            revokedAt: serverTimestamp()
+          })
+        );
+      });
+      
+      await Promise.all(batchPromises);
+    }
+    
+    await updateDoc(userRef, updateData);
+    
+    // Если открываем доступ - показываем пароль
+    if (newAccess && !currentAccess) {
+      const userDoc = await getDoc(userRef);
+      const userData = userDoc.data();
+      
+      let passwordMsg = '';
+      if (userData.currentPassword) {
+        passwordMsg = `\n🔑 Текущий пароль: ${userData.currentPassword}\nПользователь может использовать его для входа.`;
+      } else {
+        passwordMsg = `\n⚠️ Пароль будет сгенерирован при первом входе пользователя.`;
+      }
+      
+      alert(`✅ Доступ ${newAccess ? 'открыт' : 'закрыт'} для ${userEmail}${passwordMsg}`);
+    } else {
+      alert(`✅ Доступ ${newAccess ? 'открыт' : 'закрыт'} для ${userEmail}`);
+    }
+    
+    // Логируем действие
+    await updateDoc(doc(db, 'admin_logs', `${Date.now()}_${userId}`), {
+      userId: userId,
+      userEmail: userEmail,
+      action: newAccess ? 'access_granted' : 'access_revoked',
+      admin: auth.currentUser?.email || 'unknown',
+      timestamp: serverTimestamp(),
+      details: `Changed access from ${currentAccess} to ${newAccess}`
+    });
+    
+    // Обновляем панель
+    window.refreshAdminPanel();
+    
+  } catch (error) {
+    console.error('Ошибка переключения доступа:', error);
+    alert(`❌ Ошибка: ${error.message}`);
+  }
+};
+
+/* ====== ФУНКЦИЯ МАССОВОГО УПРАВЛЕНИЯ ДОСТУПОМ ====== */
+window.bulkAccessControl = async function(action) {
+  // action: 'grant_all', 'revoke_all', 'grant_selected', 'revoke_selected'
+  
+  try {
+    const usersSnapshot = await getDocs(collection(db, 'users'));
+    const users = [];
+    
+    usersSnapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      if (data.email && data.email !== ADMIN_EMAIL) {
+        users.push({
+          id: docSnap.id,
+          email: data.email,
+          allowed: data.allowed || false
+        });
+      }
+    });
+    
+    let confirmMsg = '';
+    let newAccess = true;
+    
+    switch(action) {
+      case 'grant_all':
+        confirmMsg = `Вы уверены, что хотите открыть доступ ВСЕМ ${users.length} пользователям?`;
+        newAccess = true;
+        break;
+      case 'revoke_all':
+        confirmMsg = `Вы уверены, что хотите закрыть доступ ВСЕМ ${users.length} пользователям?\n\nВсе пользователи будут разлогинены!`;
+        newAccess = false;
+        break;
+      default:
+        return;
+    }
+    
+    if (!confirm(confirmMsg)) return;
+    
+    // Показываем прогресс
+    const modal = document.createElement('div');
+    modal.innerHTML = `
+      <div class="admin-modal" style="display: flex;">
+        <div class="admin-modal-content" style="max-width: 500px;">
+          <h3>${newAccess ? '📈 Открытие доступа' : '📉 Закрытие доступа'}</h3>
+          <p id="bulkProgress">Начинаем обработку...</p>
+          <div id="progressBar" style="height: 10px; background: #eee; border-radius: 5px; margin: 10px 0; overflow: hidden;">
+            <div id="progressFill" style="height: 100%; width: 0%; background: #4CAF50; transition: width 0.3s;"></div>
+          </div>
+          <div id="statusText" style="color: #666; font-size: 12px;"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Выполняем массовое обновление
+    let completed = 0;
+    const total = users.length;
+    
+    for (const user of users) {
+      try {
+        await updateDoc(doc(db, 'users', user.id), {
+          allowed: newAccess,
+          ...(newAccess === false ? { activeSessions: [] } : {})
+        });
+        
+        completed++;
+        const percent = Math.round((completed / total) * 100);
+        
+        document.getElementById('bulkProgress').innerText = 
+          `${newAccess ? 'Открываем доступ' : 'Закрываем доступ'}: ${completed} из ${total}`;
+        document.getElementById('progressFill').style.width = `${percent}%`;
+        document.getElementById('statusText').innerText = 
+          `Обработан: ${user.email} (${user.allowed ? 'был доступ' : 'без доступа'})`;
+        
+        // Небольшая задержка чтобы не перегружать Firestore
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+      } catch (userError) {
+        console.error(`Ошибка для пользователя ${user.email}:`, userError);
+      }
+    }
+    
+    setTimeout(() => {
+      document.body.removeChild(modal);
+      alert(`✅ Массовое обновление завершено!\n\nОбработано: ${completed} из ${total} пользователей\nДоступ: ${newAccess ? 'открыт' : 'закрыт'}`);
+      window.refreshAdminPanel();
+    }, 1000);
+    
+  } catch (error) {
+    console.error('Ошибка массового управления доступом:', error);
+    alert(`❌ Ошибка массового управления: ${error.message}`);
+  }
+};
 
 /* ====== ФУНКЦИИ ДЛЯ АДМИНИСТРАТОРА ====== */
 
@@ -1213,6 +1429,113 @@ window.forcePasswordReset = async function(userId, userEmail) {
   } catch (error) {
     console.error('Ошибка принудительного сброса:', error);
     alert('Ошибка сброса пароля: ' + error.message);
+  }
+};
+
+window.showAccessStatistics = async function() {
+  try {
+    const usersSnapshot = await getDocs(collection(db, 'users'));
+    let stats = {
+      total: 0,
+      withAccess: 0,
+      withoutAccess: 0,
+      activeSessions: 0,
+      recentLogins: 0
+    };
+    
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    
+    for (const docSnap of usersSnapshot.docs) {
+      const data = docSnap.data();
+      stats.total++;
+      
+      if (data.allowed) {
+        stats.withAccess++;
+      } else {
+        stats.withoutAccess++;
+      }
+      
+      // Проверяем активность за последние 24 часа
+      if (data.lastLogin) {
+        const lastLogin = data.lastLogin.toDate().getTime();
+        if (now - lastLogin < oneDay) {
+          stats.recentLogins++;
+        }
+      }
+      
+      // Считаем активные сессии
+      if (data.activeSessions) {
+        stats.activeSessions += data.activeSessions.length;
+      }
+    }
+    
+    const html = `
+      <div class="admin-modal">
+        <div class="admin-modal-content" style="max-width: 600px;">
+          <h3>📊 Статистика доступа пользователей</h3>
+          <button class="close-modal" onclick="this.closest('.admin-modal').remove()">✕</button>
+          
+          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0;">
+            <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; text-align: center;">
+              <div style="font-size: 32px; font-weight: bold; color: #2196F3;">${stats.total}</div>
+              <div style="font-size: 14px; color: #666;">Всего пользователей</div>
+            </div>
+            <div style="background: #E8F5E9; padding: 15px; border-radius: 8px; text-align: center;">
+              <div style="font-size: 32px; font-weight: bold; color: #4CAF50;">${stats.withAccess}</div>
+              <div style="font-size: 14px; color: #666;">С доступом</div>
+            </div>
+            <div style="background: #FFF3E0; padding: 15px; border-radius: 8px; text-align: center;">
+              <div style="font-size: 32px; font-weight: bold; color: #FF9800;">${stats.withoutAccess}</div>
+              <div style="font-size: 14px; color: #666;">Без доступа</div>
+            </div>
+            <div style="background: #FCE4EC; padding: 15px; border-radius: 8px; text-align: center;">
+              <div style="font-size: 32px; font-weight: bold; color: #9C27B0;">${stats.activeSessions}</div>
+              <div style="font-size: 14px; color: #666;">Активных сессий</div>
+            </div>
+          </div>
+          
+          <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin-top: 20px;">
+            <h4 style="margin-top: 0;">📈 Процентное соотношение:</h4>
+            <div style="margin: 10px 0;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span>С доступом:</span>
+                <span>${((stats.withAccess / stats.total) * 100).toFixed(1)}%</span>
+              </div>
+              <div style="height: 20px; background: #eee; border-radius: 10px; overflow: hidden;">
+                <div style="height: 100%; width: ${(stats.withAccess / stats.total) * 100}%; background: #4CAF50;"></div>
+              </div>
+            </div>
+            <div style="margin: 10px 0;">
+              <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                <span>Без доступа:</span>
+                <span>${((stats.withoutAccess / stats.total) * 100).toFixed(1)}%</span>
+              </div>
+              <div style="height: 20px; background: #eee; border-radius: 10px; overflow: hidden;">
+                <div style="height: 100%; width: ${(stats.withoutAccess / stats.total) * 100}%; background: #FF9800;"></div>
+              </div>
+            </div>
+          </div>
+          
+          <div style="margin-top: 20px; text-align: center;">
+            <button onclick="bulkAccessControl('grant_all')" style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin-right: 10px;">
+              ✅ Открыть доступ всем
+            </button>
+            <button onclick="this.closest('.admin-modal').remove()" style="background: #9E9E9E; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
+              Закрыть
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    document.body.appendChild(div.firstElementChild);
+    
+  } catch (error) {
+    console.error('Ошибка загрузки статистики:', error);
+    alert('Ошибка загрузки статистики: ' + error.message);
   }
 };
 
@@ -1955,4 +2278,5 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
