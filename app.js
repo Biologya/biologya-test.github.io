@@ -1618,7 +1618,7 @@ function initQuiz(userId) {
   let currentPanelPage = 0;
   let currentPanelPageErrors = 0;
 
-  // Выход из режима ошибок
+  // Exit errors button
   let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
   if (!exitErrorsBtn) {
     exitErrorsBtn = document.createElement("button");
@@ -1637,9 +1637,12 @@ function initQuiz(userId) {
     if (controls) controls.appendChild(exitErrorsBtn);
   }
 
-  // Загрузка прогресса
+  // Загрузка прогресса из Firestore
   (async () => {
-    if (!userId) return;
+    if (!userId) {
+      loadQuestions();
+      return;
+    }
     
     try {
       const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
@@ -1654,24 +1657,59 @@ function initQuiz(userId) {
             const localTime = state.lastSyncTimestamp || 0;
             
             if (remoteTime > localTime) {
-              Object.assign(state, savedState);
+              console.log('📥 Загрузка прогресса с сервера...');
+              
+              // Сохраняем текущие значения
+              const currentIndex = state.index;
+              const currentQueueType = state.queueType;
+              
+              // Обновляем состояние из сервера
+              Object.keys(savedState).forEach(key => {
+                if (key !== 'answersOrder' && key !== 'history' && key !== 'mainQueue' && key !== 'errorQueue') {
+                  state[key] = savedState[key];
+                }
+              });
+              
+              // Сохраняем важные локальные данные
+              state.answersOrder = state.answersOrder || savedState.answersOrder || {};
+              state.history = state.history || savedState.history || {};
+              state.mainQueue = state.mainQueue || savedState.mainQueue || null;
+              state.errorQueue = state.errorQueue || savedState.errorQueue || [];
+              
               state.lastSyncTimestamp = remoteTime;
+              
+              // Восстанавливаем позицию
+              if (currentQueueType === state.queueType) {
+                const queueLength = state.queueType === "main" ? 
+                  (state.mainQueue?.length || 0) : 
+                  (state.errorQueue?.length || 0);
+                
+                if (currentIndex < queueLength) {
+                  state.index = currentIndex;
+                }
+              }
+              
               console.log('✅ Прогресс загружен с сервера');
+              
+              // Сохраняем в локальное хранилище
+              localStorage.setItem("bioState", JSON.stringify(state));
             }
           } catch (err) {
-            console.error('Ошибка разбора прогресса:', err);
+            console.error('Ошибка разбора сохранённого состояния:', err);
           }
         }
       } else {
         // Создаем новый документ прогресса
-        await setDoc(doc(db, USERS_PROGRESS_COLLECTION, userId), {
+        await setDoc(progressRef, {
           progress: JSON.stringify(state),
           updatedAt: serverTimestamp(),
           email: auth.currentUser?.email || '',
           lastUpdated: Date.now(),
           deviceId: deviceId,
-          userId: userId
+          userId: userId,
+          createdAt: serverTimestamp()
         });
+        console.log('📝 Создан новый документ прогресса');
       }
     } catch (e) { 
       console.error('Ошибка загрузки прогресса:', e); 
@@ -1680,8 +1718,7 @@ function initQuiz(userId) {
     loadQuestions();
   })();
 
-
-  // Сохранение прогресса
+  // Функция сохранения прогресса
   function saveState() {
     const timestamp = Date.now();
     state.lastSyncTimestamp = timestamp;
@@ -1697,12 +1734,16 @@ function initQuiz(userId) {
       };
       
       updateDoc(progressRef, updateData)
-        .then(() => console.log('💾 Прогресс сохранен'))
-        .catch(err => console.error('Ошибка сохранения:', err));
+        .then(() => {
+          console.log('💾 Прогресс сохранен в Firestore');
+        })
+        .catch(err => {
+          console.error('Ошибка сохранения прогресса:', err);
+        });
     }
   }
 
-  // Перемешивание
+  // Shuffle функция
   function shuffleArray(arr) {
     const newArr = [...arr];
     for (let i = newArr.length - 1; i > 0; i--) {
@@ -1714,70 +1755,74 @@ function initQuiz(userId) {
 
   // Загрузка вопросов
   function loadQuestions() {
-    fetch("questions.json")
-      .then(r => r.json())
-      .then(data => {
-        questions = data.map(q => ({
-          text: q.text,
-          answers: q.answers.slice(),
-          correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
-        }));
+    return new Promise((resolve, reject) => {
+      fetch("questions.json")
+        .then(r => r.json())
+        .then(data => {
+          questions = data.map(q => ({
+            text: q.text,
+            answers: q.answers.slice(),
+            correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
+          }));
 
-        state.answersOrder = state.answersOrder || {};
-        state.mainQueue = state.mainQueue || null;
-        state.errorQueue = state.errorQueue || [];
+          state.answersOrder = state.answersOrder || {};
+          state.mainQueue = state.mainQueue || null;
+          state.errorQueue = state.errorQueue || [];
 
-        if (!state.mainQueue || state.mainQueue.length !== questions.length) {
-          mainQueue = [...Array(questions.length).keys()];
-          mainQueue = shuffleArray(mainQueue);
-        } else {
-          mainQueue = state.mainQueue.slice();
-          const freeIndexes = [];
-          const floating = [];
-          mainQueue.forEach((qId, pos) => {
-            if (!state.history[qId]?.checked) {
-              freeIndexes.push(pos);
-              floating.push(qId);
-            }
-          });
-          const shuffledFloating = shuffleArray(floating);
-          freeIndexes.forEach((pos, i) => mainQueue[pos] = shuffledFloating[i]);
-        }
-        state.mainQueue = mainQueue.slice();
-
-        mainQueue.forEach(qId => {
-          const q = questions[qId];
-          const original = q.answers.map((a, i) => ({ text: a, index: i }));
-          const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
-
-          let order; 
-          if (state.answersOrder[qId]) {
-            order = state.answersOrder[qId].slice();
+          if (!state.mainQueue || state.mainQueue.length !== questions.length) {
+            mainQueue = [...Array(questions.length).keys()];
+            mainQueue = shuffleArray(mainQueue);
           } else {
-            order = original.map(a => a.index);
-            order = shuffleArray(order);
-            state.answersOrder[qId] = order.slice();
+            mainQueue = state.mainQueue.slice();
+            const freeIndexes = [];
+            const floating = [];
+            mainQueue.forEach((qId, pos) => {
+              if (!state.history[qId]?.checked) {
+                freeIndexes.push(pos);
+                floating.push(qId);
+              }
+            });
+            const shuffledFloating = shuffleArray(floating);
+            freeIndexes.forEach((pos, i) => mainQueue[pos] = shuffledFloating[i]);
           }
+          state.mainQueue = mainQueue.slice();
 
-          q.answers = order.map(i => original.find(a => a.index === i).text);
-          q.correct = Array.isArray(origCorrect)
-            ? origCorrect.map(c => order.indexOf(c))
-            : order.indexOf(origCorrect);
-          q._currentOrder = order.slice();
+          mainQueue.forEach(qId => {
+            const q = questions[qId];
+            const original = q.answers.map((a, i) => ({ text: a, index: i }));
+            const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
+
+            let order; 
+            if (state.answersOrder[qId]) {
+              order = state.answersOrder[qId].slice();
+            } else {
+              order = original.map(a => a.index);
+              order = shuffleArray(order);
+              state.answersOrder[qId] = order.slice();
+            }
+
+            q.answers = order.map(i => original.find(a => a.index === i).text);
+            q.correct = Array.isArray(origCorrect)
+              ? origCorrect.map(c => order.indexOf(c))
+              : order.indexOf(origCorrect);
+            q._currentOrder = order.slice();
+          });
+
+          errorQueue = state.errorQueue && state.errorQueue.length
+            ? state.errorQueue.slice()
+            : (state.errors ? state.errors.slice() : []);
+          state.errorQueue = errorQueue.slice();
+
+          saveState();
+          render();
+          resolve();
+        })
+        .catch(err => {
+          console.error('Ошибка загрузки вопросов:', err);
+          if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
+          reject(err);
         });
-
-        errorQueue = state.errorQueue && state.errorQueue.length
-          ? state.errorQueue.slice()
-          : (state.errors ? state.errors.slice() : []);
-        state.errorQueue = errorQueue.slice();
-
-        saveState();
-        render();
-      })
-      .catch(err => {
-        console.error('Ошибка загрузки вопросов:', err);
-        if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
-      });
+    });
   }
 
   // Queue helpers
@@ -2115,137 +2160,78 @@ function initQuiz(userId) {
     if (exitErrorsBtn) exitErrorsBtn.style.display = "none";
   }
 
-  // Reset
-async function resetProgress() {
-  try {
-    // Получаем текущего пользователя
-    const user = auth.currentUser;
-    if (!user) {
-      alert('Пользователь не авторизован');
-      return;
-    }
-
-    if (!confirm("Вы уверены, что хотите сбросить весь прогресс? Это удалит:\n• Все ответы\n• Статистику\n• Ошибки\n• Историю вопросов")) {
-      return;
-    }
-
-    // Показываем индикатор загрузки
-    const originalText = resetBtn.innerHTML;
-    resetBtn.innerHTML = '<span class="spinner"></span> Сброс...';
-    resetBtn.disabled = true;
-
-    // Создаем состояние сброса
-    const resetState = {
-      queueType: "main",
-      index: 0,
-      mainIndex: 0,
-      stats: { correct: 0, wrong: 0 },
-      errors: [],
-      errorAttempts: {},
-      history: {},
-      mainQueue: null,
-      answersOrder: {},
-      errorQueue: [],
-      lastSyncTimestamp: Date.now()
-    };
-
-    // 1. Очищаем локальное хранилище
-    localStorage.removeItem("bioState");
-    console.log('🗑️ Локальное хранилище очищено');
-
-    // 2. Сбрасываем состояние в Firestore (коллекция users_progress)
-    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, user.uid);
-    
-    // Создаем новый документ с начальным состоянием
-    await setDoc(progressRef, {
-      progress: JSON.stringify(resetState),
-      updatedAt: serverTimestamp(),
-      email: user.email || '',
-      lastUpdated: Date.now(),
-      deviceId: deviceId || 'unknown',
-      userId: user.uid,
-      resetAt: serverTimestamp(),
-      resetBy: user.email
-    }, { merge: true });
-    
-    console.log('🗑️ Прогресс сброшен в Firestore');
-
-    // 3. Также обновляем состояние в коллекции quiz_analytics
-    const analyticId = `reset_${Date.now()}`;
-    const analyticRef = doc(db, QUIZ_ANALYTICS_COLLECTION, analyticId);
-    
-    await setDoc(analyticRef, {
-      userId: user.uid,
-      email: user.email || '',
-      action: 'progress_reset',
-      timestamp: serverTimestamp(),
-      resetBy: user.email,
-      deviceId: deviceId || 'unknown',
-      details: 'Пользователь сбросил весь прогресс теста'
-    });
-
-    // 4. Перезагружаем состояние теста без перезагрузки страницы
-    if (quizInstance && typeof quizInstance.loadQuestions === 'function') {
-      // Сначала сохраняем состояние сброса в локальное хранилище
-      localStorage.setItem("bioState", JSON.stringify(resetState));
-      
-      // Перезагружаем вопросы
-      await quizInstance.loadQuestions();
-      
-      // Перерисовываем интерфейс
-      if (typeof quizInstance.render === 'function') {
-        quizInstance.render();
+  // Reset button - обновленный обработчик
+  if (resetBtn) {
+    resetBtn.onclick = async () => {
+      const user = auth.currentUser;
+      if (!user) {
+        alert('❌ Пользователь не авторизован');
+        return;
       }
-      
-      console.log('🔄 Тест перезагружен');
-    }
 
-    // Показываем уведомление об успехе
-    alert('✅ Прогресс успешно сброшен!\n\nТест начнется с первого вопроса.');
+      if (!confirm("Вы уверены, что хотите сбросить весь прогресс?\n\nЭто удалит:\n• Все ответы\n• Статистику\n• Ошибки\n• Историю вопросов\n\nДействие необратимо!")) {
+        return;
+      }
 
-    // Обновляем статистику на экране
-    if (statsDiv) {
-      statsDiv.innerText = `✔ 0 ✖ 0`;
-    }
-    
-    if (progressText) {
-      progressText.innerText = 'Вопрос 1 из ...';
-    }
-    
-    if (progressFill) {
-      progressFill.style.width = '0%';
-    }
+      try {
+        // Создаем состояние сброса
+        const resetState = {
+          queueType: "main",
+          index: 0,
+          mainIndex: 0,
+          stats: { correct: 0, wrong: 0 },
+          errors: [],
+          errorAttempts: {},
+          history: {},
+          mainQueue: null,
+          answersOrder: {},
+          errorQueue: [],
+          lastSyncTimestamp: Date.now()
+        };
 
-  } catch (error) {
-    console.error('❌ Ошибка сброса прогресса:', error);
-    alert('❌ Ошибка сброса прогресса: ' + error.message);
-    
-    // В случае ошибки пытаемся хотя бы очистить локальное хранилище
-    localStorage.removeItem("bioState");
-    location.reload();
-    
-  } finally {
-    // Восстанавливаем кнопку
-    if (resetBtn) {
-      resetBtn.innerHTML = originalText || '🔄 Сбросить прогресс';
-      resetBtn.disabled = false;
-    }
+        // 1. Очищаем локальное хранилище
+        localStorage.removeItem("bioState");
+        console.log('🗑️ Локальное хранилище очищено');
+
+        // 2. Сбрасываем состояние в Firestore
+        const progressRef = doc(db, USERS_PROGRESS_COLLECTION, user.uid);
+        
+        await setDoc(progressRef, {
+          progress: JSON.stringify(resetState),
+          updatedAt: serverTimestamp(),
+          email: user.email || '',
+          lastUpdated: Date.now(),
+          deviceId: deviceId,
+          userId: user.uid,
+          resetAt: serverTimestamp(),
+          resetBy: 'user'
+        }, { merge: true });
+        
+        console.log('🗑️ Прогресс сброшен в Firestore');
+
+        // 3. Обновляем состояние в памяти
+        Object.assign(state, resetState);
+        
+        // 4. Перезагружаем вопросы
+        await loadQuestions();
+        
+        // 5. Показываем уведомление
+        alert('✅ Прогресс успешно сброшен!\n\nТест начнется с первого вопроса.');
+
+      } catch (error) {
+        console.error('❌ Ошибка сброса прогресса:', error);
+        alert('❌ Ошибка сброса прогресса: ' + error.message);
+      }
+    };
   }
-}
-
-// Назначаем обработчик кнопке сброса
-if (resetBtn) {
-  resetBtn.onclick = resetProgress;
-}
 
   return {
     saveState,
     loadQuestions,
     render,
+    state,
     unsubscribe: () => {
-      if (progressUnsubscribe) {
-        progressUnsubscribe();
-      }
+      // Функция отписки при необходимости
     }
   };
 }
@@ -2256,6 +2242,7 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
