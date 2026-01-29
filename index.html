@@ -46,6 +46,10 @@
       border-radius: 3px;
     }
 
+  #questionPanel, #pageNav, #resetWrapper {
+      transition: all 0.3s ease;
+}
+
     #questionPanel {
       display: flex;
       flex-direction: column;
@@ -134,11 +138,12 @@
     }
 
     /* ====== Основной контент ====== */
-    .app {
-      margin-left:70px;
-      padding:15px;
+     .app {
+      padding-left: 70px;
+      padding-right: 15px;
       max-width: 1000px;
       min-height: calc(100vh - 30px);
+      transition: padding-left 0.3s ease;
     }
 
     .header {
