@@ -2116,39 +2116,127 @@ function initQuiz(userId) {
   }
 
   // Reset
-  if (resetBtn) resetBtn.onclick = () => {
-    if (confirm("Вы уверены? Это удалит весь прогресс!")) {
-      const resetState = {
-        queueType: "main",
-        index: 0,
-        mainIndex: 0,
-        stats: { correct: 0, wrong: 0 },
-        errors: [],
-        errorAttempts: {},
-        history: {},
-        mainQueue: null,
-        answersOrder: {},
-        errorQueue: [],
-        lastSyncTimestamp: Date.now()
-      };
-      
-      localStorage.removeItem("bioState");
-      
-      if (progressRef) {
-        updateDoc(progressRef, {
-          progress: JSON.stringify(resetState),
-          updatedAt: serverTimestamp()
-        }).then(() => {
-          location.reload();
-        }).catch(err => {
-          console.error('Ошибка сброса:', err);
-          location.reload();
-        });
-      } else {
-        location.reload();
-      }
+async function resetProgress() {
+  try {
+    // Получаем текущего пользователя
+    const user = auth.currentUser;
+    if (!user) {
+      alert('Пользователь не авторизован');
+      return;
     }
-  };
+
+    if (!confirm("Вы уверены, что хотите сбросить весь прогресс? Это удалит:\n• Все ответы\n• Статистику\n• Ошибки\n• Историю вопросов")) {
+      return;
+    }
+
+    // Показываем индикатор загрузки
+    const originalText = resetBtn.innerHTML;
+    resetBtn.innerHTML = '<span class="spinner"></span> Сброс...';
+    resetBtn.disabled = true;
+
+    // Создаем состояние сброса
+    const resetState = {
+      queueType: "main",
+      index: 0,
+      mainIndex: 0,
+      stats: { correct: 0, wrong: 0 },
+      errors: [],
+      errorAttempts: {},
+      history: {},
+      mainQueue: null,
+      answersOrder: {},
+      errorQueue: [],
+      lastSyncTimestamp: Date.now()
+    };
+
+    // 1. Очищаем локальное хранилище
+    localStorage.removeItem("bioState");
+    console.log('🗑️ Локальное хранилище очищено');
+
+    // 2. Сбрасываем состояние в Firestore (коллекция users_progress)
+    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, user.uid);
+    
+    // Создаем новый документ с начальным состоянием
+    await setDoc(progressRef, {
+      progress: JSON.stringify(resetState),
+      updatedAt: serverTimestamp(),
+      email: user.email || '',
+      lastUpdated: Date.now(),
+      deviceId: deviceId || 'unknown',
+      userId: user.uid,
+      resetAt: serverTimestamp(),
+      resetBy: user.email
+    }, { merge: true });
+    
+    console.log('🗑️ Прогресс сброшен в Firestore');
+
+    // 3. Также обновляем состояние в коллекции quiz_analytics
+    const analyticId = `reset_${Date.now()}`;
+    const analyticRef = doc(db, QUIZ_ANALYTICS_COLLECTION, analyticId);
+    
+    await setDoc(analyticRef, {
+      userId: user.uid,
+      email: user.email || '',
+      action: 'progress_reset',
+      timestamp: serverTimestamp(),
+      resetBy: user.email,
+      deviceId: deviceId || 'unknown',
+      details: 'Пользователь сбросил весь прогресс теста'
+    });
+
+    // 4. Перезагружаем состояние теста без перезагрузки страницы
+    if (quizInstance && typeof quizInstance.loadQuestions === 'function') {
+      // Сначала сохраняем состояние сброса в локальное хранилище
+      localStorage.setItem("bioState", JSON.stringify(resetState));
+      
+      // Перезагружаем вопросы
+      await quizInstance.loadQuestions();
+      
+      // Перерисовываем интерфейс
+      if (typeof quizInstance.render === 'function') {
+        quizInstance.render();
+      }
+      
+      console.log('🔄 Тест перезагружен');
+    }
+
+    // Показываем уведомление об успехе
+    alert('✅ Прогресс успешно сброшен!\n\nТест начнется с первого вопроса.');
+
+    // Обновляем статистику на экране
+    if (statsDiv) {
+      statsDiv.innerText = `✔ 0 ✖ 0`;
+    }
+    
+    if (progressText) {
+      progressText.innerText = 'Вопрос 1 из ...';
+    }
+    
+    if (progressFill) {
+      progressFill.style.width = '0%';
+    }
+
+  } catch (error) {
+    console.error('❌ Ошибка сброса прогресса:', error);
+    alert('❌ Ошибка сброса прогресса: ' + error.message);
+    
+    // В случае ошибки пытаемся хотя бы очистить локальное хранилище
+    localStorage.removeItem("bioState");
+    location.reload();
+    
+  } finally {
+    // Восстанавливаем кнопку
+    if (resetBtn) {
+      resetBtn.innerHTML = originalText || '🔄 Сбросить прогресс';
+      resetBtn.disabled = false;
+    }
+  }
+}
+
+// Назначаем обработчик кнопке сброса
+if (resetBtn) {
+  resetBtn.onclick = resetProgress;
+}
 
   return {
     saveState,
@@ -2168,6 +2256,7 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
 
 
