@@ -1736,81 +1736,180 @@ function initQuiz(progressRef) {
   }
 
   // Загрузка прогресса из Firestore
-  (async () => {
-    if (!progressRef) return;
-    try {
-      const snap = await getDoc(progressRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.progress) {
-          try {
-            const savedState = JSON.parse(data.progress);
-            if (data.updatedAt) {
-              const remoteTime = data.updatedAt.toMillis();
-              const localTime = state.lastSyncTimestamp || 0;
+(async () => {
+  if (!progressRef) return;
+  try {
+    const snap = await getDoc(progressRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (data.progress) {
+        try {
+          const savedState = JSON.parse(data.progress);
+          if (data.updatedAt) {
+            const remoteTime = data.updatedAt.toMillis();
+            const localTime = state.lastSyncTimestamp || 0;
+            
+            // Используем стратегию "последний запись побеждает"
+            if (remoteTime > localTime) {
+              console.log('📥 Загрузка прогресса с сервера...');
+              const currentIndex = state.index;
+              const currentQueueType = state.queueType;
               
-              if (remoteTime > localTime) {
-                console.log('📥 Загрузка прогресса с сервера...');
-                const currentIndex = state.index;
-                const currentQueueType = state.queueType;
-                
-                Object.assign(state, savedState);
-                state.lastSyncTimestamp = remoteTime;
-                
+              // Сохраняем некоторые локальные значения, которые не нужно перезаписывать
+              const tempState = { ...state };
+              
+              // Обновляем только основные поля состояния
+              Object.keys(savedState).forEach(key => {
+                if (key !== 'answersOrder' && key !== 'history' && key !== 'mainQueue' && key !== 'errorQueue') {
+                  state[key] = savedState[key];
+                }
+              });
+              
+              // Сохраняем локальные данные о порядке вопросов и истории
+              state.answersOrder = tempState.answersOrder || savedState.answersOrder || {};
+              state.history = tempState.history || savedState.history || {};
+              state.mainQueue = tempState.mainQueue || savedState.mainQueue || null;
+              state.errorQueue = tempState.errorQueue || savedState.errorQueue || [];
+              
+              state.lastSyncTimestamp = remoteTime;
+              
+              // Восстанавливаем текущую позицию
+              if (currentQueueType === state.queueType) {
                 const queueLength = state.queueType === "main" ? 
                   (state.mainQueue?.length || 0) : 
                   (state.errorQueue?.length || 0);
                 
-                if (currentQueueType === state.queueType) {
-                  state.index = Math.min(currentIndex, Math.max(0, queueLength - 1));
+                if (currentIndex < queueLength) {
+                  state.index = currentIndex;
                 }
-                
-                console.log('✅ Прогресс синхронизирован с сервера');
               }
+              
+              console.log('✅ Прогресс синхронизирован с сервера');
+            } else if (localTime > remoteTime) {
+              // Локальные данные новее, сохраняем на сервер
+              console.log('📤 Локальные данные новее, отправляем на сервер...');
+              await updateDoc(progressRef, {
+                progress: JSON.stringify(state),
+                updatedAt: serverTimestamp(),
+                lastUpdated: localTime
+              });
             }
-          } catch (err) {
-            console.error('Ошибка разбора сохранённого состояния:', err);
           }
+        } catch (err) {
+          console.error('Ошибка разбора сохранённого состояния:', err);
         }
-      } else {
-        await setDoc(progressRef, {
-          progress: JSON.stringify(state),
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-          email: auth.currentUser?.email || '',
-          lastSync: Date.now(),
-          deviceId: deviceId
-        });
-        console.log('📝 Создан новый документ прогресса');
       }
-    } catch (e) { 
-      console.error('Ошибка загрузки прогресса:', e); 
-    }
-    
-    loadQuestions();
-  })();
-
-  // Функция сохранения прогресса (синхронизация)
-  function saveState() {
-    const timestamp = Date.now();
-    state.lastSyncTimestamp = timestamp;
-    localStorage.setItem("bioState", JSON.stringify(state));
-    
-    if (progressRef) {
-      updateDoc(progressRef, {
+    } else {
+      // Создаем документ только с необходимыми полями
+      const initialData = {
         progress: JSON.stringify(state),
+        createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         email: auth.currentUser?.email || '',
-        lastUpdated: timestamp,
+        lastSync: Date.now(),
         deviceId: deviceId,
-        selectedAnswers: state.history
-      }).then(() => {
+        userId: auth.currentUser?.uid || ''
+      };
+      
+      await setDoc(progressRef, initialData);
+      console.log('📝 Создан новый документ прогресса');
+    }
+  } catch (e) { 
+    console.error('Ошибка загрузки прогресса:', e); 
+  }
+  
+  loadQuestions();
+})();
+
+  // Функция для удаления дубликатов сессий
+window.removeDuplicateSessions = async function() {
+  if (!confirm('Удалить дублирующиеся сессии?\n\nЭто удалит старые копии сессий и оставит только одну последнюю.')) return;
+  
+  try {
+    const usersSnapshot = await getDocs(collection(db, 'users'));
+    let removedCount = 0;
+    
+    for (const userDoc of usersSnapshot.docs) {
+      const sessionsRef = collection(db, 'users', userDoc.id, 'sessions');
+      const sessionsSnapshot = await getDocs(sessionsRef);
+      
+      const sessionsByDevice = {};
+      
+      // Группируем сессии по deviceId
+      sessionsSnapshot.forEach(sessionDoc => {
+        const session = sessionDoc.data();
+        const deviceId = session.deviceId;
+        
+        if (!sessionsByDevice[deviceId]) {
+          sessionsByDevice[deviceId] = [];
+        }
+        
+        sessionsByDevice[deviceId].push({
+          id: sessionDoc.id,
+          data: session
+        });
+      });
+      
+      // Для каждого устройства оставляем только самую новую сессию
+      for (const deviceId in sessionsByDevice) {
+        const sessions = sessionsByDevice[deviceId];
+        
+        if (sessions.length > 1) {
+          // Сортируем по времени создания (самая новая последняя)
+          sessions.sort((a, b) => {
+            const timeA = a.data.firstSeen?.toDate?.()?.getTime() || 0;
+            const timeB = b.data.firstSeen?.toDate?.()?.getTime() || 0;
+            return timeA - timeB;
+          });
+          
+          // Оставляем последнюю, остальные удаляем
+          const sessionToKeep = sessions.pop();
+          
+          for (const session of sessions) {
+            await deleteDoc(doc(db, 'users', userDoc.id, 'sessions', session.id));
+            removedCount++;
+          }
+        }
+      }
+    }
+    
+    alert(`✅ Удалено ${removedCount} дублирующихся сессий`);
+    
+    // Обновляем админ-панель
+    document.querySelector('.admin-modal')?.remove();
+    await showAdminPanel();
+    
+  } catch (error) {
+    console.error('Ошибка удаления дубликатов сессий:', error);
+    alert('Ошибка удаления дубликатов сессий: ' + error.message);
+  }
+};
+
+  // Функция сохранения прогресса (синхронизация)
+function saveState() {
+  const timestamp = Date.now();
+  state.lastSyncTimestamp = timestamp;
+  localStorage.setItem("bioState", JSON.stringify(state));
+  
+  if (progressRef) {
+    // Создаем объект с данными для обновления
+    const updateData = {
+      progress: JSON.stringify(state),
+      updatedAt: serverTimestamp(),
+      email: auth.currentUser?.email || '',
+      lastUpdated: timestamp,
+      deviceId: deviceId
+    };
+    
+    updateDoc(progressRef, updateData)
+      .then(() => {
         console.log('💾 Прогресс сохранен в Firestore');
-      }).catch(err => {
+      })
+      .catch(err => {
         console.error('Ошибка сохранения прогресса:', err);
       });
-    }
   }
+}
 
   // Shuffle функция
   function shuffleArray(arr) {
@@ -2278,4 +2377,5 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
