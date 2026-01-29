@@ -1,31 +1,37 @@
+/* ====== :root и переменные ====== */
 :root {
   --bg: #eaf5ea;
   --card: #fff;
   --text: #1b3d1b;
   --primary: #4caf50;
   --wrong: #e53935;
+  --accent: #2196f3;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
+  font-family: 'Segoe UI', sans-serif;
   background: var(--bg);
+  color: var(--text);
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  font-family: 'Segoe UI', sans-serif;
-  color: var(--text);
   padding: 20px;
   box-sizing: border-box;
+  transition: background 0.3s, color 0.3s;
 }
 
 body.dark {
   --bg: #121212;
   --card: #1e1e1e;
   --text: #e0e0e0;
+  --primary: #4caf50;
+  --wrong: #ef5350;
+  --accent: #2196f3;
 }
 
-/* ====== Вертикальная панель слева ====== */
+/* ====== Вертикальная панель вопросов ====== */
 #questionPanelWrapper {
   position: fixed;
   top: 50px;
@@ -40,48 +46,100 @@ body.dark {
   align-items: center;
   box-shadow: 2px 0 5px rgba(0,0,0,0.1);
   z-index: 100;
-  transition: width 0.3s;
+  overflow: hidden;
+  transition: width 0.3s ease, background 0.3s ease;
 }
+
 #questionPanelWrapper.collapsed { width: 20px; }
-#togglePanelBtn { margin-bottom: 10px; cursor: pointer; padding: 3px 6px; font-size: 14px; }
-#questionPanel { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex-grow: 1; text-align: center; width: 100%; }
-#questionPanel button { flex: 0 0 auto; width: 45px; height: 45px; min-width: 45px; min-height: 45px; max-width: 45px; max-height: 45px; border-radius: 50%; border: 1px solid #ccc; cursor: pointer; background: #eee; color: #000; font-size: 14px; transition: background 0.2s; }
-#questionPanel button.correct { background: green; color: #fff; }
-#questionPanel button.wrong { background: red; color: #fff; }
-#pageNav { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; width: 100%; }
-#pageNav button { padding: 3px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #ccc; background: #eee; font-size: 12px; }
-#pageNav button.active { background: #007bff; color: #fff; }
-#resetWrapper { margin-top: 8px; }
-#resetBtn { width: 50px; padding: 3px 5px; cursor: pointer; border-radius: 3px; border: 1px solid #f00; background: #ff4d4d; color: #fff; font-size: 12px; }
+
+#togglePanelBtn {
+  margin-bottom: 10px;
+  cursor: pointer;
+  padding: 3px 6px;
+  font-size: 14px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  transition: transform 0.3s ease;
+}
+
+#questionPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+  flex-grow: 1;
+  text-align: center;
+  width: 100%;
+}
+
+#questionPanel button,
+#pageNav button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid #ccc;
+  background: #fff;
+  color: #000;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+
+#questionPanel button.active,
+#pageNav button.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 6px rgba(33,150,243,0.7);
+}
+
+#questionPanel button.correct,
+#pageNav button.correct { background: var(--primary); border-color: var(--primary); color: #fff; }
+#questionPanel button.wrong,
+#pageNav button.wrong { background: var(--wrong); border-color: var(--wrong); color: #fff; }
+
+#questionPanel button:hover,
+#pageNav button:hover { transform: scale(1.1); }
+
+#pageNav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+  align-items: center;
+}
+
+#resetWrapper {
+  margin-top: 8px;
+}
+
+#resetBtn {
+  width: 50px;
+  padding: 5px 10px;
+  background: #ff4d4d;
+  color: #fff;
+  border: 2px solid #ff0000;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+#resetBtn:hover { background: #ff1a1a; }
 
 /* ====== Основной контент ====== */
 .app {
-  margin-left:70px;
-  padding:15px;
+  margin-left: 70px;
+  padding: 15px;
   max-width: 1000px;
   width: calc(100% - 120px);
   box-sizing: border-box;
 }
+
 .header { margin-bottom: 15px; }
-.card { margin-bottom: 15px; }
-.controls button { margin-right: 6px; padding: 8px 12px; font-size: 16px; }
 
-.spinner {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #3498db;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-/* ====== Интерфейс теста (карточки/ответы) ====== */
 .card {
   background: var(--card);
   padding: 20px;
@@ -89,80 +147,123 @@ body.dark {
   box-shadow: 0 8px 20px rgba(0,0,0,0.06);
   transition: all 0.3s ease;
 }
-.fade { animation: fade 0.3s ease; }
-@keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-#answers { margin-top: 16px; display: grid; gap: 10px; }
-.answer { position: relative; padding: 12px 16px; border-radius: 12px; border: 2px solid #cfe8cf; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; }
-.answer:hover { background: #dff3df; transform: scale(1.03); }
-.answer.selected { background: #c8e6c9; transform: scale(1.05); }
-.answer.correct { border-color: var(--primary); background: #c8e6c9; transform: scale(1.05); }
-.answer.wrong { border-color: var(--wrong); background: #ffcdd2; transform: scale(1.05); }
 
-/* Панель вопросов (варианты стилей) */
-#questionPanel button { width: 36px; height: 36px; border-radius: 50%; border: 2px solid #ccc; background: #fff; color: #000; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.3s ease; }
-#questionPanel button.active { border: 2px solid #2196f3; box-shadow: 0 0 6px rgba(33,150,243,0.7); }
-#questionPanel button.correct { background: #4caf50; border-color: #4caf50; color: #fff; }
-#questionPanel button.wrong { background: #e53935; border-color: #e53935; color: #fff; }
-
-#pageNav { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; align-items: center; }
-#pageNav button { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--primary); background: #fff; color: var(--primary); font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.3s ease; }
-#pageNav button.active { border: 2px solid #2196f3; box-shadow: 0 0 6px rgba(33,150,243,0.7); }
-#pageNav button.correct { background: #4caf50; border-color: #4caf50; color: #fff; }
-#pageNav button.wrong { background: #e53935; border-color: #e53935; color: #fff; }
-#pageNav button:hover { transform: scale(1.1); }
-
-/* Кнопки и прогресс */
-.controls, .footer { display: flex; gap: 10px; margin-top: 12px; }
-button { flex: 1; padding: 10px; border: none; border-radius: 14px; background: var(--primary); color: #fff; cursor: pointer; transition: all 0.3s ease; }
-button:hover { background: #81c784; }
-button.secondary { background: #81c784; }
-.progress-bar { height: 8px; background: #cfe8cf; border-radius: 4px; overflow: hidden; margin-top: 12px; }
-#progressFill { height: 100%; background: var(--primary); transition: width 0.3s ease; }
-
-/* Reset / theme toggle */
-#themeToggle { position: fixed; right: 16px; top: 50%; cursor: pointer; }
-#resetBtn { padding: 5px 10px; background: #ff4d4d; color: #fff; border: 2px solid #ff0000; border-radius: 5px; cursor: pointer; width: 50px; font-size: 12px; text-align: center; transition: all 0.2s ease; }
-#resetBtn:hover { background: #ff1a1a; }
-
-/* В существующий CSS добавьте: */
-.admin-status {
-  cursor: pointer !important;
-  transition: all 0.3s ease !important;
+.controls,
+.footer {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
 }
 
-.admin-status:hover {
+button {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 14px;
+  background: var(--primary);
+  color: #fff;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+button:hover { background: #81c784; }
+button.secondary { background: #81c784; }
+
+/* ====== Прогресс ====== */
+.progress-bar {
+  height: 8px;
+  background: #cfe8cf;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+
+#progressFill {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.3s ease;
+}
+
+/* ====== Ответы ====== */
+#answers {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.answer {
+  position: relative;
+  padding: 12px 16px;
+  border-radius: 12px;
+  border: 2px solid #cfe8cf;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+
+.answer:hover { 
+  background: #dff3df; 
+  transform: scale(1.03);
+  box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+}
+
+.answer.selected {
+  background: #c8e6c9;
+  transform: scale(1.05);
+  box-shadow: 0 4px 10px rgba(33,150,243,0.3);
+}
+
+.answer.correct {
+  border-color: var(--primary);
+  background: #c8e6c9;
+}
+
+.answer.wrong {
+  border-color: var(--wrong);
+  background: #ffcdd2;
+}
+
+/* ====== Fade анимация ====== */
+.fade {
+  animation: fade 0.3s ease;
+}
+
+@keyframes fade {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ====== Админ и статусы ====== */
+.admin-status {
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.admin-status:hover { 
   transform: scale(1.05);
   box-shadow: 0 2px 8px rgba(0,0,0,0.2);
 }
 
-.status-allowed {
-  background: #4CAF50 !important;
-}
+.status-allowed { background: #4CAF50; color: #fff; }
+.status-pending { background: #FF9800; color: #fff; }
+.status-allowed:hover { background: #388E3C; }
+.status-pending:hover { background: #F57C00; }
 
-.status-pending {
-  background: #FF9800 !important;
-}
-
-.status-allowed:hover {
-  background: #388E3C !important;
-}
-
-.status-pending:hover {
-  background: #F57C00 !important;
-}
-
-/* ==== AUTH OVERLAY ==== */
+/* ====== AUTH / WAIT OVERLAY ====== */
 #authOverlay, #waitOverlay {
   position: fixed;
   inset: 0;
   background: linear-gradient(135deg, rgba(30,60,114,0.92), rgba(42,82,152,0.92));
-  display: flex;
+  display: none;
   justify-content: center;
   align-items: center;
   z-index: 9999;
+  pointer-events: auto;
 }
+
 .authCard {
-  background: white;
+  background: var(--card);
   padding: 26px;
   border-radius: 12px;
   width: 360px;
@@ -170,7 +271,8 @@ button.secondary { background: #81c784; }
   text-align: center;
   box-shadow: 0 10px 40px rgba(0,0,0,0.35);
 }
-.authCard h1 { margin: 0 0 12px 0; font-size: 20px; color: #123; }
+
+.authCard h1 { margin: 0 0 12px 0; font-size: 20px; color: var(--text); }
 .authCard input {
   width: 100%;
   padding: 10px;
@@ -180,22 +282,30 @@ button.secondary { background: #81c784; }
   border: 1px solid #ddd;
   box-sizing: border-box;
 }
-.authCard button { width: 100%; padding: 10px; margin-top: 8px; background: #007bff; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
-.authCard .muted { margin-top: 8px; color: #666; font-size: 14px; }
-.small-ghost { margin-top: 10px; background: transparent; color: #007bff; border: none; cursor: pointer; font-size: 14px; }
-
-/* ==== AUTH OVERLAY ==== */
-#authOverlay, #waitOverlay { ... }
-
-/* overlay всегда должен принимать клики */
-#authOverlay,
-#waitOverlay {
-  pointer-events: auto;
-  display: none; /* по умолчанию скрыт */
+.authCard button {
+  width: 100%;
+  padding: 10px;
+  margin-top: 8px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 15px;
 }
 
-/* small responsive tweaks */
-@media (max-width: 420px) {
+.authCard .muted { margin-top: 8px; color: #666; font-size: 14px; }
+.small-ghost { margin-top: 10px; background: transparent; color: var(--accent); border: none; cursor: pointer; font-size: 14px; }
+
+/* ====== Адаптивность ====== */
+@media (max-width: 600px) {
+  #questionPanelWrapper { width: 50px; top: 40px; height: calc(100vh - 50px); }
+  #questionPanel button { width: 32px; height: 32px; font-size: 12px; }
+  #pageNav button { width: 32px; height: 32px; font-size: 12px; }
+  #resetBtn { width: 45px; font-size: 11px; }
+  .app { margin-left: 60px; padding: 10px; }
+  .controls button { padding: 6px 10px; font-size: 14px; }
+  #questionText { font-size: 18px; }
+  .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
 }
-
