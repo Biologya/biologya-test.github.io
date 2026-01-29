@@ -1,742 +1,173 @@
-/* ====== CSS ПЕРЕМЕННЫЕ И БАЗОВЫЕ СТИЛИ ====== */
 :root {
-  /* Цветовые схемы */
-  --light-bg: #eaf5ea;
-  --light-card: #fff;
-  --light-text: #1b3d1b;
-  --dark-bg: #121212;
-  --dark-card: #1e1e1e;
-  --dark-text: #e0e0e0;
-  
-  /* Основные цвета */
+  --bg: #eaf5ea;
+  --card: #fff;
+  --text: #1b3d1b;
   --primary: #4caf50;
-  --primary-hover: #81c784;
-  --primary-dark: #388e3c;
   --wrong: #e53935;
-  --warning: #ff9800;
-  --info: #2196f3;
-  --secondary: #9c27b0;
-  
-  /* Оттенки серого */
-  --gray-100: #f5f5f5;
-  --gray-200: #eee;
-  --gray-300: #e0e0e0;
-  --gray-400: #bdbdbd;
-  --gray-500: #9e9e9e;
-  --gray-600: #757575;
-  --gray-700: #616161;
-  --gray-800: #424242;
-  
-  /* Тени */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.12);
-  --shadow-md: 0 4px 6px rgba(0,0,0,0.1);
-  --shadow-lg: 0 10px 25px rgba(0,0,0,0.15);
-  --shadow-xl: 0 20px 40px rgba(0,0,0,0.2);
-  
-  /* Скругления */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
-  --radius-circle: 50%;
-  
-  /* Переходы */
-  --transition-fast: 150ms ease;
-  --transition-normal: 300ms ease;
-  --transition-slow: 500ms ease;
 }
 
-/* Светлая тема (по умолчанию) */
 body {
-  --bg-color: var(--light-bg);
-  --card-color: var(--light-card);
-  --text-color: var(--light-text);
-  --border-color: var(--gray-300);
-  --hover-bg: rgba(0, 0, 0, 0.04);
-}
-
-/* Тёмная тема */
-body.dark {
-  --bg-color: var(--dark-bg);
-  --card-color: var(--dark-card);
-  --text-color: var(--dark-text);
-  --border-color: var(--gray-700);
-  --hover-bg: rgba(255, 255, 255, 0.08);
-}
-
-/* ====== БАЗОВЫЕ СТИЛИ ====== */
-* {
-  box-sizing: border-box;
   margin: 0;
-  padding: 0;
-}
-
-body {
-  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background-color: var(--bg-color);
-  color: var(--text-color);
-  line-height: 1.5;
   min-height: 100vh;
-  transition: background-color var(--transition-normal),
-              color var(--transition-normal);
-}
-
-#app {
-  min-height: 100vh;
+  background: var(--bg);
   display: flex;
-  position: relative;
+  justify-content: center;
+  align-items: flex-start;
+  font-family: 'Segoe UI', sans-serif;
+  color: var(--text);
+  padding: 20px;
+  box-sizing: border-box;
 }
 
-/* ====== ВЕРТИКАЛЬНАЯ ПАНЕЛЬ ВОПРОСОВ ====== */
+body.dark {
+  --bg: #121212;
+  --card: #1e1e1e;
+  --text: #e0e0e0;
+}
+
+/* ====== Вертикальная панель слева ====== */
 #questionPanelWrapper {
   position: fixed;
+  top: 50px;
   left: 0;
-  top: 0;
-  bottom: 0;
-  width: 280px;
-  background: var(--card-color);
-  border-right: 1px solid var(--border-color);
-  box-shadow: var(--shadow-md);
+  width: 60px;
+  height: 90%;
+  background: #f5f5f5;
+  padding: 5px;
+  border-right: 1px solid #ccc;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  box-shadow: 2px 0 5px rgba(0,0,0,0.1);
   z-index: 100;
-  transition: transform var(--transition-normal),
-              width var(--transition-normal);
-  transform: translateX(0);
+  transition: width 0.3s;
 }
+#questionPanelWrapper.collapsed { width: 20px; }
+#togglePanelBtn { margin-bottom: 10px; cursor: pointer; padding: 3px 6px; font-size: 14px; }
+#questionPanel { display: flex; flex-direction: column; gap: 6px; overflow-y: auto; flex-grow: 1; text-align: center; width: 100%; }
+#questionPanel button { flex: 0 0 auto; width: 45px; height: 45px; min-width: 45px; min-height: 45px; max-width: 45px; max-height: 45px; border-radius: 50%; border: 1px solid #ccc; cursor: pointer; background: #eee; color: #000; font-size: 14px; transition: background 0.2s; }
+#questionPanel button.correct { background: green; color: #fff; }
+#questionPanel button.wrong { background: red; color: #fff; }
+#pageNav { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; justify-content: center; width: 100%; }
+#pageNav button { padding: 3px 6px; cursor: pointer; border-radius: 3px; border: 1px solid #ccc; background: #eee; font-size: 12px; }
+#pageNav button.active { background: #007bff; color: #fff; }
+#resetWrapper { margin-top: 8px; }
+#resetBtn { width: 50px; padding: 3px 5px; cursor: pointer; border-radius: 3px; border: 1px solid #f00; background: #ff4d4d; color: #fff; font-size: 12px; }
 
-#questionPanelWrapper.collapsed {
-  transform: translateX(-260px);
-  width: 20px;
+/* ====== Основной контент ====== */
+.app {
+  margin-left:70px;
+  padding:15px;
+  max-width: 1000px;
+  width: calc(100% - 120px);
+  box-sizing: border-box;
 }
+.header { margin-bottom: 15px; }
+.card { margin-bottom: 15px; }
+.controls button { margin-right: 6px; padding: 8px 12px; font-size: 16px; }
 
-.panel-header {
-  padding: 1rem;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.panel-title {
-  font-weight: 600;
-  font-size: 1.1rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-#togglePanelBtn {
-  background: none;
-  border: none;
-  color: var(--text-color);
-  cursor: pointer;
-  padding: 0.5rem;
-  border-radius: var(--radius-circle);
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color var(--transition-fast);
-}
-
-#togglePanelBtn:hover {
-  background-color: var(--hover-bg);
-}
-
-.panel-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 1rem;
-}
-
-#questionPanel {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
-  gap: 0.5rem;
-  padding: 0.5rem;
-}
-
-.question-btn {
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #3498db;
+  border-radius: 50%;
   width: 40px;
   height: 40px;
-  border-radius: var(--radius-circle);
-  border: 2px solid var(--border-color);
-  background: var(--card-color);
-  color: var(--text-color);
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition-fast);
-  font-size: 0.9rem;
+  animation: spin 1s linear infinite;
+  margin: 0 auto;
 }
 
-.question-btn:hover {
-  transform: scale(1.1);
-  border-color: var(--primary);
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
-.question-btn.active {
-  border-color: var(--info);
-  box-shadow: 0 0 0 3px rgba(33, 150, 243, 0.3);
+/* ====== Интерфейс теста (карточки/ответы) ====== */
+.card {
+  background: var(--card);
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+  transition: all 0.3s ease;
 }
+.fade { animation: fade 0.3s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+#answers { margin-top: 16px; display: grid; gap: 10px; }
+.answer { position: relative; padding: 12px 16px; border-radius: 12px; border: 2px solid #cfe8cf; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; }
+.answer:hover { background: #dff3df; transform: scale(1.03); }
+.answer.selected { background: #c8e6c9; transform: scale(1.05); }
+.answer.correct { border-color: var(--primary); background: #c8e6c9; transform: scale(1.05); }
+.answer.wrong { border-color: var(--wrong); background: #ffcdd2; transform: scale(1.05); }
 
-.question-btn.correct {
-  background-color: var(--primary);
-  border-color: var(--primary);
-  color: white;
-}
+/* Панель вопросов (варианты стилей) */
+#questionPanel button { width: 36px; height: 36px; border-radius: 50%; border: 2px solid #ccc; background: #fff; color: #000; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.3s ease; }
+#questionPanel button.active { border: 2px solid #2196f3; box-shadow: 0 0 6px rgba(33,150,243,0.7); }
+#questionPanel button.correct { background: #4caf50; border-color: #4caf50; color: #fff; }
+#questionPanel button.wrong { background: #e53935; border-color: #e53935; color: #fff; }
 
-.question-btn.wrong {
-  background-color: var(--wrong);
-  border-color: var(--wrong);
-  color: white;
-}
+#pageNav { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; align-items: center; }
+#pageNav button { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--primary); background: #fff; color: var(--primary); font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; transition: all 0.3s ease; }
+#pageNav button.active { border: 2px solid #2196f3; box-shadow: 0 0 6px rgba(33,150,243,0.7); }
+#pageNav button.correct { background: #4caf50; border-color: #4caf50; color: #fff; }
+#pageNav button.wrong { background: #e53935; border-color: #e53935; color: #fff; }
+#pageNav button:hover { transform: scale(1.1); }
 
-.question-btn.selected {
-  background-color: var(--info);
-  border-color: var(--info);
-  color: white;
-}
+/* Кнопки и прогресс */
+.controls, .footer { display: flex; gap: 10px; margin-top: 12px; }
+button { flex: 1; padding: 10px; border: none; border-radius: 14px; background: var(--primary); color: #fff; cursor: pointer; transition: all 0.3s ease; }
+button:hover { background: #81c784; }
+button.secondary { background: #81c784; }
+.progress-bar { height: 8px; background: #cfe8cf; border-radius: 4px; overflow: hidden; margin-top: 12px; }
+#progressFill { height: 100%; background: var(--primary); transition: width 0.3s ease; }
 
-.panel-footer {
-  padding: 1rem;
-  border-top: 1px solid var(--border-color);
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
+/* Reset / theme toggle */
+#themeToggle { position: fixed; right: 16px; top: 50%; cursor: pointer; }
+#resetBtn { padding: 5px 10px; background: #ff4d4d; color: #fff; border: 2px solid #ff0000; border-radius: 5px; cursor: pointer; width: 50px; font-size: 12px; text-align: center; transition: all 0.2s ease; }
+#resetBtn:hover { background: #ff1a1a; }
 
-#pageNav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  justify-content: center;
-}
-
-.page-btn {
-  padding: 0.5rem 0.75rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background: var(--card-color);
-  color: var(--text-color);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  font-size: 0.875rem;
-  min-width: 40px;
-}
-
-.page-btn:hover {
-  background-color: var(--hover-bg);
-}
-
-.page-btn.active {
-  background-color: var(--info);
-  border-color: var(--info);
-  color: white;
-}
-
-#resetWrapper {
-  display: flex;
-  justify-content: center;
-}
-
-#resetBtn {
-  padding: 0.5rem 1rem;
-  background-color: var(--wrong);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-weight: 500;
-  transition: background-color var(--transition-fast);
-}
-
-#resetBtn:hover {
-  background-color: #d32f2f;
-}
-
-/* ====== ОСНОВНОЙ КОНТЕНТ ====== */
-.main-content {
-  flex: 1;
-  margin-left: 280px;
-  padding: 2rem;
-  max-width: 1000px;
-  transition: margin-left var(--transition-normal);
-}
-
-#questionPanelWrapper.collapsed ~ .main-content {
-  margin-left: 20px;
-}
-
-.header {
-  margin-bottom: 2rem;
-}
-
-.header h1 {
-  font-size: 1.75rem;
-  margin-bottom: 0.5rem;
-  color: var(--text-color);
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  color: var(--gray-600);
-  font-size: 0.9rem;
-}
-
-/* ====== КАРТОЧКА ВОПРОСА ====== */
-.question-card {
-  background: var(--card-color);
-  border-radius: var(--radius-xl);
-  padding: 2rem;
-  box-shadow: var(--shadow-md);
-  margin-bottom: 2rem;
-  animation: fadeIn var(--transition-normal);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-#questionText {
-  font-size: 1.25rem;
-  line-height: 1.6;
-  margin-bottom: 2rem;
-  font-weight: 500;
-}
-
-/* ====== ОТВЕТЫ ====== */
-.answers-grid {
-  display: grid;
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
-}
-
-.answer-item {
-  padding: 1rem 1.25rem;
-  border-radius: var(--radius-lg);
-  border: 2px solid var(--border-color);
-  background: var(--card-color);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  position: relative;
-}
-
-.answer-item:hover {
-  transform: translateX(4px);
-  border-color: var(--primary);
-  background-color: var(--hover-bg);
-}
-
-.answer-item.selected {
-  border-color: var(--info);
-  background-color: rgba(33, 150, 243, 0.1);
-}
-
-.answer-item.correct {
-  border-color: var(--primary);
-  background-color: rgba(76, 175, 80, 0.15);
-}
-
-.answer-item.wrong {
-  border-color: var(--wrong);
-  background-color: rgba(229, 57, 53, 0.1);
-}
-
-.answer-item .answer-text {
-  flex: 1;
-}
-
-.answer-item .icon {
-  width: 20px;
-  height: 20px;
-  border-radius: var(--radius-circle);
-  border: 2px solid currentColor;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.75rem;
-  font-weight: bold;
-}
-
-.answer-item.correct .icon {
-  background-color: var(--primary);
-  border-color: var(--primary);
-  color: white;
-  content: "✓";
-}
-
-.answer-item.wrong .icon {
-  background-color: var(--wrong);
-  border-color: var(--wrong);
-  color: white;
-  content: "✗";
-}
-
-/* ====== ПАНЕЛЬ УПРАВЛЕНИЯ ====== */
-.controls {
-  display: flex;
-  gap: 0.75rem;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.control-btn {
-  flex: 1;
-  min-width: 120px;
-  padding: 0.875rem 1.25rem;
-  border-radius: var(--radius-lg);
-  border: none;
-  background-color: var(--primary);
-  color: white;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-}
-
-.control-btn:hover {
-  background-color: var(--primary-dark);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.control-btn.secondary {
-  background-color: var(--info);
-}
-
-.control-btn.secondary:hover {
-  background-color: #1976d2;
-}
-
-.control-btn.warning {
-  background-color: var(--warning);
-}
-
-.control-btn.warning:hover {
-  background-color: #f57c00;
-}
-
-.control-btn.danger {
-  background-color: var(--wrong);
-}
-
-.control-btn.danger:hover {
-  background-color: #d32f2f;
-}
-
-.control-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none !important;
-}
-
-/* ====== ПРОГРЕСС И СТАТИСТИКА ====== */
-.progress-container {
-  margin: 1.5rem 0;
-}
-
-.progress-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-#progressText {
-  font-weight: 500;
-  color: var(--text-color);
-}
-
-.stats {
-  display: flex;
-  gap: 1.5rem;
-  color: var(--gray-600);
-  font-size: 0.9rem;
-}
-
-.progress-bar {
-  height: 8px;
-  background-color: var(--border-color);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-#progressFill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--primary), var(--primary-hover));
-  transition: width var(--transition-normal);
-  border-radius: 4px;
-}
-
-/* ====== ОВЕРЛЕЙ АУТЕНТИФИКАЦИИ ====== */
-#authOverlay,
-#waitOverlay {
+/* ==== AUTH OVERLAY ==== */
+#authOverlay, #waitOverlay {
   position: fixed;
   inset: 0;
-  background: linear-gradient(135deg, #1e3e72, #2a5298);
+  background: linear-gradient(135deg, rgba(30,60,114,0.92), rgba(42,82,152,0.92));
   display: flex;
-  align-items: center;
   justify-content: center;
+  align-items: center;
   z-index: 9999;
-  backdrop-filter: blur(8px);
 }
-
-.auth-card {
+.authCard {
   background: white;
-  border-radius: var(--radius-xl);
-  padding: 2.5rem;
+  padding: 26px;
+  border-radius: 12px;
+  width: 360px;
+  max-width: calc(100% - 40px);
+  text-align: center;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+}
+.authCard h1 { margin: 0 0 12px 0; font-size: 20px; color: #123; }
+.authCard input {
   width: 100%;
-  max-width: 400px;
-  box-shadow: var(--shadow-xl);
-  animation: slideUp var(--transition-normal);
+  padding: 10px;
+  margin: 8px 0;
+  font-size: 15px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  box-sizing: border-box;
+}
+.authCard button { width: 100%; padding: 10px; margin-top: 8px; background: #007bff; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 15px; }
+.authCard .muted { margin-top: 8px; color: #666; font-size: 14px; }
+.small-ghost { margin-top: 10px; background: transparent; color: #007bff; border: none; cursor: pointer; font-size: 14px; }
+
+/* ==== AUTH OVERLAY ==== */
+#authOverlay, #waitOverlay { ... }
+
+/* overlay всегда должен принимать клики */
+#authOverlay,
+#waitOverlay {
+  pointer-events: auto;
+  display: none; /* по умолчанию скрыт */
 }
 
-@keyframes slideUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.auth-card h1 {
-  color: #1a237e;
-  margin-bottom: 1.5rem;
-  text-align: center;
-  font-size: 1.75rem;
-}
-
-.auth-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.auth-form input {
-  padding: 0.875rem 1rem;
-  border: 2px solid var(--gray-300);
-  border-radius: var(--radius-md);
-  font-size: 1rem;
-  transition: border-color var(--transition-fast);
-}
-
-.auth-form input:focus {
-  outline: none;
-  border-color: var(--info);
-}
-
-.auth-form button {
-  padding: 1rem;
-  background: var(--info);
-  color: white;
-  border: none;
-  border-radius: var(--radius-md);
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color var(--transition-fast);
-}
-
-.auth-form button:hover {
-  background: #1976d2;
-}
-
-.auth-status {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  border-radius: var(--radius-md);
-  background-color: #e3f2fd;
-  color: #1565c0;
-  font-size: 0.9rem;
-  text-align: center;
-}
-
-.auth-links {
-  margin-top: 1.5rem;
-  text-align: center;
-}
-
-.small-ghost {
-  background: none;
-  border: none;
-  color: var(--info);
-  cursor: pointer;
-  font-size: 0.875rem;
-  text-decoration: underline;
-  padding: 0.25rem;
-}
-
-/* ====== ПАНЕЛЬ АДМИНА ====== */
-#adminPanelContainer {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
-  z-index: 1000;
-}
-
-.admin-btn {
-  background: var(--warning);
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  font-weight: 600;
-  box-shadow: var(--shadow-md);
-  transition: all var(--transition-fast);
-}
-
-.admin-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
-  background-color: #f57c00;
-}
-
-/* ====== АДАПТИВНОСТЬ ====== */
-@media (max-width: 1024px) {
-  #questionPanelWrapper {
-    width: 250px;
-  }
-  
-  .main-content {
-    margin-left: 250px;
-  }
-  
-  .question-card {
-    padding: 1.5rem;
-  }
-}
-
-@media (max-width: 768px) {
-  #questionPanelWrapper {
-    width: 100%;
-    height: auto;
-    bottom: auto;
-    transform: translateY(0);
-    border-right: none;
-    border-bottom: 1px solid var(--border-color);
-  }
-  
-  #questionPanelWrapper.collapsed {
-    transform: translateY(calc(-100% + 60px));
-  }
-  
-  .main-content {
-    margin-left: 0;
-    margin-top: 80px;
-    padding: 1rem;
-  }
-  
-  #questionPanel {
-    grid-template-columns: repeat(auto-fill, minmax(35px, 1fr));
-  }
-  
-  .question-btn {
-    width: 35px;
-    height: 35px;
-    font-size: 0.8rem;
-  }
-  
-  .controls {
-    flex-direction: column;
-  }
-  
-  .control-btn {
-    min-width: 100%;
-  }
-}
-
-@media (max-width: 480px) {
-  .auth-card {
-    padding: 1.5rem;
-    margin: 1rem;
-  }
-  
-  .question-card {
-    padding: 1.25rem;
-  }
-  
-  #questionText {
-    font-size: 1.1rem;
-  }
-  
-  .answer-item {
-    padding: 0.875rem 1rem;
-  }
-}
-
-/* ====== УТИЛИТЫ ====== */
-.hidden {
-  display: none !important;
-}
-
-.flex-center {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.text-center {
-  text-align: center;
-}
-
-.mt-1 { margin-top: 0.25rem; }
-.mt-2 { margin-top: 0.5rem; }
-.mt-3 { margin-top: 1rem; }
-.mt-4 { margin-top: 1.5rem; }
-.mt-5 { margin-top: 2rem; }
-
-.mb-1 { margin-bottom: 0.25rem; }
-.mb-2 { margin-bottom: 0.5rem; }
-.mb-3 { margin-bottom: 1rem; }
-.mb-4 { margin-bottom: 1.5rem; }
-.mb-5 { margin-bottom: 2rem; }
-
-/* ====== ТЁМНАЯ ТЕМА ДЛЯ АУТЕНТИФИКАЦИИ ====== */
-body.dark #authOverlay,
-body.dark #waitOverlay {
-  background: linear-gradient(135deg, #0d1b2a, #1b263b);
-}
-
-body.dark .auth-card {
-  background: var(--dark-card);
-  color: var(--dark-text);
-}
-
-body.dark .auth-card h1 {
-  color: var(--dark-text);
-}
-
-body.dark .auth-form input {
-  background: var(--gray-800);
-  border-color: var(--gray-700);
-  color: var(--dark-text);
-}
-
-body.dark .auth-status {
-  background-color: #0d47a1;
-  color: #bbdefb;
+/* small responsive tweaks */
+@media (max-width: 420px) {
+  .authCard { padding: 18px; width: 92%; }
 }
