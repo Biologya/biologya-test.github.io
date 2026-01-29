@@ -124,6 +124,33 @@ button.secondary { background: #81c784; }
 #resetBtn { padding: 5px 10px; background: #ff4d4d; color: #fff; border: 2px solid #ff0000; border-radius: 5px; cursor: pointer; width: 50px; font-size: 12px; text-align: center; transition: all 0.2s ease; }
 #resetBtn:hover { background: #ff1a1a; }
 
+/* В существующий CSS добавьте: */
+.admin-status {
+  cursor: pointer !important;
+  transition: all 0.3s ease !important;
+}
+
+.admin-status:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.status-allowed {
+  background: #4CAF50 !important;
+}
+
+.status-pending {
+  background: #FF9800 !important;
+}
+
+.status-allowed:hover {
+  background: #388E3C !important;
+}
+
+.status-pending:hover {
+  background: #F57C00 !important;
+}
+
 /* ==== AUTH OVERLAY ==== */
 #authOverlay, #waitOverlay {
   position: fixed;
@@ -171,3 +198,4 @@ button.secondary { background: #81c784; }
 @media (max-width: 420px) {
   .authCard { padding: 18px; width: 92%; }
 }
+
