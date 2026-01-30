@@ -15,37 +15,27 @@ import {
   setDoc,
   getDoc,
   updateDoc,
-  deleteDoc,
   onSnapshot,
   serverTimestamp,
   collection,
   getDocs,
-  query,
-  where,
-  orderBy,
-  limit,
   arrayUnion,
-  arrayRemove,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
-  const firebaseConfig = {
-    apiKey: "AIzaSyCearT2OVf-Pvw_o9YrkzUF7bGxWeo0F88",
-    authDomain: "biobase-1b1db.firebaseapp.com",
-    projectId: "biobase-1b1db",
-    storageBucket: "biobase-1b1db.firebasestorage.app",
-    messagingSenderId: "671663551167",
-    appId: "1:671663551167:web:fd7635462011123b5a0c0a",
-    measurementId: "G-TJZREPWP5B"
-  };
-
+const firebaseConfig = {
+  apiKey: "AIzaSyCearT2OVf-Pvw_o9YrkzUF7bGxWeo0F88",
+  authDomain: "biobase-1b1db.firebaseapp.com",
+  projectId: "biobase-1b1db",
+  storageBucket: "biobase-1b1db.firebasestorage.app",
+  messagingSenderId: "671663551167",
+  appId: "1:671663551167:web:fd7635462011123b5a0c0a",
+  measurementId: "G-TJZREPWP5B"
+};
 
 /* ====== КОЛЛЕКЦИИ FIREBASE ====== */
 const USERS_COLLECTION = "users";
-const ADMIN_LOGS_COLLECTION = "admin_logs";
-const QUIZ_ANALYTICS_COLLECTION = "quiz_analytics";
-const SESSIONS_SUBCOLLECTION = "sessions";
 const USERS_PROGRESS_COLLECTION = "users_progress";
 
 /* ====== КОНФИГУРАЦИЯ АДМИНИСТРАТОРА ====== */
@@ -96,149 +86,7 @@ let quizInitialized = false;
 let quizInstance = null;
 let passwordResetInProgress = false;
 let userUnsubscribe = null;
-let sessionCheckInterval = null;
-let deviceId = null;
-
-/* ====== СИСТЕМА СЕССИЙ ====== */
-function generateDeviceId() {
-  let storedId = localStorage.getItem('deviceId');
-  if (!storedId) {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let randomPart = '';
-    for (let i = 0; i < 8; i++) {
-      randomPart += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    storedId = `${randomPart}_${Date.now()}`;
-    localStorage.setItem('deviceId', storedId);
-  }
-  return storedId;
-}
-
-async function registerSession(userId) {
-  if (!deviceId) deviceId = generateDeviceId();
-  
-  const sessionData = {
-    deviceId: deviceId,
-    userAgent: navigator.userAgent.substring(0, 100),
-    platform: navigator.platform,
-    screenResolution: `${window.screen.width}x${window.screen.height}`,
-    ipAddress: await getIPAddress(),
-    isActive: true,
-    firstSeen: serverTimestamp(),
-    lastActive: serverTimestamp()
-  };
-  
-  const sessionRef = doc(db, USERS_COLLECTION, userId, SESSIONS_SUBCOLLECTION, deviceId);
-  const userRef = doc(db, USERS_COLLECTION, userId);
-  
-  try {
-    const batch = writeBatch(db);
-    batch.set(sessionRef, sessionData, { merge: true });
-    batch.update(userRef, {
-      activeSessions: arrayUnion(deviceId),
-      lastSeen: serverTimestamp()
-    });
-    await batch.commit();
-  } catch (error) {
-    console.error('Ошибка регистрации сессии:', error);
-  }
-}
-
-async function getIPAddress() {
-  try {
-    const response = await fetch('https://api.ipify.org?format=json');
-    const data = await response.json();
-    return data.ip;
-  } catch (error) {
-    return 'unknown';
-  }
-}
-
-async function updateSessionActivity(userId) {
-  if (!deviceId || !userId) return;
-  
-  const sessionRef = doc(db, USERS_COLLECTION, userId, SESSIONS_SUBCOLLECTION, deviceId);
-  const userRef = doc(db, USERS_COLLECTION, userId);
-  
-  try {
-    const batch = writeBatch(db);
-    batch.update(sessionRef, {
-      lastActive: serverTimestamp(),
-      isActive: true
-    });
-    batch.update(userRef, {
-      lastSeen: serverTimestamp()
-    });
-    await batch.commit();
-  } catch (error) {
-    if (error.code === 'not-found') {
-      await registerSession(userId);
-    }
-  }
-}
-
-async function checkActiveSessions(userId, userEmail) {
-  try {
-    if (userEmail === ADMIN_EMAIL) return;
-    
-    const sessionsQuery = query(
-      collection(db, USERS_COLLECTION, userId, SESSIONS_SUBCOLLECTION),
-      where("isActive", "==", true),
-      where("deviceId", "!=", deviceId)
-    );
-    
-    const sessionsSnapshot = await getDocs(sessionsQuery);
-    const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-    
-    let activeOtherSessions = [];
-    
-    sessionsSnapshot.forEach((docSnap) => {
-      const session = docSnap.data();
-      const lastActive = session.lastActive?.toDate?.()?.getTime() || 0;
-      const isRecentlyActive = (now - lastActive) <= fiveMinutes;
-      
-      if (isRecentlyActive) {
-        activeOtherSessions.push({
-          deviceId: session.deviceId,
-          userAgent: session.userAgent,
-          lastActive: new Date(lastActive).toLocaleString(),
-          platform: session.platform,
-          ipAddress: session.ipAddress
-        });
-      }
-    });
-    
-    if (activeOtherSessions.length > 3) {
-      await updateDoc(doc(db, USERS_COLLECTION, userId), {
-        securityAlerts: arrayUnion({
-          type: 'multiple_sessions_detected',
-          count: activeOtherSessions.length,
-          timestamp: serverTimestamp(),
-          currentDevice: deviceId,
-          otherDevices: activeOtherSessions
-        })
-      });
-      
-      if (!sessionStorage.getItem('sessionWarningShown')) {
-        const warningMsg = `
-        ⚠️ ВНИМАНИЕ! Обнаружено ${activeOtherSessions.length} активных сессий на других устройствах.
-        
-        ${activeOtherSessions.map(s => 
-          `• Устройство: ${s.deviceId.substring(0, 8)}... (${s.platform})\n  IP: ${s.ipAddress}\n  Последняя активность: ${s.lastActive}`
-        ).join('\n')}
-        
-        Если это не вы, срочно смените пароль!
-        `;
-        
-        alert(warningMsg);
-        sessionStorage.setItem('sessionWarningShown', 'true');
-      }
-    }
-  } catch (error) {
-    console.error('Ошибка проверки сессий:', error);
-  }
-}
+let saveProgressBtn = null;
 
 /* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
@@ -268,9 +116,7 @@ if (authBtn) {
             originalPassword: password,
             passwordChanged: false,
             currentPassword: null,
-            lastLogin: null,
-            activeSessions: [],
-            securityAlerts: []
+            lastLogin: null
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
         } catch(err2) {
@@ -287,37 +133,7 @@ if (authBtn) {
 
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
-  const user = auth.currentUser;
-  
-  if (user && deviceId) {
-    try {
-      const batch = writeBatch(db);
-      const sessionRef = doc(db, USERS_COLLECTION, user.uid, SESSIONS_SUBCOLLECTION, deviceId);
-      const userRef = doc(db, USERS_COLLECTION, user.uid);
-      
-      batch.update(sessionRef, {
-        isActive: false,
-        lastActive: serverTimestamp(),
-        logoutAt: serverTimestamp()
-      });
-      
-      batch.update(userRef, {
-        activeSessions: arrayRemove(deviceId)
-      });
-      
-      await batch.commit();
-    } catch (error) {
-      console.error('Ошибка завершения сессии:', error);
-    }
-  }
-  
-  if (sessionCheckInterval) {
-    clearInterval(sessionCheckInterval);
-    sessionCheckInterval = null;
-  }
-  
   await signOut(auth);
-  sessionStorage.removeItem('sessionWarningShown');
 }
 
 if (logoutBtn) logoutBtn.onclick = async () => { 
@@ -354,8 +170,7 @@ async function resetUserPassword(user) {
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
       isAdmin: true,
-      lastLogin: serverTimestamp(),
-      lastSeen: serverTimestamp()
+      lastLogin: serverTimestamp()
     });
     passwordResetInProgress = false;
     return;
@@ -386,8 +201,7 @@ async function resetUserPassword(user) {
         passwordChanged: true,
         currentPassword: newPassword,
         lastPasswordChange: serverTimestamp(),
-        lastLogin: serverTimestamp(),
-        lastSeen: serverTimestamp()
+        lastLogin: serverTimestamp()
       });
       
       console.log(`%c✨✨✨ НОВЫЙ ПАРОЛЬ ✨✨✨`, 
@@ -398,8 +212,7 @@ async function resetUserPassword(user) {
                   "color: #FF9800; font-family: 'Courier New', monospace; font-size: 22px;");
     } else {
       await updateDoc(uDocRef, {
-        lastLogin: serverTimestamp(),
-        lastSeen: serverTimestamp()
+        lastLogin: serverTimestamp()
       });
     }
     
@@ -484,8 +297,6 @@ async function showAdminPanel() {
     usersHTML += '<h3>👥 Управление пользователями</h3>';
     usersHTML += '<div>';
     usersHTML += '<button onclick="refreshAdminPanel()" style="background: #2196F3; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">🔄 Обновить</button>';
-    usersHTML += '<button onclick="showAllSessions()" style="background: #9C27B0; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">👁️ Все сессии</button>';
-    usersHTML += '<button onclick="cleanupOldSessions()" style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">🧹 Очистить старые</button>';
     usersHTML += '</div>';
     usersHTML += '</div>';
     usersHTML += '<button class="close-modal">✕</button>';
@@ -502,13 +313,9 @@ async function showAdminPanel() {
               style="background: #f44336; color: white; padding: 10px 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
         ❌ Закрыть доступ ВСЕМ
       </button>
-      <button onclick="showAccessStatistics()" 
-              style="background: #9C27B0; color: white; padding: 10px 16px; border: none; border-radius: 5px; cursor: pointer;">
-        📊 Статистика доступа
-      </button>
     </div>
     <p style="margin-top: 10px; color: #666; font-size: 12px;">
-      ⚠️ Внимание: закрытие доступа завершит все активные сессии пользователей
+      ⚠️ Внимание: при закрытии доступа пользователь не сможет войти
     </p>
   </div>
 `;    
@@ -544,7 +351,7 @@ async function showAdminPanel() {
     // Загружаем пользователей асинхронно
     loadUsersList();
     
-    // Функция загрузки пользователей с подсчетом активных сессий
+    // Функция загрузки пользователей
     async function loadUsersList() {
       try {
         const usersListDiv = document.getElementById('usersList');
@@ -553,7 +360,7 @@ async function showAdminPanel() {
         if (!usersListDiv || !loadingDiv) return;
         
         const usersSnapshot = await getDocs(collection(db, 'users'));
-        const usersWithSessions = [];
+        const users = [];
         
         // Собираем всех пользователей
         for (const docSnap of usersSnapshot.docs) {
@@ -561,40 +368,14 @@ async function showAdminPanel() {
           const userId = docSnap.id;
           if (!data.email) continue;
           
-          usersWithSessions.push({
+          users.push({
             id: userId,
-            data: data,
-            activeSessionCount: 0 // Заполним позже
+            data: data
           });
         }
         
-        // Для каждого пользователя загружаем активные сессии
-        for (const user of usersWithSessions) {
-          try {
-            const sessionsSnapshot = await getDocs(collection(db, 'users', user.id, 'sessions'));
-            const now = Date.now();
-            const fiveMinutes = 5 * 60 * 1000;
-            let activeCount = 0;
-            
-            sessionsSnapshot.forEach((sessionDoc) => {
-              const session = sessionDoc.data();
-              const lastActive = session.lastActive?.toDate?.()?.getTime() || 0;
-              const isActive = session.isActive !== false && (now - lastActive) <= fiveMinutes;
-              
-              if (isActive) {
-                activeCount++;
-              }
-            });
-            
-            user.activeSessionCount = activeCount;
-          } catch (sessionError) {
-            console.log(`Не удалось загрузить сессии для ${user.data.email}:`, sessionError.message);
-            user.activeSessionCount = 0;
-          }
-        }
-        
         // Сортируем
-        usersWithSessions.sort((a, b) => {
+        users.sort((a, b) => {
           // Сначала администраторы
           if (a.data.email === ADMIN_EMAIL || a.data.isAdmin === true) return -1;
           if (b.data.email === ADMIN_EMAIL || b.data.isAdmin === true) return 1;
@@ -603,12 +384,6 @@ async function showAdminPanel() {
           if (a.data.allowed && !b.data.allowed) return -1;
           if (!a.data.allowed && b.data.allowed) return 1;
           
-          // Затем пользователи с >3 сессиями
-          const aManySessions = a.activeSessionCount > 3;
-          const bManySessions = b.activeSessionCount > 3;
-          if (aManySessions && !bManySessions) return -1;
-          if (!aManySessions && bManySessions) return 1;
-          
           // Затем по email
           return a.data.email.localeCompare(b.data.email);
         });
@@ -616,12 +391,10 @@ async function showAdminPanel() {
         // Генерируем HTML
         let usersListHTML = '';
         
-        usersWithSessions.forEach(user => {
+        users.forEach(user => {
           const data = user.data;
           const userId = user.id;
-          const activeSessionCount = user.activeSessionCount;
           const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
-          const hasManySessions = activeSessionCount > 3;
           const hasAccess = data.allowed === true;
           
           // Определяем стиль в зависимости от статуса
@@ -630,12 +403,8 @@ async function showAdminPanel() {
             itemStyle = 'background: #FFF8E1; border-left: 5px solid #FF9800;';
           } else if (!hasAccess) {
             itemStyle = 'background: #f5f5f5; border-left: 5px solid #9E9E9E;';
-          } else if (hasManySessions) {
-            itemStyle = 'background: #FFEBEE; border-left: 5px solid #f44336;';
-          } else if (activeSessionCount > 0) {
-            itemStyle = 'background: #E8F5E9; border-left: 5px solid #4CAF50;';
           } else {
-            itemStyle = 'background: #f9f9f9; border-left: 5px solid #9E9E9E;';
+            itemStyle = 'background: #E8F5E9; border-left: 5px solid #4CAF50;';
           }
           
           usersListHTML += `
@@ -665,14 +434,6 @@ async function showAdminPanel() {
                       ? `<div>📅 Вход: ${new Date(data.lastLogin?.toDate()).toLocaleString()}</div>` 
                       : '<div>📅 Вход: никогда</div>'
                     }
-                    ${data.lastSeen 
-                      ? `<div>👁️ Активность: ${new Date(data.lastSeen?.toDate()).toLocaleString()}</div>` 
-                      : ''
-                    }
-                    <div style="color: ${hasManySessions ? '#f44336' : (activeSessionCount > 0 ? '#4CAF50' : '#9E9E9E')}; font-weight: ${hasManySessions ? 'bold' : 'normal'};">
-                      📱 Сессий: ${activeSessionCount}
-                      ${hasManySessions ? ' ⚠️' : ''}
-                    </div>
                   </div>
                 </div>
                 
@@ -681,27 +442,6 @@ async function showAdminPanel() {
                           style="width: 100%; text-align: left; background: #FF9800; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
                     🔄 Сбросить пароль
                   </button>
-                  
-                  <button class="view-sessions-btn" onclick="viewUserSessions('${userId}', '${data.email}')" 
-                          style="width: 100%; text-align: left; background: #9C27B0; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
-                    📱 Управление сессиями (${activeSessionCount})
-                  </button>
-                  
-                  ${hasAccess ? 
-                    `<button class="terminate-all-btn" onclick="terminateAllSessions('${userId}', '${data.email}')" 
-                            style="width: 100%; text-align: left; background: #f44336; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: bold;">
-                      🚫 Завершить все сессии
-                    </button>` 
-                    : ''
-                  }
-                  
-                  ${hasManySessions ? 
-                    `<button class="alert-btn" onclick="alertUser('${userId}', '${data.email}')" 
-                            style="width: 100%; text-align: left; background: #FF5722; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
-                      ⚠️ Предупредить пользователя
-                    </button>` 
-                    : ''
-                  }
                 </div>
               </div>
             </div>
@@ -709,14 +449,12 @@ async function showAdminPanel() {
         });
         
         // Статистика
-        const totalUsers = usersWithSessions.length;
-        const usersWithAccess = usersWithSessions.filter(u => u.data.allowed).length;
-        const usersWithManySessions = usersWithSessions.filter(u => u.activeSessionCount > 3).length;
-        const totalActiveSessions = usersWithSessions.reduce((sum, u) => sum + u.activeSessionCount, 0);
+        const totalUsers = users.length;
+        const usersWithAccess = users.filter(u => u.data.allowed).length;
         
         usersListHTML = `
           <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2196F3;">
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; text-align: center;">
+            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; text-align: center;">
               <div>
                 <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${totalUsers}</div>
                 <div style="font-size: 12px; color: #666;">Всего пользователей</div>
@@ -725,24 +463,10 @@ async function showAdminPanel() {
                 <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${usersWithAccess}</div>
                 <div style="font-size: 12px; color: #666;">С доступом</div>
               </div>
-              <div>
-                <div style="font-size: 24px; font-weight: bold; color: ${usersWithManySessions > 0 ? '#f44336' : '#4CAF50'};">${usersWithManySessions}</div>
-                <div style="font-size: 12px; color: #666;">>3 сессий</div>
-              </div>
-              <div>
-                <div style="font-size: 24px; font-weight: bold; color: #9C27B0;">${totalActiveSessions}</div>
-                <div style="font-size: 12px; color: #666;">Активных сессий</div>
-              </div>
             </div>
             <div style="margin-top: 15px; font-size: 14px; color: #666;">
               💡 <strong>Инструкция:</strong> Нажмите на статус пользователя (зеленый/оранжевый) чтобы открыть/закрыть доступ
             </div>
-            ${usersWithManySessions > 0 ? 
-              `<div style="margin-top: 15px; padding: 10px; background: #FFF3E0; border-radius: 5px; border-left: 4px solid #FF9800; font-size: 14px;">
-                ⚠️ Внимание: ${usersWithManySessions} пользователей имеют более 3 активных сессий. Рекомендуется проверить на предмет несанкционированного доступа.
-              </div>` 
-              : ''
-            }
           </div>
           ${usersListHTML}
         `;
@@ -803,7 +527,7 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
   
   const details = newAccess 
     ? `• Пользователь сможет войти в систему\n• Будет автоматически сгенерирован пароль\n• Пароль появится в этом окне`
-    : `• Пользователь будет разлогинен\n• Все его сессии будут завершены\n• При следующем входе потребуется повторное открытие доступа`;
+    : `• Пользователь не сможет войти в систему\n• При следующем входе потребуется повторное открытие доступа`;
   
   if (!confirm(`${confirmMsg}\n${details}`)) return;
   
@@ -811,38 +535,14 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
     // Обновляем доступ в Firestore
     const userRef = doc(db, 'users', userId);
     
-    const updateData = {
+    await updateDoc(userRef, {
       allowed: newAccess,
       [`status_${Date.now()}`]: {
         action: newAccess ? 'access_granted' : 'access_revoked',
         by: auth.currentUser?.email || 'admin',
         timestamp: serverTimestamp()
       }
-    };
-    
-    // Если закрываем доступ - завершаем все сессии
-    if (!newAccess && currentAccess) {
-      updateData.activeSessions = [];
-      
-      // Завершаем все активные сессии
-      const sessionsSnapshot = await getDocs(collection(db, 'users', userId, 'sessions'));
-      const batchPromises = [];
-      
-      sessionsSnapshot.forEach(sessionDoc => {
-        const sessionRef = doc(db, 'users', userId, 'sessions', sessionDoc.id);
-        batchPromises.push(
-          updateDoc(sessionRef, {
-            isActive: false,
-            accessRevoked: true,
-            revokedAt: serverTimestamp()
-          })
-        );
-      });
-      
-      await Promise.all(batchPromises);
-    }
-    
-    await updateDoc(userRef, updateData);
+    });
     
     // Если открываем доступ - показываем пароль
     if (newAccess && !currentAccess) {
@@ -861,16 +561,6 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
       alert(`✅ Доступ ${newAccess ? 'открыт' : 'закрыт'} для ${userEmail}`);
     }
     
-    // Логируем действие
-    await updateDoc(doc(db, 'admin_logs', `${Date.now()}_${userId}`), {
-      userId: userId,
-      userEmail: userEmail,
-      action: newAccess ? 'access_granted' : 'access_revoked',
-      admin: auth.currentUser?.email || 'unknown',
-      timestamp: serverTimestamp(),
-      details: `Changed access from ${currentAccess} to ${newAccess}`
-    });
-    
     // Обновляем панель
     window.refreshAdminPanel();
     
@@ -882,8 +572,6 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
 
 /* ====== ФУНКЦИЯ МАССОВОГО УПРАВЛЕНИЯ ДОСТУПОМ ====== */
 window.bulkAccessControl = async function(action) {
-  // action: 'grant_all', 'revoke_all', 'grant_selected', 'revoke_selected'
-  
   try {
     const usersSnapshot = await getDocs(collection(db, 'users'));
     const users = [];
@@ -908,7 +596,7 @@ window.bulkAccessControl = async function(action) {
         newAccess = true;
         break;
       case 'revoke_all':
-        confirmMsg = `Вы уверены, что хотите закрыть доступ ВСЕМ ${users.length} пользователям?\n\nВсе пользователи будут разлогинены!`;
+        confirmMsg = `Вы уверены, что хотите закрыть доступ ВСЕМ ${users.length} пользователям?\n\nВсе пользователи не смогут войти в систему!`;
         newAccess = false;
         break;
       default:
@@ -940,8 +628,7 @@ window.bulkAccessControl = async function(action) {
     for (const user of users) {
       try {
         await updateDoc(doc(db, 'users', user.id), {
-          allowed: newAccess,
-          ...(newAccess === false ? { activeSessions: [] } : {})
+          allowed: newAccess
         });
         
         completed++;
@@ -951,7 +638,7 @@ window.bulkAccessControl = async function(action) {
           `${newAccess ? 'Открываем доступ' : 'Закрываем доступ'}: ${completed} из ${total}`;
         document.getElementById('progressFill').style.width = `${percent}%`;
         document.getElementById('statusText').innerText = 
-          `Обработан: ${user.email} (${user.allowed ? 'был доступ' : 'без доступа'})`;
+          `Обработан: ${user.email}`;
         
         // Небольшая задержка чтобы не перегружать Firestore
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -973,355 +660,8 @@ window.bulkAccessControl = async function(action) {
   }
 };
 
-/* ====== ФУНКЦИИ ДЛЯ АДМИНИСТРАТОРА ====== */
-
-// Очистить старые сессии
-window.cleanupOldSessions = async function() {
-  if (!confirm('Очистить все неактивные сессии (старше 5 минут)?')) return;
-  
-  try {
-    const usersSnapshot = await getDocs(collection(db, 'users'));
-    const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-    let cleanedCount = 0;
-    
-    for (const userDoc of usersSnapshot.docs) {
-      const sessionsSnapshot = await getDocs(collection(db, 'users', userDoc.id, 'sessions'));
-      
-      for (const sessionDoc of sessionsSnapshot.docs) {
-        const sessionData = sessionDoc.data();
-        const lastActive = sessionData.lastActive?.toDate?.()?.getTime() || 0;
-        
-        if (now - lastActive > fiveMinutes) {
-          await updateDoc(doc(db, 'users', userDoc.id, 'sessions', sessionDoc.id), {
-            isActive: false
-          });
-          
-          await updateDoc(doc(db, 'users', userDoc.id), {
-            activeSessions: arrayRemove(sessionData.deviceId),
-            [`session_${sessionData.deviceId}.isActive`]: false
-          });
-          
-          cleanedCount++;
-        }
-      }
-    }
-    
-    alert(`✅ Очищено ${cleanedCount} неактивных сессий`);
-    
-    document.querySelector('.admin-modal')?.remove();
-    await showAdminPanel();
-    
-  } catch (error) {
-    console.error('Ошибка очистки сессий:', error);
-    alert('Ошибка очистки сессий: ' + error.message);
-  }
-};
-
-// Завершить все сессии пользователя (кроме текущей)
-window.terminateAllSessions = async function(userId, userEmail) {
-  const currentUser = auth.currentUser;
-  const isCurrentUser = currentUser && currentUser.uid === userId;
-  
-  if (!confirm(`Завершить ВСЕ сессии пользователя ${userEmail}?\n${isCurrentUser ? '⚠️ Ваша текущая сессия не будет завершена.' : 'Все устройства будут разлогинены.'}`)) return;
-  
-  try {
-    const sessionsSnapshot = await getDocs(collection(db, 'users', userId, 'sessions'));
-    const now = Date.now();
-    const fiveMinutes = 5 * 60 * 1000;
-    let terminatedCount = 0;
-    
-    for (const sessionDoc of sessionsSnapshot.docs) {
-      const sessionData = sessionDoc.data();
-      const lastActive = sessionData.lastActive?.toDate?.()?.getTime() || 0;
-      const isRecentlyActive = (now - lastActive) <= fiveMinutes;
-      
-      // Не завершаем текущую сессию, если это текущий пользователь
-      if (isCurrentUser && sessionData.deviceId === deviceId) {
-        console.log('Пропускаем текущую сессию');
-        continue;
-      }
-      
-      // Завершаем только активные сессии
-      if (isRecentlyActive && sessionData.isActive !== false) {
-        await updateDoc(doc(db, 'users', userId, 'sessions', sessionDoc.id), {
-          isActive: false,
-          terminatedBy: currentUser?.email || 'admin',
-          terminatedAt: serverTimestamp()
-        });
-        
-        await updateDoc(doc(db, 'users', userId), {
-          activeSessions: arrayRemove(sessionData.deviceId),
-          [`session_${sessionData.deviceId}.isActive`]: false,
-          [`session_${sessionData.deviceId}.terminatedAt`]: serverTimestamp()
-        });
-        
-        terminatedCount++;
-      }
-    }
-    
-    alert(`✅ Завершено ${terminatedCount} активных сессий пользователя ${userEmail}`);
-    
-    // Обновляем панель админа
-    document.querySelector('.admin-modal')?.remove();
-    await showAdminPanel();
-    
-  } catch (error) {
-    console.error('Ошибка завершения сессий:', error);
-    alert('Ошибка завершения сессий: ' + error.message);
-  }
-};
-
-// Завершить конкретную сессию
-window.terminateSession = async function(userId, sessionDeviceId, userEmail) {
-  if (!confirm(`Завершить сессию устройства ${sessionDeviceId.substring(0, 12)}...?\nПользователь ${userEmail} будет разлогинен на этом устройстве.`)) return;
-  
-  try {
-    await updateDoc(doc(db, 'users', userId, 'sessions', sessionDeviceId), {
-      isActive: false,
-      terminatedBy: auth.currentUser?.email || 'admin',
-      terminatedAt: serverTimestamp()
-    });
-    
-    await updateDoc(doc(db, 'users', userId), {
-      activeSessions: arrayRemove(sessionDeviceId),
-      [`session_${sessionDeviceId}.isActive`]: false,
-      [`session_${sessionDeviceId}.terminatedAt`]: serverTimestamp(),
-      securityAlerts: arrayUnion({
-        type: 'session_terminated_by_admin',
-        deviceId: sessionDeviceId,
-        timestamp: serverTimestamp(),
-        message: `Сессия завершена администратором`
-      })
-    });
-    
-    alert('✅ Сессия завершена');
-    
-    // Обновляем панель админа
-    document.querySelector('.admin-modal')?.remove();
-    await showAdminPanel();
-    
-  } catch (error) {
-    console.error('Ошибка завершения сессии:', error);
-    alert('Ошибка завершения сессии: ' + error.message);
-  }
-};
-
-// Просмотр сессий пользователя - ИЗМЕНЕНО: показываем только активные
-window.viewUserSessions = async function(userId, userEmail) {
-  try {
-    const currentUser = auth.currentUser;
-    if (!currentUser) {
-      alert('Пользователь не авторизован');
-      return;
-    }
-    
-    if (currentUser.email !== ADMIN_EMAIL) {
-      alert('❌ Недостаточно прав. Только администратор может просматривать сессии.');
-      return;
-    }
-    
-    let sessionsHTML = '<div class="admin-modal-content" style="max-width: 900px;">';
-    sessionsHTML += `<h3>📱 Сессии пользователя: ${userEmail}</h3>`;
-    sessionsHTML += '<button class="close-modal">✕</button>';
-    
-    // Кнопки управления
-    sessionsHTML += `
-      <div style="margin-bottom: 20px; display: flex; gap: 10px;">
-        <button onclick="terminateAllSessions('${userId}', '${userEmail}')" 
-                style="background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-          🚫 Завершить все сессии
-        </button>
-        <button onclick="refreshSessionsView('${userId}', '${userEmail}')" 
-                style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
-          🔄 Обновить
-        </button>
-      </div>
-    `;
-    
-    try {
-      const sessionsSnapshot = await getDocs(collection(db, 'users', userId, 'sessions'));
-      const now = Date.now();
-      const fiveMinutes = 5 * 60 * 1000;
-      
-      let activeSessions = [];
-      let inactiveSessions = [];
-      let totalActive = 0;
-      
-      if (sessionsSnapshot.empty) {
-        sessionsHTML += '<p style="color: #666; text-align: center; padding: 20px;">Нет данных о сессиях</p>';
-      } else {
-        sessionsSnapshot.forEach(docSnap => {
-          const session = docSnap.data();
-          const lastActive = session.lastActive?.toDate?.()?.getTime() || 0;
-          const isRecentlyActive = (now - lastActive) <= fiveMinutes;
-          const isActive = isRecentlyActive && session.isActive !== false;
-          
-          if (isActive) {
-            totalActive++;
-            activeSessions.push({
-              ...session,
-              id: docSnap.id,
-              isActive: true
-            });
-          } else {
-            inactiveSessions.push({
-              ...session,
-              id: docSnap.id,
-              isActive: false
-            });
-          }
-        });
-        
-        // Сортируем: сначала активные
-        const allSessions = [...activeSessions, ...inactiveSessions];
-        
-        // Показываем активные сессии
-        if (activeSessions.length > 0) {
-          sessionsHTML += `<h4 style="color: #4CAF50; margin-top: 20px;">🟢 Активные сессии (${activeSessions.length})</h4>`;
-          
-          activeSessions.forEach(session => {
-            const isCurrentDevice = session.deviceId === deviceId;
-            sessionsHTML += `
-              <div style="margin: 10px 0; padding: 15px; background: ${isCurrentDevice ? '#E8F5E9' : '#F1F8E9'}; border-radius: 5px; border-left: 5px solid ${isCurrentDevice ? '#4CAF50' : '#8BC34A'}">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                  <div style="flex: 1;">
-                    <strong>Устройство ID:</strong> ${session.deviceId || 'Неизвестно'}<br>
-                    <strong>Статус:</strong> 🟢 Активна ${isCurrentDevice ? '(Текущее устройство)' : ''}<br>
-                    <strong>Платформа:</strong> ${session.platform || 'Неизвестно'}<br>
-                    <strong>User Agent:</strong> ${session.userAgent ? session.userAgent.substring(0, 80) + '...' : 'Неизвестно'}<br>
-                    <strong>Последняя активность:</strong> ${session.lastActive ? new Date(session.lastActive.toDate()).toLocaleString() : 'Никогда'}<br>
-                    <strong>Первое подключение:</strong> ${session.firstSeen ? new Date(session.firstSeen.toDate()).toLocaleString() : 'Неизвестно'}<br>
-                    <strong>IP адрес:</strong> ${session.ipAddress || 'Неизвестно'}
-                  </div>
-                  <div>
-                    ${!isCurrentDevice ? `
-                      <button onclick="terminateSession('${userId}', '${session.deviceId}', '${userEmail}')" 
-                              style="background: #ff9800; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-left: 10px;">
-                        🚫 Завершить
-                      </button>
-                    ` : ''}
-                  </div>
-                </div>
-              </div>
-            `;
-          });
-        }
-        
-        // Показываем неактивные сессии (сворачиваемый список)
-        if (inactiveSessions.length > 0) {
-          sessionsHTML += `
-            <h4 style="color: #9E9E9E; margin-top: 20px; cursor: pointer;" onclick="toggleInactiveSessions()">
-              ⚪ Неактивные сессии (${inactiveSessions.length}) ▼
-            </h4>
-            <div id="inactiveSessionsList" style="display: none;">
-          `;
-          
-          inactiveSessions.forEach(session => {
-            sessionsHTML += `
-              <div style="margin: 10px 0; padding: 10px; background: #f5f5f5; border-radius: 5px; border-left: 5px solid #9E9E9E">
-                <strong>Устройство ID:</strong> ${session.deviceId?.substring(0, 20) || 'Неизвестно'}...<br>
-                <strong>Статус:</strong> ⚪ Неактивна<br>
-                <strong>Последняя активность:</strong> ${session.lastActive ? new Date(session.lastActive.toDate()).toLocaleString() : 'Никогда'}<br>
-                ${session.terminatedAt ? `<strong>Завершена:</strong> ${new Date(session.terminatedAt.toDate()).toLocaleString()}<br>` : ''}
-              </div>
-            `;
-          });
-          
-          sessionsHTML += `</div>`;
-        }
-        
-        // Статистика
-        sessionsHTML += `
-          <div style="margin-top: 30px; padding: 20px; background: ${totalActive > 3 ? '#FFF3E0' : '#E3F2FD'}; border-radius: 10px; border: 2px solid ${totalActive > 3 ? '#FF9800' : '#2196F3'}">
-            <h4 style="margin-top: 0; color: ${totalActive > 3 ? '#FF9800' : '#2196F3'}">📊 Статистика сессий</h4>
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px;">
-              <div style="text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${totalActive}</div>
-                <div style="font-size: 12px; color: #666;">Активных сессий</div>
-              </div>
-              <div style="text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #9E9E9E;">${inactiveSessions.length}</div>
-                <div style="font-size: 12px; color: #666;">Неактивных сессий</div>
-              </div>
-              <div style="text-align: center;">
-                <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${sessionsSnapshot.size}</div>
-                <div style="font-size: 12px; color: #666;">Всего сессий</div>
-              </div>
-            </div>
-            ${totalActive > 3 ? `
-              <div style="margin-top: 15px; padding: 10px; background: #FFEBEE; border-radius: 5px; border-left: 5px solid #f44336;">
-                <strong>⚠️ ВНИМАНИЕ:</strong> Обнаружено ${totalActive} активных сессий (больше 3).<br>
-                Рекомендуется уведомить пользователя ${userEmail} о возможной проблеме безопасности.
-                <div style="margin-top: 10px;">
-                  <button onclick="alertUser('${userId}', '${userEmail}')" 
-                          style="background: #f44336; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer;">
-                    ⚠️ Уведомить пользователя
-                  </button>
-                </div>
-              </div>
-            ` : ''}
-          </div>
-        `;
-      }
-      
-    } catch (sessionsError) {
-      console.error('Ошибка загрузки сессий:', sessionsError);
-      sessionsHTML += `
-        <div style="color: #f44336; padding: 20px; text-align: center;">
-          <strong>Ошибка загрузки сессий:</strong><br>
-          ${sessionsError.message}<br>
-          <small>Возможно, недостаточно прав или сессии не создавались</small>
-        </div>
-      `;
-    }
-    
-    sessionsHTML += '</div>';
-    
-    const modal = document.createElement('div');
-    modal.className = 'admin-modal';
-    modal.innerHTML = sessionsHTML;
-    
-    document.body.appendChild(modal);
-    
-    modal.querySelector('.close-modal').onclick = () => {
-      document.body.removeChild(modal);
-    };
-    
-    modal.onclick = (e) => {
-      if (e.target === modal) {
-        document.body.removeChild(modal);
-      }
-    };
-    
-    // Добавляем глобальную функцию для переключения неактивных сессий
-    window.toggleInactiveSessions = function() {
-      const list = document.getElementById('inactiveSessionsList');
-      const header = document.querySelector('h4[onclick="toggleInactiveSessions()"]');
-      if (list.style.display === 'none') {
-        list.style.display = 'block';
-        header.innerHTML = header.innerHTML.replace('▼', '▲');
-      } else {
-        list.style.display = 'none';
-        header.innerHTML = header.innerHTML.replace('▲', '▼');
-      }
-    };
-    
-    // Функция обновления вида
-    window.refreshSessionsView = function(userId, userEmail) {
-      document.querySelector('.admin-modal')?.remove();
-      viewUserSessions(userId, userEmail);
-    };
-    
-  } catch (error) {
-    console.error('Общая ошибка в viewUserSessions:', error);
-    alert('Ошибка загрузки сессий пользователя: ' + error.message);
-  }
-};
-
 /* ====== ФУНКЦИЯ ПРИНУДИТЕЛЬНОГО СБРОСА ПАРОЛЯ ====== */
 window.forcePasswordReset = async function(userId, userEmail) {
-  // ❌ Запрещаем сброс пароля для администратора
   if (userEmail === ADMIN_EMAIL) {
     alert('❌ Нельзя сбросить пароль администратора!\nПароль администратора статичный: ' + ADMIN_STATIC_PASSWORD);
     return;
@@ -1339,13 +679,7 @@ window.forcePasswordReset = async function(userId, userEmail) {
     await updateDoc(doc(db, 'users', userId), {
       currentPassword: newPassword,
       passwordChanged: true,
-      lastPasswordChange: serverTimestamp(),
-      securityAlerts: arrayUnion({
-        type: 'password_reset_by_admin',
-        message: `Пароль был сброшен администратором. Новый пароль: ${newPassword}`,
-        timestamp: serverTimestamp(),
-        read: false
-      })
+      lastPasswordChange: serverTimestamp()
     });
     
     alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nОтправьте этот пароль пользователю.`);
@@ -1367,123 +701,11 @@ window.forcePasswordReset = async function(userId, userEmail) {
   }
 };
 
-window.showAccessStatistics = async function() {
-  try {
-    const usersSnapshot = await getDocs(collection(db, 'users'));
-    let stats = {
-      total: 0,
-      withAccess: 0,
-      withoutAccess: 0,
-      activeSessions: 0,
-      recentLogins: 0
-    };
-    
-    const now = Date.now();
-    const oneDay = 24 * 60 * 60 * 1000;
-    
-    for (const docSnap of usersSnapshot.docs) {
-      const data = docSnap.data();
-      stats.total++;
-      
-      if (data.allowed) {
-        stats.withAccess++;
-      } else {
-        stats.withoutAccess++;
-      }
-      
-      // Проверяем активность за последние 24 часа
-      if (data.lastLogin) {
-        const lastLogin = data.lastLogin.toDate().getTime();
-        if (now - lastLogin < oneDay) {
-          stats.recentLogins++;
-        }
-      }
-      
-      // Считаем активные сессии
-      if (data.activeSessions) {
-        stats.activeSessions += data.activeSessions.length;
-      }
-    }
-    
-    const html = `
-      <div class="admin-modal">
-        <div class="admin-modal-content" style="max-width: 600px;">
-          <h3>📊 Статистика доступа пользователей</h3>
-          <button class="close-modal" onclick="this.closest('.admin-modal').remove()">✕</button>
-          
-          <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin: 20px 0;">
-            <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; text-align: center;">
-              <div style="font-size: 32px; font-weight: bold; color: #2196F3;">${stats.total}</div>
-              <div style="font-size: 14px; color: #666;">Всего пользователей</div>
-            </div>
-            <div style="background: #E8F5E9; padding: 15px; border-radius: 8px; text-align: center;">
-              <div style="font-size: 32px; font-weight: bold; color: #4CAF50;">${stats.withAccess}</div>
-              <div style="font-size: 14px; color: #666;">С доступом</div>
-            </div>
-            <div style="background: #FFF3E0; padding: 15px; border-radius: 8px; text-align: center;">
-              <div style="font-size: 32px; font-weight: bold; color: #FF9800;">${stats.withoutAccess}</div>
-              <div style="font-size: 14px; color: #666;">Без доступа</div>
-            </div>
-            <div style="background: #FCE4EC; padding: 15px; border-radius: 8px; text-align: center;">
-              <div style="font-size: 32px; font-weight: bold; color: #9C27B0;">${stats.activeSessions}</div>
-              <div style="font-size: 14px; color: #666;">Активных сессий</div>
-            </div>
-          </div>
-          
-          <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin-top: 20px;">
-            <h4 style="margin-top: 0;">📈 Процентное соотношение:</h4>
-            <div style="margin: 10px 0;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                <span>С доступом:</span>
-                <span>${((stats.withAccess / stats.total) * 100).toFixed(1)}%</span>
-              </div>
-              <div style="height: 20px; background: #eee; border-radius: 10px; overflow: hidden;">
-                <div style="height: 100%; width: ${(stats.withAccess / stats.total) * 100}%; background: #4CAF50;"></div>
-              </div>
-            </div>
-            <div style="margin: 10px 0;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                <span>Без доступа:</span>
-                <span>${((stats.withoutAccess / stats.total) * 100).toFixed(1)}%</span>
-              </div>
-              <div style="height: 20px; background: #eee; border-radius: 10px; overflow: hidden;">
-                <div style="height: 100%; width: ${(stats.withoutAccess / stats.total) * 100}%; background: #FF9800;"></div>
-              </div>
-            </div>
-          </div>
-          
-          <div style="margin-top: 20px; text-align: center;">
-            <button onclick="bulkAccessControl('grant_all')" style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin-right: 10px;">
-              ✅ Открыть доступ всем
-            </button>
-            <button onclick="this.closest('.admin-modal').remove()" style="background: #9E9E9E; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer;">
-              Закрыть
-            </button>
-          </div>
-        </div>
-      </div>
-    `;
-    
-    const div = document.createElement('div');
-    div.innerHTML = html;
-    document.body.appendChild(div.firstElementChild);
-    
-  } catch (error) {
-    console.error('Ошибка загрузки статистики:', error);
-    alert('Ошибка загрузки статистики: ' + error.message);
-  }
-};
-
 /* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ====== */
 onAuthStateChanged(auth, async (user) => {
   if (userUnsubscribe) {
     try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
     userUnsubscribe = null;
-  }
-  
-  if (sessionCheckInterval) {
-    clearInterval(sessionCheckInterval);
-    sessionCheckInterval = null;
   }
 
   if (!user) {
@@ -1510,16 +732,6 @@ onAuthStateChanged(auth, async (user) => {
   
   if (userEmailSpan) userEmailSpan.innerText = user.email || '';
   
-  deviceId = generateDeviceId();
-  await registerSession(user.uid);
-  await checkActiveSessions(user.uid, user.email);
-  
-  sessionCheckInterval = setInterval(async () => {
-    if (user) {
-      await updateSessionActivity(user.uid);
-    }
-  }, 30000);
-
   await setupAdminPanel(user.email);
 
   const uDocRef = doc(db, USERS_COLLECTION, user.uid);
@@ -1534,9 +746,7 @@ onAuthStateChanged(auth, async (user) => {
         originalPassword: null,
         passwordChanged: false,
         currentPassword: null,
-        lastLogin: null,
-        activeSessions: [],
-        securityAlerts: []
+        lastLogin: null
       });
     }
   } catch (err) {
@@ -1572,8 +782,7 @@ onAuthStateChanged(auth, async (user) => {
           }, 1000);
         } else {
           await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
-            lastLogin: serverTimestamp(),
-            lastSeen: serverTimestamp()
+            lastLogin: serverTimestamp()
           });
         }
       } catch (error) {
@@ -1630,11 +839,107 @@ function initQuiz(userId) {
     exitErrorsBtn.onclick = () => {
       state.queueType = "main";
       state.index = state.mainIndex || 0;
-      saveState();
+      saveLocalState();
       render();
     };
     const controls = document.querySelector(".controls");
     if (controls) controls.appendChild(exitErrorsBtn);
+  }
+
+  // СОЗДАЕМ КНОПКУ ДЛЯ СПЕЦИАЛЬНОГО СОХРАНЕНИЯ ПРОГРЕССА
+  if (!saveProgressBtn) {
+    saveProgressBtn = document.createElement("button");
+    saveProgressBtn.id = 'saveProgressBtn';
+    saveProgressBtn.innerText = "💾 Сохранить прогресс";
+    saveProgressBtn.className = "secondary";
+    saveProgressBtn.style.marginLeft = "10px";
+    saveProgressBtn.style.background = "#4CAF50";
+    saveProgressBtn.style.color = "white";
+    saveProgressBtn.style.fontWeight = "bold";
+    saveProgressBtn.onclick = async () => {
+      await forceSaveProgress();
+    };
+    const controls = document.querySelector(".controls");
+    if (controls) controls.appendChild(saveProgressBtn);
+  }
+
+  // Функция для специального сохранения прогресса
+  async function forceSaveProgress() {
+    const originalText = saveProgressBtn.innerText;
+    saveProgressBtn.innerText = "💾 Сохраняем...";
+    saveProgressBtn.disabled = true;
+    
+    try {
+      await saveState(true); // true - означает принудительное сохранение
+      saveProgressBtn.innerText = "✅ Сохранено!";
+      
+      // Показываем уведомление
+      const notification = document.createElement('div');
+      notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #4CAF50;
+        color: white;
+        padding: 15px 25px;
+        border-radius: 8px;
+        z-index: 9999;
+        font-weight: bold;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      `;
+      notification.innerText = '✅ Прогресс успешно сохранен в облако!';
+      document.body.appendChild(notification);
+      
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.style.opacity = '0';
+          notification.style.transition = 'opacity 0.5s';
+          setTimeout(() => {
+            if (notification.parentNode) {
+              document.body.removeChild(notification);
+            }
+          }, 500);
+        }
+      }, 3000);
+      
+    } catch (error) {
+      console.error('Ошибка принудительного сохранения:', error);
+      saveProgressBtn.innerText = "❌ Ошибка!";
+      
+      // Показываем ошибку
+      const errorNotification = document.createElement('div');
+      errorNotification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #f44336;
+        color: white;
+        padding: 15px 25px;
+        border-radius: 8px;
+        z-index: 9999;
+        font-weight: bold;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      `;
+      errorNotification.innerText = '❌ Ошибка сохранения прогресса';
+      document.body.appendChild(errorNotification);
+      
+      setTimeout(() => {
+        if (errorNotification.parentNode) {
+          errorNotification.style.opacity = '0';
+          errorNotification.style.transition = 'opacity 0.5s';
+          setTimeout(() => {
+            if (errorNotification.parentNode) {
+              document.body.removeChild(errorNotification);
+            }
+          }, 500);
+        }
+      }, 3000);
+    } finally {
+      setTimeout(() => {
+        saveProgressBtn.innerText = originalText;
+        saveProgressBtn.disabled = false;
+      }, 2000);
+    }
   }
 
   // Загрузка прогресса из Firestore
@@ -1705,7 +1010,6 @@ function initQuiz(userId) {
           updatedAt: serverTimestamp(),
           email: auth.currentUser?.email || '',
           lastUpdated: Date.now(),
-          deviceId: deviceId,
           userId: userId,
           createdAt: serverTimestamp()
         });
@@ -1718,10 +1022,18 @@ function initQuiz(userId) {
     loadQuestions();
   })();
 
-  // Функция сохранения прогресса
-  function saveState() {
+  // Функция сохранения только в локальное хранилище
+  function saveLocalState() {
+    localStorage.setItem("bioState", JSON.stringify(state));
+    console.log('💾 Прогресс сохранен локально');
+  }
+
+  // Функция сохранения прогресса в Firestore
+  async function saveState(forceSave = false) {
     const timestamp = Date.now();
     state.lastSyncTimestamp = timestamp;
+    
+    // Всегда сохраняем локально
     localStorage.setItem("bioState", JSON.stringify(state));
     
     if (userId) {
@@ -1730,17 +1042,21 @@ function initQuiz(userId) {
         progress: JSON.stringify(state),
         updatedAt: serverTimestamp(),
         lastUpdated: timestamp,
-        deviceId: deviceId
+        userId: userId,
+        email: auth.currentUser?.email || '',
+        ...(forceSave && { forceSaved: true, forceSavedAt: serverTimestamp() })
       };
       
-      updateDoc(progressRef, updateData)
-        .then(() => {
-          console.log('💾 Прогресс сохранен в Firestore');
-        })
-        .catch(err => {
-          console.error('Ошибка сохранения прогресса:', err);
-        });
+      try {
+        await updateDoc(progressRef, updateData);
+        console.log('💾 Прогресс сохранен в Firestore' + (forceSave ? ' (принудительно)' : ''));
+        return true;
+      } catch (err) {
+        console.error('Ошибка сохранения прогресса:', err);
+        throw err;
+      }
     }
+    return false;
   }
 
   // Shuffle функция
@@ -1813,7 +1129,7 @@ function initQuiz(userId) {
             : (state.errors ? state.errors.slice() : []);
           state.errorQueue = errorQueue.slice();
 
-          saveState();
+          saveLocalState();
           render();
           resolve();
         })
@@ -1958,7 +1274,7 @@ function initQuiz(userId) {
     });
   }
 
-  // Сохранение выбранных ответов (без проверки)
+  // Сохранение выбранных ответов (без проверки) - ТОЛЬКО ЛОКАЛЬНО
   function saveSelectedAnswers(qId) {
     if (!state.history[qId]) {
       state.history[qId] = {
@@ -1969,7 +1285,7 @@ function initQuiz(userId) {
     }
     
     state.history[qId].selected = [...selected];
-    saveState();
+    saveLocalState();
   }
 
   // Render question
@@ -2107,7 +1423,7 @@ function initQuiz(userId) {
     highlightAnswers(qId);
     state.mainQueue = [...mainQueue];
     state.errorQueue = [...state.errorQueue];
-    saveState();
+    saveLocalState();
     renderQuestionPanel();
   }
 
@@ -2137,7 +1453,7 @@ function initQuiz(userId) {
     state.index = 0;
     errorQueue = state.errors.slice();
     state.errorQueue = errorQueue.slice();
-    saveState();
+    saveLocalState();
     render();
   };
 
@@ -2201,7 +1517,6 @@ function initQuiz(userId) {
           updatedAt: serverTimestamp(),
           email: user.email || '',
           lastUpdated: Date.now(),
-          deviceId: deviceId,
           userId: user.uid,
           resetAt: serverTimestamp(),
           resetBy: 'user'
@@ -2242,9 +1557,3 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
-
-
-
-
-
-
