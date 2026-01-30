@@ -893,6 +893,142 @@ function initQuiz(userId) {
     if (controls) controls.appendChild(saveProgressBtn);
   }
 
+// СОЗДАЕМ КНОПКУ ДЛЯ ПОДГРУЗКИ ОТВЕТОВ ИЗ ОБЛАКА
+let loadFromCloudBtn = document.getElementById('loadFromCloudBtn');
+if (!loadFromCloudBtn) {
+    loadFromCloudBtn = document.createElement("button");
+    loadFromCloudBtn.id = 'loadFromCloudBtn';
+    loadFromCloudBtn.innerText = "☁️ Загрузить из облака";
+    loadFromCloudBtn.className = "secondary";
+    loadFromCloudBtn.style.marginLeft = "10px";
+    loadFromCloudBtn.style.background = "#2196F3";
+    loadFromCloudBtn.style.color = "white";
+    loadFromCloudBtn.style.fontWeight = "bold";
+    loadFromCloudBtn.onclick = async () => {
+        await loadProgressFromCloud(true); // true = перезагрузка страницы
+    };
+    const controls = document.querySelector(".controls");
+    if (controls) controls.appendChild(loadFromCloudBtn);
+}
+
+// Функция для загрузки прогресса из облака
+async function loadProgressFromCloud(reloadPage = false) {
+    if (!userId) {
+        alert('❌ Пользователь не авторизован');
+        return;
+    }
+
+    const originalText = loadFromCloudBtn.innerText;
+    loadFromCloudBtn.innerText = "☁️ Загружаем...";
+    loadFromCloudBtn.disabled = true;
+
+    try {
+        const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
+        const snap = await getDoc(progressRef);
+        
+        if (!snap.exists()) {
+            alert('❌ В облаке нет сохраненного прогресса');
+            loadFromCloudBtn.innerText = originalText;
+            loadFromCloudBtn.disabled = false;
+            return;
+        }
+
+        const data = snap.data();
+        if (!data.progress) {
+            alert('❌ В облаке нет данных прогресса');
+            loadFromCloudBtn.innerText = originalText;
+            loadFromCloudBtn.disabled = false;
+            return;
+        }
+
+        // Парсим прогресс из облака
+        const cloudState = JSON.parse(data.progress);
+        const cloudTime = data.updatedAt?.toMillis() || 0;
+        const localTime = state.lastSyncTimestamp || 0;
+
+        // Сравниваем даты для информации
+        let message = '';
+        if (cloudTime > localTime) {
+            message = `Облачная версия новее (${new Date(cloudTime).toLocaleString()})`;
+        } else if (cloudTime < localTime) {
+            message = `Локальная версия новее (${new Date(localTime).toLocaleString()})`;
+        } else {
+            message = 'Версии идентичны';
+        }
+
+        if (confirm(`Загрузить прогресс из облака?\n\n${message}\n\nТекущий локальный прогресс будет заменен.`)) {
+            // Сохраняем облачный прогресс в localStorage
+            localStorage.setItem("bioState", JSON.stringify(cloudState));
+            
+            // Показываем уведомление
+            const notification = document.createElement('div');
+            notification.style.cssText = `
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #2196F3;
+                color: white;
+                padding: 15px 30px;
+                border-radius: 8px;
+                z-index: 9999;
+                font-weight: bold;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                text-align: center;
+            `;
+            
+            if (reloadPage) {
+                notification.innerText = '✅ Прогресс загружен из облака!\nСтраница будет перезагружена...';
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.style.opacity = '0';
+                        notification.style.transition = 'opacity 0.5s';
+                        setTimeout(() => {
+                            if (notification.parentNode) {
+                                document.body.removeChild(notification);
+                            }
+                        }, 500);
+                    }
+                    // Перезагружаем страницу
+                    location.reload();
+                }, 1500);
+            } else {
+                notification.innerText = '✅ Прогресс загружен из облака!';
+                document.body.appendChild(notification);
+                
+                // Обновляем состояние в памяти
+                Object.assign(state, cloudState);
+                
+                // Перезагружаем вопросы с новым состоянием
+                await loadQuestions();
+                
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.style.opacity = '0';
+                        notification.style.transition = 'opacity 0.5s';
+                        setTimeout(() => {
+                            if (notification.parentNode) {
+                                document.body.removeChild(notification);
+                            }
+                        }, 500);
+                    }
+                }, 3000);
+            }
+        } else {
+            loadFromCloudBtn.innerText = originalText;
+            loadFromCloudBtn.disabled = false;
+        }
+        
+    } catch (error) {
+        console.error('Ошибка загрузки из облака:', error);
+        alert('❌ Ошибка загрузки прогресса из облака: ' + error.message);
+        loadFromCloudBtn.innerText = originalText;
+        loadFromCloudBtn.disabled = false;
+    }
+}
+  
   // Функция для специального сохранения прогресса
   async function forceSaveProgress() {
     const originalText = saveProgressBtn.innerText;
@@ -1615,4 +1751,5 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
