@@ -991,38 +991,44 @@ function initQuiz(userId) {
             const remoteTime = data.updatedAt?.toMillis() || 0;
             const localTime = state.lastSyncTimestamp || 0;
             
-            // ВОССТАНАВЛИВАЕМ ВСЕ ПОЛЯ, СОХРАНЯЯ ИХ ПОРЯДОК И ЗНАЧЕНИЯ
-            const fieldsToPreserve = ['answersOrder', 'history', 'mainQueue', 'errorQueue', 'queueType', 'index', 'mainIndex', 'stats', 'errors', 'errorAttempts'];
-            
-            fieldsToPreserve.forEach(key => {
-              if (savedState[key] !== undefined) {
-                if (key === 'stats' || key === 'errorAttempts' || key === 'history' || key === 'answersOrder') {
-                  // Для объектов мерджим глубоко
-                  if (typeof savedState[key] === 'object' && savedState[key] !== null) {
-                    state[key] = { ...(state[key] || {}), ...savedState[key] };
-                  } else {
-                    state[key] = savedState[key];
-                  }
-                } else if (key === 'mainQueue' || key === 'errorQueue' || key === 'errors') {
-                  // Для массивов сохраняем как есть
-                  if (Array.isArray(savedState[key])) {
-                    state[key] = [...savedState[key]];
-                  } else {
-                    state[key] = savedState[key];
-                  }
-                } else {
+            if (remoteTime > localTime) {
+              console.log('📥 Загрузка прогресса с сервера...');
+              
+              // Сохраняем текущие значения
+              const currentIndex = state.index;
+              const currentQueueType = state.queueType;
+              
+              // Обновляем состояние из сервера
+              Object.keys(savedState).forEach(key => {
+                if (key !== 'answersOrder' && key !== 'history' && key !== 'mainQueue' && key !== 'errorQueue') {
                   state[key] = savedState[key];
                 }
+              });
+              
+              // Сохраняем важные локальные данные
+              state.answersOrder = state.answersOrder || savedState.answersOrder || {};
+              state.history = state.history || savedState.history || {};
+              state.mainQueue = state.mainQueue || savedState.mainQueue || null;
+              state.errorQueue = state.errorQueue || savedState.errorQueue || [];
+              
+              state.lastSyncTimestamp = remoteTime;
+              
+              // Восстанавливаем позицию
+              if (currentQueueType === state.queueType) {
+                const queueLength = state.queueType === "main" ? 
+                  (state.mainQueue?.length || 0) : 
+                  (state.errorQueue?.length || 0);
+                
+                if (currentIndex < queueLength) {
+                  state.index = currentIndex;
+                }
               }
-            });
-            
-            state.lastSyncTimestamp = remoteTime || Date.now();
-            
-            console.log('✅ Прогресс загружен с сервера, сохранены цвета и порядок');
-            
-            // Сохраняем в локальное хранилище
-            localStorage.setItem("bioState", JSON.stringify(state));
-            
+              
+              console.log('✅ Прогресс загружен с сервера');
+              
+              // Сохраняем в локальное хранилище
+              localStorage.setItem("bioState", JSON.stringify(state));
+            }
           } catch (err) {
             console.error('Ошибка разбора сохранённого состояния:', err);
           }
@@ -1113,8 +1119,17 @@ function initQuiz(userId) {
             mainQueue = [...Array(questions.length).keys()];
             mainQueue = shuffleArray(mainQueue);
           } else {
-            // СОХРАНЯЕМ СУЩЕСТВУЮЩУЮ ОЧЕРЕДЬ ИЗ СОХРАНЕННОГО СОСТОЯНИЯ
             mainQueue = state.mainQueue.slice();
+            const freeIndexes = [];
+            const floating = [];
+            mainQueue.forEach((qId, pos) => {
+              if (!state.history[qId]?.checked) {
+                freeIndexes.push(pos);
+                floating.push(qId);
+              }
+            });
+            const shuffledFloating = shuffleArray(floating);
+            freeIndexes.forEach((pos, i) => mainQueue[pos] = shuffledFloating[i]);
           }
           state.mainQueue = mainQueue.slice();
 
@@ -1125,7 +1140,6 @@ function initQuiz(userId) {
 
             let order; 
             if (state.answersOrder[qId]) {
-              // ИСПОЛЬЗУЕМ СОХРАНЕННЫЙ ПОРЯДОК ОТВЕТОВ
               order = state.answersOrder[qId].slice();
             } else {
               order = original.map(a => a.index);
@@ -1220,25 +1234,8 @@ function initQuiz(userId) {
       const navBtn = document.createElement("button");
       navBtn.innerText = p + 1;
       const activePage = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
-      if (p === activePage) {
-        navBtn.classList.add("active");
-        navBtn.style.background = "#2196F3";
-        navBtn.style.color = "white";
-        navBtn.style.fontWeight = "bold";
-      } else {
-        navBtn.classList.remove("active");
-        navBtn.style.background = "#f0f0f0";
-        navBtn.style.color = "#333";
-      }
-      
-      navBtn.style.cssText += `
-        border: 1px solid #ccc;
-        padding: 5px 10px;
-        margin: 0 2px;
-        border-radius: 3px;
-        cursor: pointer;
-        min-width: 30px;
-      `;
+      if (p === activePage) navBtn.classList.add("active");
+      else navBtn.classList.remove("active");
       
       navBtn.onclick = () => {
         if (state.queueType === "main") currentPanelPage = p;
@@ -1266,51 +1263,30 @@ function initQuiz(userId) {
 
   // Function to apply button styles
   function applyButtonStyles(btn, status) {
-    // СОХРАНЯЕМ ВСЕ СТИЛИ В ОДНОМ МЕСТЕ
-    const styles = {
-      correct: {
-        background: "#4caf50",
-        color: "#fff",
-        borderColor: "#4caf50",
-        fontWeight: "bold"
-      },
-      wrong: {
-        background: "#e53935",
-        color: "#fff",
-        borderColor: "#e53935",
-        fontWeight: "bold"
-      },
-      selected: {
-        background: "#2196F3",
-        color: "#fff",
-        borderColor: "#2196F3",
-        fontWeight: "bold"
-      },
-      unchecked: {
-        background: "#fff",
-        color: "#000",
-        borderColor: "#ccc",
-        fontWeight: "normal"
-      }
-    };
-
-    const style = styles[status];
-    Object.assign(btn.style, style);
-    btn.style.borderWidth = "1px";
-    btn.style.borderStyle = "solid";
-    btn.style.padding = "8px 12px";
-    btn.style.margin = "2px";
-    btn.style.borderRadius = "4px";
-    btn.style.cursor = "pointer";
-    btn.style.minWidth = "40px";
+    if (status === "correct") {
+      btn.style.background = "#4caf50";
+      btn.style.color = "#fff";
+      btn.style.borderColor = btn.style.background;
+    } else if (status === "wrong") {
+      btn.style.background = "#e53935";
+      btn.style.color = "#fff";
+      btn.style.borderColor = btn.style.background;
+    } else if (status === "selected") {
+      btn.style.background = "#2196F3";
+      btn.style.color = "#fff";
+      btn.style.borderColor = btn.style.background;
+    } else {
+      btn.style.background = "#fff";
+      btn.style.color = "#000";
+      btn.style.borderColor = "#ccc";
+    }
 
     const btnNumber = parseInt(btn.innerText) - 1;
     if (state.index === btnNumber) {
       btn.style.border = "2px solid #2196F3";
       btn.style.boxShadow = "0 0 8px rgba(33,150,243,0.7)";
-      btn.style.fontWeight = "bold";
     } else {
-      btn.style.border = `1px solid ${style.borderColor}`;
+      btn.style.border = btn.style.borderColor ? `1px solid ${btn.style.borderColor}` : "1px solid #ccc";
       btn.style.boxShadow = "none";
     }
   }
@@ -1323,18 +1299,8 @@ function initQuiz(userId) {
     
     answerEls.forEach((el, i) => {
       el.classList.remove("correct", "wrong");
-      if (correctIndexes.includes(i)) {
-        el.classList.add("correct");
-        el.style.background = "#e8f5e9";
-        el.style.color = "#2e7d32";
-        el.style.borderLeft = "4px solid #4caf50";
-      }
-      if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) {
-        el.classList.add("wrong");
-        el.style.background = "#ffebee";
-        el.style.color = "#c62828";
-        el.style.borderLeft = "4px solid #f44336";
-      }
+      if (correctIndexes.includes(i)) el.classList.add("correct");
+      if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) el.classList.add("wrong");
     });
   }
 
@@ -1403,23 +1369,7 @@ function initQuiz(userId) {
       const el = document.createElement("div");
       el.className = "answer";
       el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
-      
-      // СОХРАНЯЕМ СТИЛИ ДЛЯ ОТВЕТОВ
-      el.style.cssText = `
-        padding: 12px 15px;
-        margin: 8px 0;
-        border: 1px solid #ddd;
-        border-radius: 5px;
-        cursor: pointer;
-        transition: all 0.2s;
-        background: ${selected.has(i) ? '#e3f2fd' : '#fff'};
-        border-left: ${selected.has(i) ? '4px solid #2196F3' : '1px solid #ddd'};
-      `;
-      
-      if (selected.has(i)) {
-        el.classList.add("selected");
-        el.style.fontWeight = "bold";
-      }
+      if (selected.has(i)) el.classList.add("selected");
 
       el.onclick = () => {
         if (state.queueType === "errors" || checked) return;
@@ -1435,16 +1385,10 @@ function initQuiz(userId) {
             selected.delete(i);
             el.classList.remove("selected");
             el.classList.remove("highlight");
-            el.style.background = "#fff";
-            el.style.borderLeft = "1px solid #ddd";
-            el.style.fontWeight = "normal";
           } else {
             selected.add(i);
             el.classList.add("selected");
             el.classList.add("highlight");
-            el.style.background = "#e3f2fd";
-            el.style.borderLeft = "4px solid #2196F3";
-            el.style.fontWeight = "bold";
           }
           
           saveSelectedAnswers(qId);
@@ -1576,6 +1520,21 @@ function initQuiz(userId) {
       }
 
       try {
+        // Создаем состояние сброса
+        const resetState = {
+          queueType: "main",
+          index: 0,
+          mainIndex: 0,
+          stats: { correct: 0, wrong: 0 },
+          errors: [],
+          errorAttempts: {},
+          history: {},
+          mainQueue: null,
+          answersOrder: {},
+          errorQueue: [],
+          lastSyncTimestamp: Date.now()
+        };
+
         // 1. Очищаем локальное хранилище
         localStorage.removeItem("bioState");
         console.log('🗑️ Локальное хранилище очищено');
@@ -1584,19 +1543,7 @@ function initQuiz(userId) {
         const progressRef = doc(db, USERS_PROGRESS_COLLECTION, user.uid);
         
         await setDoc(progressRef, {
-          progress: JSON.stringify({
-            queueType: "main",
-            index: 0,
-            mainIndex: 0,
-            stats: { correct: 0, wrong: 0 },
-            errors: [],
-            errorAttempts: {},
-            history: {},
-            mainQueue: null,
-            answersOrder: {},
-            errorQueue: [],
-            lastSyncTimestamp: Date.now()
-          }),
+          progress: JSON.stringify(resetState),
           updatedAt: serverTimestamp(),
           email: user.email || '',
           lastUpdated: Date.now(),
@@ -1607,13 +1554,14 @@ function initQuiz(userId) {
         
         console.log('🗑️ Прогресс сброшен в Firestore');
 
-        // 3. Показываем уведомление и перезагружаем страницу
-        alert('✅ Прогресс успешно сброшен!\n\nСтраница будет перезагружена...');
+        // 3. Обновляем состояние в памяти
+        Object.assign(state, resetState);
         
-        // 4. Перезагружаем страницу через 1 секунду
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
+        // 4. Перезагружаем вопросы
+        await loadQuestions();
+        
+        // 5. Показываем уведомление
+        alert('✅ Прогресс успешно сброшен!\n\nТест начнется с первого вопроса.');
 
       } catch (error) {
         console.error('❌ Ошибка сброса прогресса:', error);
