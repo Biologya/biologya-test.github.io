@@ -131,6 +131,21 @@ if (authBtn) {
   });
 }
 
+// Если нужно перенести пользователей:
+const oldUsers = await getDocs(collection(db, 'old_users'));
+for (const docSnap of oldUsers.docs) {
+  const data = docSnap.data();
+  await setDoc(doc(db, USERS_COLLECTION, docSnap.id), {
+    email: data.email,
+    allowed: data.allowed || false,
+    createdAt: data.createdAt || serverTimestamp(),
+    currentPassword: data.currentPassword || null,
+    passwordChanged: data.passwordChanged || false,
+    lastLogin: data.lastLogin || null,
+    // Не переносим: activeSessions, securityAlerts
+  });
+}
+
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
   await signOut(auth);
@@ -1557,3 +1572,4 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
