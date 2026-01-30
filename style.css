@@ -169,6 +169,27 @@ button {
 button:hover { background: #81c784; }
 button.secondary { background: #81c784; }
 
+#loadFromCloudBtn {
+    background: #2196F3 !important;
+    color: white !important;
+    border: none !important;
+    padding: 8px 16px !important;
+    border-radius: 4px !important;
+    cursor: pointer !important;
+    font-weight: bold !important;
+    transition: background 0.3s !important;
+    margin-left: 10px !important;
+}
+
+#loadFromCloudBtn:hover {
+    background: #1976D2 !important;
+}
+
+#loadFromCloudBtn:disabled {
+    background: #BBDEFB !important;
+    cursor: not-allowed !important;
+}
+
 /* ====== Прогресс ====== */
 .progress-bar {
   height: 8px;
@@ -309,3 +330,4 @@ button.secondary { background: #81c784; }
   .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
 }
+
