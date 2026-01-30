@@ -972,7 +972,7 @@ function initQuiz(userId) {
     }
   }
 
-  // Загрузка прогресса из Firestore
+  // Загрузка прогресса из Firestore - ИСПРАВЛЕННАЯ ВЕРСИЯ
   (async () => {
     if (!userId) {
       loadQuestions();
@@ -994,27 +994,34 @@ function initQuiz(userId) {
             if (remoteTime > localTime) {
               console.log('📥 Загрузка прогресса с сервера...');
               
-              // Сохраняем текущие значения
+              // КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ: Глубокое копирование ВСЕХ полей из сохраненного состояния
+              const preservedFields = [
+                'history', 'answersOrder', 'mainQueue', 'errorQueue',
+                'errors', 'errorAttempts', 'stats', 'queueType',
+                'mainIndex', 'index', 'lastSyncTimestamp'
+              ];
+              
+              // Сохраняем текущий индекс и тип очереди
               const currentIndex = state.index;
               const currentQueueType = state.queueType;
               
-              // Обновляем состояние из сервера
-              Object.keys(savedState).forEach(key => {
-                if (key !== 'answersOrder' && key !== 'history' && key !== 'mainQueue' && key !== 'errorQueue') {
-                  state[key] = savedState[key];
+              // Обновляем только нужные поля из сервера с глубоким копированием
+              preservedFields.forEach(field => {
+                if (savedState[field] !== undefined) {
+                  if (Array.isArray(savedState[field])) {
+                    state[field] = [...savedState[field]];
+                  } else if (typeof savedState[field] === 'object' && savedState[field] !== null) {
+                    // Глубокое копирование объектов
+                    state[field] = JSON.parse(JSON.stringify(savedState[field]));
+                  } else {
+                    state[field] = savedState[field];
+                  }
                 }
               });
               
-              // Сохраняем важные локальные данные
-              state.answersOrder = state.answersOrder || savedState.answersOrder || {};
-              state.history = state.history || savedState.history || {};
-              state.mainQueue = state.mainQueue || savedState.mainQueue || null;
-              state.errorQueue = state.errorQueue || savedState.errorQueue || [];
-              
-              state.lastSyncTimestamp = remoteTime;
-              
-              // Восстанавливаем позицию
+              // Восстанавливаем позицию, если очередь не изменилась
               if (currentQueueType === state.queueType) {
+                // Проверяем, что индекс в пределах допустимого
                 const queueLength = state.queueType === "main" ? 
                   (state.mainQueue?.length || 0) : 
                   (state.errorQueue?.length || 0);
@@ -1024,7 +1031,7 @@ function initQuiz(userId) {
                 }
               }
               
-              console.log('✅ Прогресс загружен с сервера');
+              console.log('✅ Прогресс загружен с сервера, сохранены цвета и история');
               
               // Сохраняем в локальное хранилище
               localStorage.setItem("bioState", JSON.stringify(state));
@@ -1099,7 +1106,7 @@ function initQuiz(userId) {
     return newArr;
   }
 
-  // Загрузка вопросов
+  // Загрузка вопросов - ИСПРАВЛЕННАЯ ВЕРСИЯ
   function loadQuestions() {
     return new Promise((resolve, reject) => {
       fetch("questions.json")
@@ -1115,24 +1122,43 @@ function initQuiz(userId) {
           state.mainQueue = state.mainQueue || null;
           state.errorQueue = state.errorQueue || [];
 
+          // Если нет сохраненной очереди или она неполная
           if (!state.mainQueue || state.mainQueue.length !== questions.length) {
+            // Создаем полностью перемешанную очередь
             mainQueue = [...Array(questions.length).keys()];
             mainQueue = shuffleArray(mainQueue);
           } else {
+            // Используем сохраненную очередь из Firestore
             mainQueue = state.mainQueue.slice();
-            const freeIndexes = [];
-            const floating = [];
+            
+            // Разделяем вопросы на отмеченные и неотмеченные
+            const markedQuestions = []; // Отмеченные вопросы (уже отвеченные)
+            const unmarkedIndices = []; // Индексы неотмеченных вопросов
+            const unmarkedQuestions = []; // ID неотмеченных вопросов
+            
             mainQueue.forEach((qId, pos) => {
-              if (!state.history[qId]?.checked) {
-                freeIndexes.push(pos);
-                floating.push(qId);
+              if (state.history[qId]?.checked) {
+                // Отмеченный вопрос - сохраняем его позицию
+                markedQuestions.push({ qId, pos });
+              } else {
+                // Неотмеченный вопрос - запоминаем его позицию и ID
+                unmarkedIndices.push(pos);
+                unmarkedQuestions.push(qId);
               }
             });
-            const shuffledFloating = shuffleArray(floating);
-            freeIndexes.forEach((pos, i) => mainQueue[pos] = shuffledFloating[i]);
+            
+            // Перемешиваем только неотмеченные вопросы
+            const shuffledUnmarked = shuffleArray(unmarkedQuestions);
+            
+            // Заменяем неотмеченные вопросы на новые перемешанные
+            unmarkedIndices.forEach((pos, i) => {
+              mainQueue[pos] = shuffledUnmarked[i];
+            });
           }
+          
           state.mainQueue = mainQueue.slice();
 
+          // Обрабатываем порядок ответов для каждого вопроса
           mainQueue.forEach(qId => {
             const q = questions[qId];
             const original = q.answers.map((a, i) => ({ text: a, index: i }));
@@ -1140,8 +1166,10 @@ function initQuiz(userId) {
 
             let order; 
             if (state.answersOrder[qId]) {
+              // Используем сохраненный порядок ответов из Firestore
               order = state.answersOrder[qId].slice();
             } else {
+              // Создаем новый случайный порядок ответов
               order = original.map(a => a.index);
               order = shuffleArray(order);
               state.answersOrder[qId] = order.slice();
@@ -1587,3 +1615,4 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
