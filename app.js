@@ -24,15 +24,15 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
-const firebaseConfig = {
-  apiKey: "AIzaSyCearT2OVf-Pvw_o9YrkzUF7bGxWeo0F88",
-  authDomain: "biobase-1b1db.firebaseapp.com",
-  projectId: "biobase-1b1db",
-  storageBucket: "biobase-1b1db.firebasestorage.app",
-  messagingSenderId: "671663551167",
-  appId: "1:671663551167:web:fd7635462011123b5a0c0a",
-  measurementId: "G-TJZREPWP5B"
-};
+  const firebaseConfig = {
+    apiKey: "AIzaSyBtYSlpZ0JHmUDNYCbp5kynR_yifj5y0dY",
+    authDomain: "baseforbiotest.firebaseapp.com",
+    projectId: "baseforbiotest",
+    storageBucket: "baseforbiotest.firebasestorage.app",
+    messagingSenderId: "678186767483",
+    appId: "1:678186767483:web:ca06fa25c69fab8aa5fede",
+    measurementId: "G-Y2WZ1W3SBN"
+  };
 
 /* ====== КОЛЛЕКЦИИ FIREBASE ====== */
 const USERS_COLLECTION = "users";
@@ -1572,4 +1572,5 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
+
 
