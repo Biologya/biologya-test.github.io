@@ -87,6 +87,7 @@ let quizInstance = null;
 let passwordResetInProgress = false;
 let userUnsubscribe = null;
 let saveProgressBtn = null;
+let isInitializing = false;
 
 /* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
@@ -102,12 +103,25 @@ if (authBtn) {
     setStatus('Пробуем войти...');
     
     try {
+      // Показываем индикатор загрузки
+      authBtn.disabled = true;
+      authBtn.innerText = 'Вход...';
+      
       await signInWithEmailAndPassword(auth, email, password);
       setStatus('Вход выполнен');
+      
+      // Автоматически переходим в приложение после успешного входа
+      setTimeout(() => {
+        if (authOverlay) authOverlay.style.display = 'none';
+      }, 500);
+      
     } catch(e) {
+      console.error('Ошибка входа:', e);
+      
       if (e.code === 'auth/user-not-found') {
         setStatus('Учётной записи не найдено — создаём...');
         try {
+          authBtn.innerText = 'Регистрация...';
           const cred = await createUserWithEmailAndPassword(auth, email, password);
           await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
             email: email,
@@ -118,28 +132,30 @@ if (authBtn) {
             currentPassword: null
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
+          
+          // Показываем оверлей ожидания сразу после регистрации
+          if (waitOverlay) {
+            waitOverlay.style.display = 'flex';
+            authOverlay.style.display = 'none';
+          }
+          
         } catch(err2) {
+          console.error('Ошибка регистрации:', err2);
           setStatus(err2.message || 'Ошибка регистрации', true);
         }
       } else if (e.code === 'auth/wrong-password') {
         setStatus('Неверный пароль', true);
+      } else if (e.code === 'auth/too-many-requests') {
+        setStatus('Слишком много попыток. Попробуйте позже.', true);
       } else {
         setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
       }
+    } finally {
+      if (authBtn) {
+        authBtn.disabled = false;
+        authBtn.innerText = 'Войти / Зарегистрироваться';
+      }
     }
-  });
-}
-
-// Если нужно перенести пользователей:
-const oldUsers = await getDocs(collection(db, 'old_users'));
-for (const docSnap of oldUsers.docs) {
-  const data = docSnap.data();
-  await setDoc(doc(db, USERS_COLLECTION, docSnap.id), {
-    email: data.email,
-    allowed: data.allowed || false,
-    createdAt: data.createdAt || serverTimestamp(),
-    currentPassword: data.currentPassword || null,
-    passwordChanged: data.passwordChanged || false
   });
 }
 
@@ -221,7 +237,6 @@ async function resetUserPassword(user) {
       console.log(`%c🔑 Пароль: ${newPassword}`, 
                   "color: #FF9800; font-family: 'Courier New', monospace; font-size: 22px;");
     }
-    // Убрано обновление lastLogin
     
   } catch (error) {
     console.error('Ошибка проверки пароля:', error);
@@ -710,100 +725,112 @@ window.forcePasswordReset = async function(userId, userEmail) {
 
 /* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ====== */
 onAuthStateChanged(auth, async (user) => {
-  if (userUnsubscribe) {
-    try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
-    userUnsubscribe = null;
-  }
-
-  if (!user) {
-    if (authOverlay) {
-      authOverlay.removeAttribute('inert');
-      authOverlay.style.display = 'flex';
-      setTimeout(() => emailInput?.focus(), 50);
-    }
-    if (waitOverlay) waitOverlay.style.display = 'none';
-    if (appDiv) appDiv.style.display = 'none';
-    if (userEmailSpan) userEmailSpan.innerText = '';
-    quizInitialized = false;
-    quizInstance = null;
-    
-    const adminContainer = document.getElementById('adminPanelContainer');
-    if (adminContainer) adminContainer.innerHTML = '';
-    return;
-  }
-
-  if (authOverlay) {
-    authOverlay.setAttribute('inert', '');
-    authOverlay.style.display = 'none';
-  }
+  // Защита от повторной инициализации
+  if (isInitializing) return;
+  isInitializing = true;
   
-  if (userEmailSpan) userEmailSpan.innerText = user.email || '';
-  
-  await setupAdminPanel(user.email);
-
-  const uDocRef = doc(db, USERS_COLLECTION, user.uid);
-
   try {
-    const uDocSnap = await getDoc(uDocRef);
-    if (!uDocSnap.exists()) {
-      await setDoc(uDocRef, {
-        email: user.email || '',
-        allowed: false,
-        createdAt: serverTimestamp(),
-        originalPassword: null,
-        passwordChanged: false,
-        currentPassword: null
-      });
+    if (userUnsubscribe) {
+      try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
+      userUnsubscribe = null;
     }
-  } catch (err) {
-    console.error('Ошибка чтения/создания user doc:', err);
-  }
 
-  userUnsubscribe = onSnapshot(uDocRef, async (docSnap) => {
-    if (!docSnap.exists()) return;
-
-    const data = docSnap.data();
-    const allowed = data.allowed === true;
-
-    if (allowed) {
-      if (authOverlay) authOverlay.style.display = 'none';
+    if (!user) {
+      if (authOverlay) {
+        authOverlay.removeAttribute('inert');
+        authOverlay.style.display = 'flex';
+        setTimeout(() => emailInput?.focus(), 50);
+      }
       if (waitOverlay) waitOverlay.style.display = 'none';
-      if (appDiv) appDiv.style.display = 'block';
-      setStatus('');
-
-      try {
-        let shouldReset = false;
-        
-        if (!data.passwordChanged || !data.currentPassword) {
-          shouldReset = true;
-        }
-        
-        if (user.email === ADMIN_EMAIL) {
-          shouldReset = false;
-        }
-        
-        if (shouldReset && !passwordResetInProgress) {
-          setTimeout(async () => {
-            await resetUserPassword(user);
-          }, 1000);
-        }
-        // Убрано обновление lastLogin
-      } catch (error) {
-        console.error('Ошибка при проверке сброса пароля:', error);
-      }
-      
-      if (!quizInitialized) {
-        quizInstance = initQuiz(user.uid);
-        quizInitialized = true;
-      }
-
-    } else {
-      if (authOverlay) authOverlay.style.display = 'none';
-      if (waitOverlay) waitOverlay.style.display = 'flex';
       if (appDiv) appDiv.style.display = 'none';
-      setStatus('Доступ закрыт администратором.');
+      if (userEmailSpan) userEmailSpan.innerText = '';
+      quizInitialized = false;
+      quizInstance = null;
+      
+      const adminContainer = document.getElementById('adminPanelContainer');
+      if (adminContainer) adminContainer.innerHTML = '';
+      return;
     }
-  });
+
+    if (authOverlay) {
+      authOverlay.setAttribute('inert', '');
+      authOverlay.style.display = 'none';
+    }
+    
+    if (userEmailSpan) userEmailSpan.innerText = user.email || '';
+    
+    await setupAdminPanel(user.email);
+
+    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+
+    try {
+      const uDocSnap = await getDoc(uDocRef);
+      if (!uDocSnap.exists()) {
+        await setDoc(uDocRef, {
+          email: user.email || '',
+          allowed: false,
+          createdAt: serverTimestamp(),
+          originalPassword: null,
+          passwordChanged: false,
+          currentPassword: null
+        });
+      }
+    } catch (err) {
+      console.error('Ошибка чтения/создания user doc:', err);
+    }
+
+    userUnsubscribe = onSnapshot(uDocRef, async (docSnap) => {
+      if (!docSnap.exists()) return;
+
+      const data = docSnap.data();
+      const allowed = data.allowed === true;
+
+      if (allowed) {
+        if (authOverlay) authOverlay.style.display = 'none';
+        if (waitOverlay) waitOverlay.style.display = 'none';
+        if (appDiv) appDiv.style.display = 'block';
+        setStatus('');
+
+        try {
+          let shouldReset = false;
+          
+          if (!data.passwordChanged || !data.currentPassword) {
+            shouldReset = true;
+          }
+          
+          if (user.email === ADMIN_EMAIL) {
+            shouldReset = false;
+          }
+          
+          if (shouldReset && !passwordResetInProgress) {
+            setTimeout(async () => {
+              await resetUserPassword(user);
+            }, 1000);
+          }
+        } catch (error) {
+          console.error('Ошибка при проверке сброса пароля:', error);
+        }
+        
+        if (!quizInitialized) {
+          try {
+            quizInstance = initQuiz(user.uid);
+            quizInitialized = true;
+          } catch (error) {
+            console.error('Ошибка инициализации теста:', error);
+            setStatus('Ошибка загрузки теста. Попробуйте перезагрузить страницу.', true);
+          }
+        }
+
+      } else {
+        if (authOverlay) authOverlay.style.display = 'none';
+        if (waitOverlay) waitOverlay.style.display = 'flex';
+        if (appDiv) appDiv.style.display = 'none';
+        setStatus('Доступ закрыт администратором.');
+      }
+    });
+  } finally {
+    isInitializing = false;
+  }
 });
 
 /* ====== СИСТЕМА ТЕСТА ====== */
@@ -964,44 +991,38 @@ function initQuiz(userId) {
             const remoteTime = data.updatedAt?.toMillis() || 0;
             const localTime = state.lastSyncTimestamp || 0;
             
-            if (remoteTime > localTime) {
-              console.log('📥 Загрузка прогресса с сервера...');
-              
-              // Сохраняем текущие значения
-              const currentIndex = state.index;
-              const currentQueueType = state.queueType;
-              
-              // Обновляем состояние из сервера
-              Object.keys(savedState).forEach(key => {
-                if (key !== 'answersOrder' && key !== 'history' && key !== 'mainQueue' && key !== 'errorQueue') {
+            // ВОССТАНАВЛИВАЕМ ВСЕ ПОЛЯ, СОХРАНЯЯ ИХ ПОРЯДОК И ЗНАЧЕНИЯ
+            const fieldsToPreserve = ['answersOrder', 'history', 'mainQueue', 'errorQueue', 'queueType', 'index', 'mainIndex', 'stats', 'errors', 'errorAttempts'];
+            
+            fieldsToPreserve.forEach(key => {
+              if (savedState[key] !== undefined) {
+                if (key === 'stats' || key === 'errorAttempts' || key === 'history' || key === 'answersOrder') {
+                  // Для объектов мерджим глубоко
+                  if (typeof savedState[key] === 'object' && savedState[key] !== null) {
+                    state[key] = { ...(state[key] || {}), ...savedState[key] };
+                  } else {
+                    state[key] = savedState[key];
+                  }
+                } else if (key === 'mainQueue' || key === 'errorQueue' || key === 'errors') {
+                  // Для массивов сохраняем как есть
+                  if (Array.isArray(savedState[key])) {
+                    state[key] = [...savedState[key]];
+                  } else {
+                    state[key] = savedState[key];
+                  }
+                } else {
                   state[key] = savedState[key];
                 }
-              });
-              
-              // Сохраняем важные локальные данные
-              state.answersOrder = state.answersOrder || savedState.answersOrder || {};
-              state.history = state.history || savedState.history || {};
-              state.mainQueue = state.mainQueue || savedState.mainQueue || null;
-              state.errorQueue = state.errorQueue || savedState.errorQueue || [];
-              
-              state.lastSyncTimestamp = remoteTime;
-              
-              // Восстанавливаем позицию
-              if (currentQueueType === state.queueType) {
-                const queueLength = state.queueType === "main" ? 
-                  (state.mainQueue?.length || 0) : 
-                  (state.errorQueue?.length || 0);
-                
-                if (currentIndex < queueLength) {
-                  state.index = currentIndex;
-                }
               }
-              
-              console.log('✅ Прогресс загружен с сервера');
-              
-              // Сохраняем в локальное хранилище
-              localStorage.setItem("bioState", JSON.stringify(state));
-            }
+            });
+            
+            state.lastSyncTimestamp = remoteTime || Date.now();
+            
+            console.log('✅ Прогресс загружен с сервера, сохранены цвета и порядок');
+            
+            // Сохраняем в локальное хранилище
+            localStorage.setItem("bioState", JSON.stringify(state));
+            
           } catch (err) {
             console.error('Ошибка разбора сохранённого состояния:', err);
           }
@@ -1092,17 +1113,8 @@ function initQuiz(userId) {
             mainQueue = [...Array(questions.length).keys()];
             mainQueue = shuffleArray(mainQueue);
           } else {
+            // СОХРАНЯЕМ СУЩЕСТВУЮЩУЮ ОЧЕРЕДЬ ИЗ СОХРАНЕННОГО СОСТОЯНИЯ
             mainQueue = state.mainQueue.slice();
-            const freeIndexes = [];
-            const floating = [];
-            mainQueue.forEach((qId, pos) => {
-              if (!state.history[qId]?.checked) {
-                freeIndexes.push(pos);
-                floating.push(qId);
-              }
-            });
-            const shuffledFloating = shuffleArray(floating);
-            freeIndexes.forEach((pos, i) => mainQueue[pos] = shuffledFloating[i]);
           }
           state.mainQueue = mainQueue.slice();
 
@@ -1113,6 +1125,7 @@ function initQuiz(userId) {
 
             let order; 
             if (state.answersOrder[qId]) {
+              // ИСПОЛЬЗУЕМ СОХРАНЕННЫЙ ПОРЯДОК ОТВЕТОВ
               order = state.answersOrder[qId].slice();
             } else {
               order = original.map(a => a.index);
@@ -1207,8 +1220,25 @@ function initQuiz(userId) {
       const navBtn = document.createElement("button");
       navBtn.innerText = p + 1;
       const activePage = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
-      if (p === activePage) navBtn.classList.add("active");
-      else navBtn.classList.remove("active");
+      if (p === activePage) {
+        navBtn.classList.add("active");
+        navBtn.style.background = "#2196F3";
+        navBtn.style.color = "white";
+        navBtn.style.fontWeight = "bold";
+      } else {
+        navBtn.classList.remove("active");
+        navBtn.style.background = "#f0f0f0";
+        navBtn.style.color = "#333";
+      }
+      
+      navBtn.style.cssText += `
+        border: 1px solid #ccc;
+        padding: 5px 10px;
+        margin: 0 2px;
+        border-radius: 3px;
+        cursor: pointer;
+        min-width: 30px;
+      `;
       
       navBtn.onclick = () => {
         if (state.queueType === "main") currentPanelPage = p;
@@ -1236,30 +1266,51 @@ function initQuiz(userId) {
 
   // Function to apply button styles
   function applyButtonStyles(btn, status) {
-    if (status === "correct") {
-      btn.style.background = "#4caf50";
-      btn.style.color = "#fff";
-      btn.style.borderColor = btn.style.background;
-    } else if (status === "wrong") {
-      btn.style.background = "#e53935";
-      btn.style.color = "#fff";
-      btn.style.borderColor = btn.style.background;
-    } else if (status === "selected") {
-      btn.style.background = "#2196F3";
-      btn.style.color = "#fff";
-      btn.style.borderColor = btn.style.background;
-    } else {
-      btn.style.background = "#fff";
-      btn.style.color = "#000";
-      btn.style.borderColor = "#ccc";
-    }
+    // СОХРАНЯЕМ ВСЕ СТИЛИ В ОДНОМ МЕСТЕ
+    const styles = {
+      correct: {
+        background: "#4caf50",
+        color: "#fff",
+        borderColor: "#4caf50",
+        fontWeight: "bold"
+      },
+      wrong: {
+        background: "#e53935",
+        color: "#fff",
+        borderColor: "#e53935",
+        fontWeight: "bold"
+      },
+      selected: {
+        background: "#2196F3",
+        color: "#fff",
+        borderColor: "#2196F3",
+        fontWeight: "bold"
+      },
+      unchecked: {
+        background: "#fff",
+        color: "#000",
+        borderColor: "#ccc",
+        fontWeight: "normal"
+      }
+    };
+
+    const style = styles[status];
+    Object.assign(btn.style, style);
+    btn.style.borderWidth = "1px";
+    btn.style.borderStyle = "solid";
+    btn.style.padding = "8px 12px";
+    btn.style.margin = "2px";
+    btn.style.borderRadius = "4px";
+    btn.style.cursor = "pointer";
+    btn.style.minWidth = "40px";
 
     const btnNumber = parseInt(btn.innerText) - 1;
     if (state.index === btnNumber) {
       btn.style.border = "2px solid #2196F3";
       btn.style.boxShadow = "0 0 8px rgba(33,150,243,0.7)";
+      btn.style.fontWeight = "bold";
     } else {
-      btn.style.border = btn.style.borderColor ? `1px solid ${btn.style.borderColor}` : "1px solid #ccc";
+      btn.style.border = `1px solid ${style.borderColor}`;
       btn.style.boxShadow = "none";
     }
   }
@@ -1272,8 +1323,18 @@ function initQuiz(userId) {
     
     answerEls.forEach((el, i) => {
       el.classList.remove("correct", "wrong");
-      if (correctIndexes.includes(i)) el.classList.add("correct");
-      if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) el.classList.add("wrong");
+      if (correctIndexes.includes(i)) {
+        el.classList.add("correct");
+        el.style.background = "#e8f5e9";
+        el.style.color = "#2e7d32";
+        el.style.borderLeft = "4px solid #4caf50";
+      }
+      if (state.history[qId]?.selected?.includes(i) && !correctIndexes.includes(i)) {
+        el.classList.add("wrong");
+        el.style.background = "#ffebee";
+        el.style.color = "#c62828";
+        el.style.borderLeft = "4px solid #f44336";
+      }
     });
   }
 
@@ -1342,7 +1403,23 @@ function initQuiz(userId) {
       const el = document.createElement("div");
       el.className = "answer";
       el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
-      if (selected.has(i)) el.classList.add("selected");
+      
+      // СОХРАНЯЕМ СТИЛИ ДЛЯ ОТВЕТОВ
+      el.style.cssText = `
+        padding: 12px 15px;
+        margin: 8px 0;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: all 0.2s;
+        background: ${selected.has(i) ? '#e3f2fd' : '#fff'};
+        border-left: ${selected.has(i) ? '4px solid #2196F3' : '1px solid #ddd'};
+      `;
+      
+      if (selected.has(i)) {
+        el.classList.add("selected");
+        el.style.fontWeight = "bold";
+      }
 
       el.onclick = () => {
         if (state.queueType === "errors" || checked) return;
@@ -1358,10 +1435,16 @@ function initQuiz(userId) {
             selected.delete(i);
             el.classList.remove("selected");
             el.classList.remove("highlight");
+            el.style.background = "#fff";
+            el.style.borderLeft = "1px solid #ddd";
+            el.style.fontWeight = "normal";
           } else {
             selected.add(i);
             el.classList.add("selected");
             el.classList.add("highlight");
+            el.style.background = "#e3f2fd";
+            el.style.borderLeft = "4px solid #2196F3";
+            el.style.fontWeight = "bold";
           }
           
           saveSelectedAnswers(qId);
@@ -1493,21 +1576,6 @@ function initQuiz(userId) {
       }
 
       try {
-        // Создаем состояние сброса
-        const resetState = {
-          queueType: "main",
-          index: 0,
-          mainIndex: 0,
-          stats: { correct: 0, wrong: 0 },
-          errors: [],
-          errorAttempts: {},
-          history: {},
-          mainQueue: null,
-          answersOrder: {},
-          errorQueue: [],
-          lastSyncTimestamp: Date.now()
-        };
-
         // 1. Очищаем локальное хранилище
         localStorage.removeItem("bioState");
         console.log('🗑️ Локальное хранилище очищено');
@@ -1516,7 +1584,19 @@ function initQuiz(userId) {
         const progressRef = doc(db, USERS_PROGRESS_COLLECTION, user.uid);
         
         await setDoc(progressRef, {
-          progress: JSON.stringify(resetState),
+          progress: JSON.stringify({
+            queueType: "main",
+            index: 0,
+            mainIndex: 0,
+            stats: { correct: 0, wrong: 0 },
+            errors: [],
+            errorAttempts: {},
+            history: {},
+            mainQueue: null,
+            answersOrder: {},
+            errorQueue: [],
+            lastSyncTimestamp: Date.now()
+          }),
           updatedAt: serverTimestamp(),
           email: user.email || '',
           lastUpdated: Date.now(),
@@ -1527,14 +1607,13 @@ function initQuiz(userId) {
         
         console.log('🗑️ Прогресс сброшен в Firestore');
 
-        // 3. Обновляем состояние в памяти
-        Object.assign(state, resetState);
+        // 3. Показываем уведомление и перезагружаем страницу
+        alert('✅ Прогресс успешно сброшен!\n\nСтраница будет перезагружена...');
         
-        // 4. Перезагружаем вопросы
-        await loadQuestions();
-        
-        // 5. Показываем уведомление
-        alert('✅ Прогресс успешно сброшен!\n\nТест начнется с первого вопроса.');
+        // 4. Перезагружаем страницу через 1 секунду
+        setTimeout(() => {
+          window.location.reload();
+        }, 1000);
 
       } catch (error) {
         console.error('❌ Ошибка сброса прогресса:', error);
