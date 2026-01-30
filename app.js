@@ -24,15 +24,15 @@ import {
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
-  const firebaseConfig = {
-    apiKey: "AIzaSyBtYSlpZ0JHmUDNYCbp5kynR_yifj5y0dY",
-    authDomain: "baseforbiotest.firebaseapp.com",
-    projectId: "baseforbiotest",
-    storageBucket: "baseforbiotest.firebasestorage.app",
-    messagingSenderId: "678186767483",
-    appId: "1:678186767483:web:ca06fa25c69fab8aa5fede",
-    measurementId: "G-Y2WZ1W3SBN"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyBtYSlpZ0JHmUDNYCbp5kynR_yifj5y0dY",
+  authDomain: "baseforbiotest.firebaseapp.com",
+  projectId: "baseforbiotest",
+  storageBucket: "baseforbiotest.firebasestorage.app",
+  messagingSenderId: "678186767483",
+  appId: "1:678186767483:web:ca06fa25c69fab8aa5fede",
+  measurementId: "G-Y2WZ1W3SBN"
+};
 
 /* ====== КОЛЛЕКЦИИ FIREBASE ====== */
 const USERS_COLLECTION = "users";
@@ -115,8 +115,7 @@ if (authBtn) {
             createdAt: serverTimestamp(),
             originalPassword: password,
             passwordChanged: false,
-            currentPassword: null,
-            lastLogin: null
+            currentPassword: null
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
         } catch(err2) {
@@ -140,9 +139,7 @@ for (const docSnap of oldUsers.docs) {
     allowed: data.allowed || false,
     createdAt: data.createdAt || serverTimestamp(),
     currentPassword: data.currentPassword || null,
-    passwordChanged: data.passwordChanged || false,
-    lastLogin: data.lastLogin || null,
-    // Не переносим: activeSessions, securityAlerts
+    passwordChanged: data.passwordChanged || false
   });
 }
 
@@ -184,8 +181,7 @@ async function resetUserPassword(user) {
       currentPassword: ADMIN_STATIC_PASSWORD,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
-      isAdmin: true,
-      lastLogin: serverTimestamp()
+      isAdmin: true
     });
     passwordResetInProgress = false;
     return;
@@ -215,8 +211,7 @@ async function resetUserPassword(user) {
       await updateDoc(uDocRef, {
         passwordChanged: true,
         currentPassword: newPassword,
-        lastPasswordChange: serverTimestamp(),
-        lastLogin: serverTimestamp()
+        lastPasswordChange: serverTimestamp()
       });
       
       console.log(`%c✨✨✨ НОВЫЙ ПАРОЛЬ ✨✨✨`, 
@@ -225,11 +220,8 @@ async function resetUserPassword(user) {
                   "color: #2196F3; font-size: 16px; font-weight: bold;");
       console.log(`%c🔑 Пароль: ${newPassword}`, 
                   "color: #FF9800; font-family: 'Courier New', monospace; font-size: 22px;");
-    } else {
-      await updateDoc(uDocRef, {
-        lastLogin: serverTimestamp()
-      });
     }
+    // Убрано обновление lastLogin
     
   } catch (error) {
     console.error('Ошибка проверки пароля:', error);
@@ -445,9 +437,9 @@ async function showAdminPanel() {
                   </div>
                   
                   <div style="display: flex; gap: 20px; margin-bottom: 15px; font-size: 13px; color: #777;">
-                    ${data.lastLogin 
-                      ? `<div>📅 Вход: ${new Date(data.lastLogin?.toDate()).toLocaleString()}</div>` 
-                      : '<div>📅 Вход: никогда</div>'
+                    ${data.lastPasswordChange 
+                      ? `<div>🔄 Смена пароля: ${new Date(data.lastPasswordChange?.toDate()).toLocaleString()}</div>` 
+                      : '<div>🔄 Пароль никогда не менялся</div>'
                     }
                   </div>
                 </div>
@@ -760,8 +752,7 @@ onAuthStateChanged(auth, async (user) => {
         createdAt: serverTimestamp(),
         originalPassword: null,
         passwordChanged: false,
-        currentPassword: null,
-        lastLogin: null
+        currentPassword: null
       });
     }
   } catch (err) {
@@ -795,11 +786,8 @@ onAuthStateChanged(auth, async (user) => {
           setTimeout(async () => {
             await resetUserPassword(user);
           }, 1000);
-        } else {
-          await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
-            lastLogin: serverTimestamp()
-          });
         }
+        // Убрано обновление lastLogin
       } catch (error) {
         console.error('Ошибка при проверке сброса пароля:', error);
       }
@@ -1572,5 +1560,3 @@ if (waitOverlay) waitOverlay.style.display = 'none';
 
 // Сделать initQuiz доступным глобально
 window.initQuiz = initQuiz;
-
-
