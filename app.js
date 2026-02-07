@@ -1301,71 +1301,52 @@ async function updateQuestions(newData, newHash) {
     
     console.log(`✅ Загружено ${validQuestions.length} вопросов`);
     
+    // ПРОВЕРКА: если новых вопросов 0, прерываем обновление
+    if (validQuestions.length === 0) {
+      throw new Error('Не удалось загрузить ни одного вопроса');
+    }
+    
+    // Обновляем массив вопросов
     questions = validQuestions;
     state.questionHash = newHash;
     
     // Мигрируем историю ответов
     migrateHistoryToNewQuestions(oldHistory, oldErrors, questionMap, oldQuestionMap);
     
-    // СОХРАНЯЕМ ПОРЯДОК ОТМЕЧЕННЫХ ВОПРОСОВ, ПЕРЕМЕШИВАЕМ ТОЛЬКО НЕОТМЕЧЕННЫЕ
-    const newQueue = [];
-    const markedQuestions = []; // [qId, oldIndex]
-    const unmarkedQuestions = []; // [qId, oldIndex]
+    // СОЗДАЕМ НОВУЮ ОЧЕРЕДЬ с правильными индексами
+    // Сначала создаем массив всех индексов новых вопросов
+    const allNewIndices = [...Array(questions.length).keys()];
     
-    // Сначала проверяем, какие вопросы из старой очереди есть в новых
-    const processedOldQuestions = new Set();
+    // Разделяем на отмеченные и неотмеченные по мигрированной истории
+    const markedIndices = [];
+    const unmarkedIndices = [];
     
-    // Обрабатываем старую очередь, сохраняя порядок отмеченных
-    for (let i = 0; i < oldQueue.length; i++) {
-      const oldQId = oldQueue[i];
-      const oldQ = questions[oldQId]; // Это уже может быть неправильно, если questions обновился
-      
-      // Находим соответствующий вопрос в новом списке
-      if (oldQ) {
-        const textKey = oldQ.text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
-        const newIndex = questionMap.get(textKey);
-        
-        if (newIndex !== undefined && !processedOldQuestions.has(newIndex)) {
-          processedOldQuestions.add(newIndex);
-          
-          const isChecked = state.history[newIndex]?.checked || 
-                           (oldHistory[oldQId]?.checked && newIndex !== undefined);
-          
-          if (isChecked) {
-            markedQuestions.push(newIndex);
-          } else {
-            unmarkedQuestions.push(newIndex);
-          }
-        }
+    allNewIndices.forEach(idx => {
+      if (state.history[idx]?.checked) {
+        markedIndices.push(idx);
+      } else {
+        unmarkedIndices.push(idx);
       }
-    }
+    });
     
-    // Добавляем новые вопросы, которых не было в старой очереди
-    for (let i = 0; i < questions.length; i++) {
-      if (!processedOldQuestions.has(i)) {
-        unmarkedQuestions.push(i);
-      }
-    }
+    console.log(`📊 Отмеченных: ${markedIndices.length}, Неотмеченных: ${unmarkedIndices.length}`);
     
-    // Перемешиваем ТОЛЬКО неотмеченные вопросы
-    const shuffledUnmarked = shuffleArray(unmarkedQuestions);
+    // Перемешиваем ТОЛЬКО неотмеченные
+    const shuffledUnmarked = shuffleArray(unmarkedIndices);
     
-    // Формируем новую очередь: сначала отмеченные (в их порядке), потом перемешанные неотмеченные
-    // Но нам нужно сохранить позиции отмеченных вопросов!
+    // Формируем новую очередь: отмеченные в начале (в порядке следования), потом перемешанные неотмеченные
+    // ИЛИ сохраняем позиции отмеченных, если это возможно
     
-    // Создаем финальную очередь
-    mainQueue = [];
+    // Вариант 1: Простой - отмеченные в начале по порядку, неотмеченные перемешанные в конце
+    mainQueue = [...markedIndices, ...shuffledUnmarked];
     
-    // Сначала добавляем отмеченные вопросы на их позиции (если возможно)
-    // Или просто в начало, если мы не можем сохранить позиции
-    
-    // Простой подход: отмеченные остаются на своих местах, неотмеченные перемешиваются
-    const finalQueue = new Array(questions.length);
+    // Вариант 2: Сложный - пытаемся сохранить позиции (закомментировано, если нужно раскомментировать)
+    /*
+    const newQueue = new Array(questions.length);
     const usedPositions = new Set();
     
     // Ставим отмеченные вопросы на позиции, где они были в старой очереди
-    markedQuestions.forEach(qId => {
-      // Находим позицию этого вопроса в старой очереди
+    markedIndices.forEach(qId => {
       const oldPos = oldQueue.findIndex(oldId => {
         const oldQ = questions[oldId];
         if (!oldQ) return false;
@@ -1373,35 +1354,33 @@ async function updateQuestions(newData, newHash) {
         return questionMap.get(textKey) === qId;
       });
       
-      if (oldPos !== -1 && oldPos < finalQueue.length) {
-        finalQueue[oldPos] = qId;
+      if (oldPos !== -1 && oldPos < newQueue.length && !usedPositions.has(oldPos)) {
+        newQueue[oldPos] = qId;
         usedPositions.add(oldPos);
-      } else {
-        // Если позиция не найдена или выходит за границы, добавим позже
-        finalQueue.push(qId);
       }
     });
     
     // Перемешиваем неотмеченные
-    const shuffledUnmarkedFinal = shuffleArray([...unmarkedQuestions]);
+    const shuffledUnmarkedFinal = shuffleArray([...unmarkedIndices]);
     let unmarkedIndex = 0;
     
     // Заполняем пустые позиции перемешанными неотмеченными
-    for (let i = 0; i < finalQueue.length; i++) {
-      if (finalQueue[i] === undefined && unmarkedIndex < shuffledUnmarkedFinal.length) {
-        finalQueue[i] = shuffledUnmarkedFinal[unmarkedIndex++];
+    for (let i = 0; i < newQueue.length; i++) {
+      if (newQueue[i] === undefined && unmarkedIndex < shuffledUnmarkedFinal.length) {
+        newQueue[i] = shuffledUnmarkedFinal[unmarkedIndex++];
       }
     }
     
     // Добавляем оставшиеся неотмеченные в конец
     while (unmarkedIndex < shuffledUnmarkedFinal.length) {
-      finalQueue.push(shuffledUnmarkedFinal[unmarkedIndex++]);
+      newQueue.push(shuffledUnmarkedFinal[unmarkedIndex++]);
     }
     
     // Убираем undefined
-    mainQueue = finalQueue.filter(qId => qId !== undefined);
+    mainQueue = newQueue.filter(qId => qId !== undefined);
+    */
     
-    // Если очередь пустая (первый запуск), создаем полностью перемешанную
+    // Если очередь пустая (не должно произойти, но на всякий случай)
     if (mainQueue.length === 0) {
       mainQueue = shuffleArray([...Array(questions.length).keys()]);
     }
@@ -1416,34 +1395,34 @@ async function updateQuestions(newData, newHash) {
     state.errorQueue = errorQueue.slice();
     
     // Сбрасываем порядок ответов для новых вопросов
-    state.answersOrder = state.answersOrder || {};
-    state.answersByQuestionId = state.answersByQuestionId || {};
+    state.answersOrder = {};
+    state.answersByQuestionId = {};
     
     // Генерируем новый порядок ответов для всех вопросов
     mainQueue.forEach(qIdx => {
       const q = questions[qIdx];
+      if (!q) {
+        console.error(`❌ Вопрос с индексом ${qIdx} не найден`);
+        return;
+      }
+      
       const original = q.answers.map((a, i) => ({ text: a, index: i }));
       const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
       
-      // Проверяем, есть ли сохраненный порядок для этого вопроса
-      let order;
-      if (state.answersOrder[qIdx] && state.answersOrder[qIdx].length === q.answers.length) {
-        order = state.answersOrder[qIdx].slice();
-      } else {
-        order = original.map(a => a.index);
-        order = shuffleArray(order);
-        state.answersOrder[qIdx] = order.slice();
-      }
+      // Создаем новый случайный порядок ответов
+      const order = original.map(a => a.index);
+      const shuffledOrder = shuffleArray(order);
       
+      state.answersOrder[qIdx] = shuffledOrder.slice();
       if (q.id) {
-        state.answersByQuestionId[q.id] = order.slice();
+        state.answersByQuestionId[q.id] = shuffledOrder.slice();
       }
       
-      q.answers = order.map(i => original.find(a => a.index === i).text);
+      q.answers = shuffledOrder.map(i => original.find(a => a.index === i).text);
       q.correct = Array.isArray(origCorrect)
-        ? origCorrect.map(c => order.indexOf(c))
-        : order.indexOf(origCorrect);
-      q._currentOrder = order.slice();
+        ? origCorrect.map(c => shuffledOrder.indexOf(c))
+        : shuffledOrder.indexOf(origCorrect);
+      q._currentOrder = shuffledOrder.slice();
     });
     
     // Сохраняем состояние
@@ -2184,6 +2163,21 @@ function diagnoseQuestion(index) {
 
     const qId = queue[state.index];
     const q = questions[qId];
+    
+    // ПРОВЕРКА: если вопрос не найден, показываем ошибку и переходим к следующему
+    if (!q) {
+      console.error(`❌ Вопрос с индексом ${qId} не найден в массиве questions (длина: ${questions.length})`);
+      qText.innerText = `Ошибка: вопрос не найден (ID: ${qId})`;
+      answersDiv.innerHTML = "";
+      if (submitBtn) submitBtn.style.display = "none";
+      if (nextBtn) nextBtn.style.display = "inline-block";
+      if (nextBtn) nextBtn.onclick = () => {
+        state.index++;
+        render();
+      };
+      return;
+    }
+    
     const multi = Array.isArray(q.correct);
 
     qText.classList.remove("fade");
