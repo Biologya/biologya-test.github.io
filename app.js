@@ -128,7 +128,7 @@ if (authBtn) {
             originalPassword: password,
             passwordChanged: false,
             currentPassword: null,
-            firstLoginPending: true
+            lastLoginAt: null
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
           
@@ -186,17 +186,18 @@ function generateNewPassword() {
   return password;
 }
 
-/* ====== СБРОС ПАРОЛЯ ====== */
+/* ====== СБРОС ПАРОЛЯ ПРИ КАЖДОМ ВХОДЕ ====== */
 async function resetUserPassword(user) {
   if (passwordResetInProgress) return;
   
+  // Админ не меняет пароль
   if (user.email === ADMIN_EMAIL) {
     await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
       currentPassword: ADMIN_STATIC_PASSWORD,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
       isAdmin: true,
-      firstLoginPending: false
+      lastLoginAt: serverTimestamp()
     });
     passwordResetInProgress = false;
     return;
@@ -212,43 +213,106 @@ async function resetUserPassword(user) {
       return;
     }
     
-    const userData = userDoc.data();
+    // Генерируем НОВЫЙ пароль при КАЖДОМ входе
+    const newPassword = generateNewPassword();
     
-    const needsReset = userData.firstLoginPending === true || 
-                       userData.passwordChanged === false || 
-                       !userData.currentPassword;
+    console.log(`%c🔄 СБРОС ПАРОЛЯ ПРИ ВХОДЕ`, "color: #FF9800; font-weight: bold; font-size: 16px;");
+    console.log(`%c📧 Email: ${user.email}`, "color: #2196F3; font-size: 14px;");
+    console.log(`%c🔑 Новый пароль: ${newPassword}`, "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold;");
     
-    if (needsReset) {
-      const newPassword = generateNewPassword();
-      
-      try {
-        await updatePassword(user, newPassword);
-      } catch (authError) {
-        console.error('Ошибка обновления пароля в Auth:', authError);
-      }
-      
-      await updateDoc(uDocRef, {
-        passwordChanged: true,
-        currentPassword: newPassword,
-        lastPasswordChange: serverTimestamp(),
-        firstLoginPending: false
-      });
-      
-      console.log(`%c✨✨✨ НОВЫЙ ПАРОЛЬ СГЕНЕРИРОВАН ✨✨✨`, 
-                  "color: #4CAF50; font-weight: bold; font-size: 20px;");
-      console.log(`%c📧 Email: ${user.email}`, 
-                  "color: #2196F3; font-size: 16px; font-weight: bold;");
-      console.log(`%c🔑 Пароль: ${newPassword}`, 
-                  "color: #FF9800; font-family: 'Courier New', monospace; font-size: 22px;");
+    // Обновляем пароль в Firebase Auth
+    try {
+      await updatePassword(user, newPassword);
+      console.log('✅ Пароль обновлен в Firebase Auth');
+    } catch (authError) {
+      console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
+      // Продолжаем - пароль сохранится в Firestore
     }
     
+    // Сохраняем новый пароль в Firestore (появится в админке)
+    await updateDoc(uDocRef, {
+      currentPassword: newPassword,
+      passwordChanged: true,
+      lastPasswordChange: serverTimestamp(),
+      lastLoginAt: serverTimestamp()
+    });
+    
+    console.log('✅ Пароль сохранен в Firestore (виден в админке)');
+    
+    // Показываем пользователю новый пароль
+    showPasswordNotification(user.email, newPassword);
+    
   } catch (error) {
-    console.error('Ошибка проверки/сброса пароля:', error);
+    console.error('Ошибка сброса пароля:', error);
   } finally {
     setTimeout(() => {
       passwordResetInProgress = false;
     }, 3000);
   }
+}
+
+/* ====== УВЕДОМЛЕНИЕ О НОВОМ ПАРОЛЕ ====== */
+function showPasswordNotification(email, password) {
+  const notification = document.createElement('div');
+  notification.style.cssText = `
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 20px;
+    border-radius: 12px;
+    z-index: 10000;
+    font-family: system-ui, -apple-system, sans-serif;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+    max-width: 350px;
+    animation: slideIn 0.5s ease-out;
+  `;
+  
+  notification.innerHTML = `
+    <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">🔐 Новый пароль сгенерирован</div>
+    <div style="margin-bottom: 15px; opacity: 0.9; font-size: 14px;">
+      При каждом входе генерируется новый пароль для безопасности.
+    </div>
+    <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; margin-bottom: 10px;">
+      <div style="font-size: 12px; opacity: 0.8; margin-bottom: 4px;">Ваш новый пароль:</div>
+      <div style="font-family: 'Courier New', monospace; font-size: 20px; font-weight: bold; letter-spacing: 2px;">${password}</div>
+    </div>
+    <div style="font-size: 12px; opacity: 0.8;">
+      💡 Сохраните этот пароль или войдите снова для получения нового.
+    </div>
+    <button onclick="this.parentElement.remove()" style="
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: none;
+      border: none;
+      color: white;
+      font-size: 20px;
+      cursor: pointer;
+      opacity: 0.7;
+    ">×</button>
+  `;
+  
+  // Добавляем анимацию
+  const style = document.createElement('style');
+  style.textContent = `
+    @keyframes slideIn {
+      from { transform: translateX(400px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  `;
+  document.head.appendChild(style);
+  
+  document.body.appendChild(notification);
+  
+  // Автоматически скрываем через 30 секунд
+  setTimeout(() => {
+    if (notification.parentElement) {
+      notification.style.animation = 'slideIn 0.5s ease-out reverse';
+      setTimeout(() => notification.remove(), 500);
+    }
+  }, 30000);
 }
 
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
@@ -340,7 +404,7 @@ async function showAdminPanel() {
       </button>
     </div>
     <p style="margin-top: 10px; color: #666; font-size: 12px;">
-      ⚠️ Внимание: при закрытии доступа пользователь не сможет войти
+      ⚠️ Пароль сбрасывается автоматически при каждом входе пользователя
     </p>
   </div>
 `;    
@@ -401,7 +465,10 @@ async function showAdminPanel() {
           if (a.data.allowed && !b.data.allowed) return -1;
           if (!a.data.allowed && b.data.allowed) return 1;
           
-          return a.data.email.localeCompare(b.data.email);
+          // Сортируем по времени последнего входа (новые сверху)
+          const aTime = a.data.lastLoginAt?.toMillis?.() || 0;
+          const bTime = b.data.lastLoginAt?.toMillis?.() || 0;
+          return bTime - aTime;
         });
         
         let usersListHTML = '';
@@ -411,6 +478,8 @@ async function showAdminPanel() {
           const userId = user.id;
           const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
           const hasAccess = data.allowed === true;
+          const isOnline = data.lastLoginAt && 
+            (Date.now() - (data.lastLoginAt.toMillis?.() || 0)) < 300000; // 5 минут
           
           let itemStyle = '';
           if (isUserAdmin) {
@@ -428,34 +497,41 @@ async function showAdminPanel() {
                   <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                     <strong style="font-size: 16px;">${data.email}</strong>
                     ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold; background: #FFECB3; padding: 2px 8px; border-radius: 10px; font-size: 12px;">👑 АДМИН</span>' : ''}
+                    ${isOnline ? '<span style="color: #4CAF50; font-weight: bold; background: #E8F5E9; padding: 2px 8px; border-radius: 10px; font-size: 12px;">🟢 Онлайн</span>' : ''}
                     <span class="admin-status ${hasAccess ? 'status-allowed' : 'status-pending'}" 
                           style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; 
                                  background: ${hasAccess ? '#4CAF50' : '#FF9800'}; color: white; cursor: pointer;"
                           onclick="toggleUserAccess('${userId}', '${data.email}', ${hasAccess})">
-                      ${hasAccess ? '✅ Доступ открыт (нажми чтобы закрыть)' : '❌ Доступ закрыт (нажми чтобы открыть)'}
+                      ${hasAccess ? '✅ Доступ открыт' : '❌ Доступ закрыт'}
                     </span>
                   </div>
                   
                   <div style="margin-bottom: 10px; font-size: 14px; color: #666;">
                     ${data.currentPassword 
-                      ? `Пароль: <code style="background: ${isUserAdmin ? '#FFECB3' : '#f5f5f5'}; padding: 4px 8px; border-radius: 4px; font-family: monospace; font-weight: ${isUserAdmin ? 'bold' : 'normal'};">${data.currentPassword}</code>` 
+                      ? `<div style="background: ${isUserAdmin ? '#FFECB3' : '#e3f2fd'}; padding: 10px; border-radius: 6px; border: 2px solid ${isUserAdmin ? '#FF9800' : '#2196F3'};">
+                          <div style="font-size: 11px; color: #666; margin-bottom: 4px;">🔑 Текущий пароль (обновляется при каждом входе):</div>
+                          <code style="font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold; color: #d32f2f;">${data.currentPassword}</code>
+                         </div>` 
                       : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span>'
                     }
                   </div>
                   
                   <div style="display: flex; gap: 20px; margin-bottom: 15px; font-size: 13px; color: #777;">
-                    ${data.lastPasswordChange 
-                      ? `<div>🔄 Смена пароля: ${new Date(data.lastPasswordChange?.toDate()).toLocaleString()}</div>` 
-                      : '<div>🔄 Пароль никогда не менялся</div>'
+                    ${data.lastLoginAt 
+                      ? `<div>🕐 Последний вход: ${new Date(data.lastLoginAt.toMillis()).toLocaleString()}</div>` 
+                      : '<div>🕐 Никогда не входил</div>'
                     }
-                    ${data.firstLoginPending ? '<div style="color: #FF9800; font-weight: bold;">⏳ Ожидает первого входа</div>' : ''}
+                    ${data.lastPasswordChange 
+                      ? `<div>🔄 Пароль обновлен: ${new Date(data.lastPasswordChange.toMillis()).toLocaleString()}</div>` 
+                      : ''
+                    }
                   </div>
                 </div>
                 
                 <div style="display: flex; flex-direction: column; gap: 5px; min-width: 200px;">
                   <button class="force-reset-btn" onclick="forcePasswordReset('${userId}', '${data.email}')" 
                           style="width: 100%; text-align: left; background: #FF9800; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
-                    🔄 Сбросить пароль
+                    🔄 Сбросить пароль сейчас
                   </button>
                 </div>
               </div>
@@ -465,10 +541,13 @@ async function showAdminPanel() {
         
         const totalUsers = users.length;
         const usersWithAccess = users.filter(u => u.data.allowed).length;
+        const onlineUsers = users.filter(u => 
+          u.data.lastLoginAt && (Date.now() - (u.data.lastLoginAt.toMillis?.() || 0)) < 300000
+        ).length;
         
         usersListHTML = `
           <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2196F3;">
-            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; text-align: center;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
               <div>
                 <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${totalUsers}</div>
                 <div style="font-size: 12px; color: #666;">Всего пользователей</div>
@@ -477,9 +556,13 @@ async function showAdminPanel() {
                 <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${usersWithAccess}</div>
                 <div style="font-size: 12px; color: #666;">С доступом</div>
               </div>
+              <div>
+                <div style="font-size: 24px; font-weight: bold; color: #FF9800;">${onlineUsers}</div>
+                <div style="font-size: 12px; color: #666;">Онлайн</div>
+              </div>
             </div>
             <div style="margin-top: 15px; font-size: 14px; color: #666;">
-              💡 <strong>Инструкция:</strong> Нажмите на статус пользователя (зеленый/оранжевый) чтобы открыть/закрыть доступ
+              💡 <strong>Информация:</strong> Пароль каждого пользователя автоматически сбрасывается при входе и отображается здесь
             </div>
           </div>
           ${usersListHTML}
@@ -534,21 +617,20 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
   const newAccess = !currentAccess;
   
   const confirmMsg = newAccess 
-    ? `Открыть доступ пользователю ${userEmail}?\n\nПосле этого:`
-    : `Закрыть доступ пользователю ${userEmail}?\n\nПосле этого:`;
+    ? `Открыть доступ пользователю ${userEmail}?`
+    : `Закрыть доступ пользователю ${userEmail}?`;
   
   const details = newAccess 
-    ? `• Пользователь сможет войти в систему\n• При первом входе пароль будет сброшен автоматически\n• Новый пароль появится в этом окне`
-    : `• Пользователь не сможет войти в систему\n• При повторном открытии доступа пароль сбросится снова`;
+    ? `• Пользователь сможет войти в систему\n• Пароль будет сгенерирован автоматически при входе\n• Новый пароль появится в этой панели`
+    : `• Пользователь не сможет войти в систему`;
   
-  if (!confirm(`${confirmMsg}\n${details}`)) return;
+  if (!confirm(`${confirmMsg}\n\n${details}`)) return;
   
   try {
     const userRef = doc(db, 'users', userId);
     
     await updateDoc(userRef, {
       allowed: newAccess,
-      ...(newAccess && { firstLoginPending: true }),
       [`status_${Date.now()}`]: {
         action: newAccess ? 'access_granted' : 'access_revoked',
         by: auth.currentUser?.email || 'admin',
@@ -556,21 +638,7 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
       }
     });
     
-    if (newAccess && !currentAccess) {
-      const userDoc = await getDoc(userRef);
-      const userData = userDoc.data();
-      
-      let passwordMsg = '';
-      if (userData.currentPassword && !userData.firstLoginPending) {
-        passwordMsg = `\n🔑 Текущий пароль: ${userData.currentPassword}\n(Будет сброшен при первом входе)`;
-      } else {
-        passwordMsg = `\n⚠️ Пароль будет сгенерирован при первом входе пользователя.`;
-      }
-      
-      alert(`✅ Доступ ${newAccess ? 'открыт' : 'закрыт'} для ${userEmail}${passwordMsg}`);
-    } else {
-      alert(`✅ Доступ ${newAccess ? 'открыт' : 'закрыт'} для ${userEmail}`);
-    }
+    alert(`✅ Доступ ${newAccess ? 'открыт' : 'закрыт'} для ${userEmail}`);
     
     window.refreshAdminPanel();
     
@@ -636,8 +704,7 @@ window.bulkAccessControl = async function(action) {
     for (const user of users) {
       try {
         await updateDoc(doc(db, 'users', user.id), {
-          allowed: newAccess,
-          ...(newAccess && { firstLoginPending: true })
+          allowed: newAccess
         });
         
         completed++;
@@ -675,21 +742,31 @@ window.forcePasswordReset = async function(userId, userEmail) {
     return;
   }
   
-  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован. Пользователю нужно будет использовать новый пароль для входа.`)) return;
+  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован и сохранен.`)) return;
   
   try {
     const newPassword = generateNewPassword();
     
-    console.log(`🔧 Админ: генерируем пароль для ${userEmail}: ${newPassword}`);
+    console.log(`🔧 Админ: принудительный сброс пароля для ${userEmail}: ${newPassword}`);
     
-    await updateDoc(doc(db, 'users', userId), {
+    // Получаем пользователя для обновления в Auth
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      alert('❌ Пользователь не найден');
+      return;
+    }
+    
+    // Сохраняем в Firestore (появится в админке)
+    await updateDoc(userRef, {
       currentPassword: newPassword,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
-      firstLoginPending: false
+      lastLoginAt: serverTimestamp()
     });
     
-    alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nОтправьте этот пароль пользователю.`);
+    alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nПароль отображается в панели администратора.`);
     
     console.log(`%c🔧 АДМИН: Принудительный сброс пароля`, 
                 "color: #FF9800; font-weight: bold; font-size: 16px;");
@@ -698,8 +775,8 @@ window.forcePasswordReset = async function(userId, userEmail) {
     console.log(`%c🔑 Пароль: ${newPassword}`, 
                 "color: #FF9800; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold;");
     
-    document.querySelector('.admin-modal')?.remove();
-    await showAdminPanel();
+    // Обновляем панель
+    window.refreshAdminPanel();
     
   } catch (error) {
     console.error('Ошибка принудительного сброса:', error);
@@ -756,7 +833,7 @@ onAuthStateChanged(auth, async (user) => {
           originalPassword: null,
           passwordChanged: false,
           currentPassword: null,
-          firstLoginPending: true
+          lastLoginAt: null
         });
       }
     } catch (err) {
@@ -776,27 +853,15 @@ onAuthStateChanged(auth, async (user) => {
         setStatus('');
 
         try {
-          let shouldReset = false;
-          
-          if (data.firstLoginPending === true) {
-            shouldReset = true;
-            console.log('🔄 Первый вход пользователя, требуется сброс пароля');
-          } else if (data.passwordChanged === false || !data.currentPassword) {
-            shouldReset = true;
-            console.log('🔄 Пароль не был изменен или отсутствует, требуется сброс');
-          }
-          
-          if (user.email === ADMIN_EMAIL) {
-            shouldReset = false;
-          }
-          
-          if (shouldReset && !passwordResetInProgress) {
+          // СБРАСЫВАЕМ ПАРОЛЬ ПРИ КАЖДОМ ВХОДЕ (кроме админа)
+          if (user.email !== ADMIN_EMAIL && !passwordResetInProgress) {
+            console.log('🔄 Вход пользователя, запускаем сброс пароля...');
             setTimeout(async () => {
               await resetUserPassword(user);
-            }, 1000);
+            }, 500);
           }
         } catch (error) {
-          console.error('Ошибка при проверке сброса пароля:', error);
+          console.error('Ошибка при сбросе пароля:', error);
         }
         
         if (!quizInitialized) {
@@ -1270,13 +1335,12 @@ function initQuiz(userId) {
                 location.reload();
               }, 3000);
             }).catch(() => {
-              // Даже если не удалось сохранить, перезагружаем
               setTimeout(() => {
                 location.reload();
               }, 3000);
             });
             
-            return; // Прерываем загрузку, будет перезагрузка
+            return;
           }
           
           // Добавляем уникальные ID к вопросам
