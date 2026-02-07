@@ -1120,35 +1120,114 @@ function initQuiz(userId) {
     }
   }
 
-  // Функция проверки обновлений вопросов
-  async function checkForQuestionsUpdate(manualCheck = false) {
-    try {
-      if (manualCheck) {
-        checkUpdatesBtn.disabled = true;
-        const originalText = checkUpdatesBtn.innerText;
-        checkUpdatesBtn.innerText = "🔄 Проверяем...";
+ // Функция проверки обновлений вопросов
+async function checkForQuestionsUpdate(manualCheck = false) {
+  try {
+    if (manualCheck) {
+      checkUpdatesBtn.disabled = true;
+      const originalText = checkUpdatesBtn.innerText;
+      checkUpdatesBtn.innerText = "🔄 Проверяем...";
+      
+      // Добавляем заголовки для избежания кэширования и проверки типа данных
+      const response = await fetch(`questions.json?t=${Date.now()}`, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Ошибка сервера: ${response.status} ${response.statusText}`);
+      }
+      
+      // Проверяем Content-Type
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        // Пробуем загрузить как текст для диагностики
+        const text = await response.text();
+        console.error('Сервер вернул не JSON:', text.substring(0, 200));
+        throw new Error('Сервер вернул не JSON данные');
+      }
+      
+      // Загружаем как текст сначала для валидации
+      const text = await response.text();
+      
+      // Проверяем, что текст не пустой и начинается с [
+      if (!text.trim()) {
+        throw new Error('Получен пустой файл');
+      }
+      
+      if (!text.trim().startsWith('[')) {
+        console.error('Невалидный JSON (не начинается с [):', text.substring(0, 200));
+        throw new Error('Формат файла некорректен. Ожидается JSON массив');
+      }
+      
+      // Пытаемся распарсить JSON
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        console.error('Ошибка парсинга JSON:', parseError.message);
         
-        // Добавляем случайный параметр для избежания кэширования
-        const response = await fetch(`questions.json?t=${Date.now()}`);
-        const data = await response.json();
-        const newHash = computeQuestionsHash(data);
+        // Пытаемся найти позицию ошибки
+        const position = parseError.message.match(/position (\d+)/);
+        if (position) {
+          const pos = parseInt(position[1]);
+          console.error('Позиция ошибки:', pos);
+          console.error('Контекст ошибки:', 
+            text.substring(Math.max(0, pos - 50), Math.min(text.length, pos + 50)));
+        }
         
-        if (newHash === state.questionHash) {
-          showNotification('У вас уже самая свежая версия вопросов!', 'info');
-          checkUpdatesBtn.innerText = originalText;
-          checkUpdatesBtn.disabled = false;
+        throw new Error(`Ошибка в структуре JSON файла: ${parseError.message}`);
+      }
+      
+      // Проверяем, что это массив
+      if (!Array.isArray(data)) {
+        throw new Error('Файл questions.json должен содержать массив вопросов');
+      }
+      
+      // Проверяем структуру каждого вопроса
+      data.forEach((q, idx) => {
+        if (!q.text || !Array.isArray(q.answers)) {
+          throw new Error(`Вопрос ${idx + 1} имеет некорректную структуру`);
+        }
+      });
+      
+      const newHash = computeQuestionsHash(data);
+      
+      if (newHash === state.questionHash) {
+        showNotification('У вас уже самая свежая версия вопросов!', 'info');
+        checkUpdatesBtn.innerText = originalText;
+        checkUpdatesBtn.disabled = false;
+        return false;
+      }
+      
+      // Обновляем вопросы
+      await updateQuestions(data, newHash);
+      checkUpdatesBtn.innerText = originalText;
+      checkUpdatesBtn.disabled = false;
+      return true;
+    } else {
+      // Автоматическая проверка (без уведомления если нет обновлений)
+      try {
+        const response = await fetch(`questions.json?t=${Date.now()}`, {
+          headers: {
+            'Cache-Control': 'no-cache'
+          }
+        });
+        
+        if (!response.ok) return false;
+        
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
           return false;
         }
         
-        // Обновляем вопросы
-        await updateQuestions(data, newHash);
-        checkUpdatesBtn.innerText = originalText;
-        checkUpdatesBtn.disabled = false;
-        return true;
-      } else {
-        // Автоматическая проверка (без уведомления если нет обновлений)
-        const response = await fetch(`questions.json?t=${Date.now()}`);
-        const data = await response.json();
+        const text = await response.text();
+        if (!text.trim()) return false;
+        
+        const data = JSON.parse(text);
         const newHash = computeQuestionsHash(data);
         
         if (newHash !== state.questionHash) {
@@ -1156,17 +1235,39 @@ function initQuiz(userId) {
           return true;
         }
         return false;
+      } catch (error) {
+        // Тихий режим для автоматической проверки
+        console.log('Автоматическая проверка обновлений не удалась:', error.message);
+        return false;
       }
-    } catch (error) {
-      console.error('Ошибка проверки обновлений:', error);
-      if (manualCheck) {
-        showNotification('Ошибка при проверке обновлений', 'error');
-        checkUpdatesBtn.disabled = false;
-        checkUpdatesBtn.innerText = "🔄 Проверить обновления";
-      }
-      return false;
     }
+  } catch (error) {
+    console.error('Ошибка проверки обновлений:', error);
+    
+    if (manualCheck) {
+      // Показываем подробное сообщение об ошибке
+      let errorMessage = `Ошибка при проверке обновлений:\n\n${error.message}`;
+      
+      // Добавляем советы для разных типов ошибок
+      if (error.message.includes('JSON')) {
+        errorMessage += '\n\nВозможные причины:';
+        errorMessage += '\n1. Файл questions.json поврежден';
+        errorMessage += '\n2. На сервере некорректный JSON';
+        errorMessage += '\n3. Проблемы с кодировкой файла (должен быть UTF-8)';
+        errorMessage += '\n\nПроверьте консоль браузера для деталей (F12 → Console)';
+      } else if (error.message.includes('сервер')) {
+        errorMessage += '\n\nПроверьте:';
+        errorMessage += '\n1. Доступность файла questions.json';
+        errorMessage += '\n2. Настройки сервера (CORS, MIME-типы)';
+      }
+      
+      showNotification(errorMessage, 'error');
+      checkUpdatesBtn.disabled = false;
+      checkUpdatesBtn.innerText = "🔄 Проверить обновления";
+    }
+    return false;
   }
+}
 
   // Функция обновления вопросов
   async function updateQuestions(newData, newHash) {
@@ -1459,114 +1560,217 @@ function initQuiz(userId) {
     return newArr;
   }
 
-  // Загрузка вопросов с проверкой изменений ТОЛЬКО ПРИ ЗАГРУЗКЕ
-  function loadQuestions() {
-    return new Promise((resolve, reject) => {
-      fetch("questions.json")
-        .then(r => r.json())
-        .then(data => {
-          const newHash = computeQuestionsHash(data);
-          const questionsChanged = state.questionHash && state.questionHash !== newHash;
-          
-          if (questionsChanged) {
-            console.log('⚠️ Вопросы изменились с момента последнего входа');
-            
-            // Показываем уведомление пользователю
-            showNotification('📚 Обнаружены новые вопросы! Нажмите "Проверить обновления" для загрузки.', 'warning');
-            
-            // Не перезагружаем страницу, просто сообщаем
-            state.questionHash = newHash; // Обновляем hash чтобы не показывать уведомление постоянно
-            saveLocalState();
-          }
-          
-          // Добавляем уникальные ID к вопросам
-          questions = data.map((q, idx) => ({
-            id: q.id || `q_${idx}_${hashString(q.text)}`,
-            text: q.text,
-            answers: q.answers.slice(),
-            correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
-          }));
-
-          state.questionHash = newHash;
-          state.answersOrder = state.answersOrder || {};
-          state.mainQueue = state.mainQueue || null;
-          state.errorQueue = state.errorQueue || [];
-          state.answersByQuestionId = state.answersByQuestionId || {};
-
-          // Создаем очередь
-          if (!state.mainQueue || state.mainQueue.length !== questions.length) {
-            mainQueue = questions.map((q, idx) => idx);
-            mainQueue = shuffleArray(mainQueue);
-          } else {
-            mainQueue = state.mainQueue.slice();
-            
-            // Перемешиваем только непроверенные вопросы
-            const markedMap = new Map();
-            const unmarkedPositions = [];
-            const unmarkedIds = [];
-            
-            mainQueue.forEach((qIdx, pos) => {
-              const qId = questions[qIdx]?.id;
-              if (qId && state.history[qIdx]?.checked) {
-                markedMap.set(qId, { qIdx, pos });
-              } else {
-                unmarkedPositions.push(pos);
-                unmarkedIds.push(qIdx);
-              }
-            });
-            
-            const shuffledUnmarked = shuffleArray(unmarkedIds);
-            unmarkedPositions.forEach((pos, i) => {
-              mainQueue[pos] = shuffledUnmarked[i];
-            });
-          }
-          
-          state.mainQueue = mainQueue.slice();
-
-          // Обрабатываем порядок ответов с привязкой к ID вопроса
-          mainQueue.forEach(qIdx => {
-            const q = questions[qIdx];
-            const qId = q.id;
-            const original = q.answers.map((a, i) => ({ text: a, index: i }));
-            const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
-
-            let order;
-            const savedOrder = state.answersByQuestionId[qId] || state.answersOrder[qIdx];
-            
-            if (savedOrder && savedOrder.length === q.answers.length) {
-              order = savedOrder.slice();
-            } else {
-              order = original.map(a => a.index);
-              order = shuffleArray(order);
-            }
-
-            state.answersOrder[qIdx] = order.slice();
-            state.answersByQuestionId[qId] = order.slice();
-
-            q.answers = order.map(i => original.find(a => a.index === i).text);
-            q.correct = Array.isArray(origCorrect)
-              ? origCorrect.map(c => order.indexOf(c))
-              : order.indexOf(origCorrect);
-            q._currentOrder = order.slice();
-          });
-
-          errorQueue = state.errorQueue && state.errorQueue.length
-            ? state.errorQueue.slice()
-            : (state.errors ? state.errors.slice() : []);
-          state.errorQueue = errorQueue.slice();
-
-          saveLocalState();
-          render();
-          resolve();
-        })
-        .catch(err => {
-          console.error('Ошибка загрузки вопросов:', err);
-          if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
-          reject(err);
-        });
-    });
+// Также добавьте функцию для проверки валидности JSON перед загрузкой:
+function validateQuestionsJson(text) {
+  try {
+    const data = JSON.parse(text);
+    
+    if (!Array.isArray(data)) {
+      return { valid: false, error: 'questions.json должен содержать массив' };
+    }
+    
+    // Проверяем каждый вопрос
+    for (let i = 0; i < data.length; i++) {
+      const q = data[i];
+      if (!q.text || typeof q.text !== 'string') {
+        return { valid: false, error: `Вопрос ${i + 1}: отсутствует текст вопроса` };
+      }
+      if (!Array.isArray(q.answers) || q.answers.length === 0) {
+        return { valid: false, error: `Вопрос ${i + 1}: отсутствуют ответы` };
+      }
+      if (q.correct === undefined) {
+        return { valid: false, error: `Вопрос ${i + 1}: отсутствует правильный ответ` };
+      }
+    }
+    
+    return { valid: true, data: data };
+  } catch (error) {
+    return { valid: false, error: `Ошибка парсинга JSON: ${error.message}` };
   }
+}
+  
+  // Загрузка вопросов с проверкой изменений ТОЛЬКО ПРИ ЗАГРУЗКЕ
+function loadQuestions() {
+  return new Promise((resolve, reject) => {
+    fetch("questions.json")
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          throw new Error('Сервер вернул не JSON данные');
+        }
+        
+        return response.text();
+      })
+      .then(text => {
+        if (!text.trim()) {
+          throw new Error('Файл questions.json пустой');
+        }
+        
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (parseError) {
+          console.error('❌ Ошибка парсинга JSON:', parseError);
+          
+          // Показываем контекст ошибки в консоли
+          const position = parseError.message.match(/position (\d+)/);
+          if (position) {
+            const pos = parseInt(position[1]);
+            console.error('📍 Позиция ошибки:', pos);
+            console.error('📄 Контекст ошибки (50 символов до/после):');
+            console.error(text.substring(Math.max(0, pos - 50), Math.min(text.length, pos + 50)));
+          }
+          
+          throw new Error(`Некорректный JSON: ${parseError.message}`);
+        }
+        
+        if (!Array.isArray(data)) {
+          throw new Error('questions.json должен содержать массив вопросов');
+        }
+        
+        const newHash = computeQuestionsHash(data);
+        const questionsChanged = state.questionHash && state.questionHash !== newHash;
+        
+        if (questionsChanged) {
+          console.log('⚠️ Вопросы изменились с момента последнего входа');
+          
+          // Показываем уведомление пользователю
+          showNotification('📚 Обнаружены новые вопросы! Нажмите "Проверить обновления" для загрузки.', 'warning');
+          
+          // Не перезагружаем страницу, просто сообщаем
+          state.questionHash = newHash; // Обновляем hash чтобы не показывать уведомление постоянно
+          saveLocalState();
+        }
+        
+        // Добавляем уникальные ID к вопросам
+        questions = data.map((q, idx) => ({
+          id: q.id || `q_${idx}_${hashString(q.text)}`,
+          text: q.text,
+          answers: q.answers.slice(),
+          correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
+        }));
 
+        state.questionHash = newHash;
+        state.answersOrder = state.answersOrder || {};
+        state.mainQueue = state.mainQueue || null;
+        state.errorQueue = state.errorQueue || [];
+        state.answersByQuestionId = state.answersByQuestionId || {};
+
+        // Создаем очередь
+        if (!state.mainQueue || state.mainQueue.length !== questions.length) {
+          mainQueue = questions.map((q, idx) => idx);
+          mainQueue = shuffleArray(mainQueue);
+        } else {
+          mainQueue = state.mainQueue.slice();
+          
+          // Перемешиваем только непроверенные вопросы
+          const markedMap = new Map();
+          const unmarkedPositions = [];
+          const unmarkedIds = [];
+          
+          mainQueue.forEach((qIdx, pos) => {
+            const qId = questions[qIdx]?.id;
+            if (qId && state.history[qIdx]?.checked) {
+              markedMap.set(qId, { qIdx, pos });
+            } else {
+              unmarkedPositions.push(pos);
+              unmarkedIds.push(qIdx);
+            }
+          });
+          
+          const shuffledUnmarked = shuffleArray(unmarkedIds);
+          unmarkedPositions.forEach((pos, i) => {
+            mainQueue[pos] = shuffledUnmarked[i];
+          });
+        }
+        
+        state.mainQueue = mainQueue.slice();
+
+        // Обрабатываем порядок ответов с привязкой к ID вопроса
+        mainQueue.forEach(qIdx => {
+          const q = questions[qIdx];
+          const qId = q.id;
+          const original = q.answers.map((a, i) => ({ text: a, index: i }));
+          const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
+
+          let order;
+          const savedOrder = state.answersByQuestionId[qId] || state.answersOrder[qIdx];
+          
+          if (savedOrder && savedOrder.length === q.answers.length) {
+            order = savedOrder.slice();
+          } else {
+            order = original.map(a => a.index);
+            order = shuffleArray(order);
+          }
+
+          state.answersOrder[qIdx] = order.slice();
+          state.answersByQuestionId[qId] = order.slice();
+
+          q.answers = order.map(i => original.find(a => a.index === i).text);
+          q.correct = Array.isArray(origCorrect)
+            ? origCorrect.map(c => order.indexOf(c))
+            : order.indexOf(origCorrect);
+          q._currentOrder = order.slice();
+        });
+
+        errorQueue = state.errorQueue && state.errorQueue.length
+          ? state.errorQueue.slice()
+          : (state.errors ? state.errors.slice() : []);
+        state.errorQueue = errorQueue.slice();
+
+        saveLocalState();
+        render();
+        resolve();
+      })
+      .catch(err => {
+        console.error('❌ Ошибка загрузки вопросов:', err);
+        
+        // Более информативное сообщение для пользователя
+        let errorMessage = "Не удалось загрузить вопросы ❌";
+        if (err.message.includes('JSON')) {
+          errorMessage += "\n\nОшибка в формате файла questions.json";
+          errorMessage += "\nПроверьте консоль (F12) для деталей";
+        } else if (err.message.includes('HTTP')) {
+          errorMessage += `\n\nПроблема с сервером: ${err.message}`;
+        }
+        
+        if (qText) qText.innerText = errorMessage;
+        
+        // Показываем кнопку для повторной попытки
+        const retryBtn = document.createElement('button');
+        retryBtn.innerText = "🔄 Повторить загрузку";
+        retryBtn.style.cssText = `
+          margin: 20px auto;
+          display: block;
+          padding: 10px 20px;
+          background: #2196F3;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+          font-size: 16px;
+        `;
+        retryBtn.onclick = () => {
+          if (answersDiv) answersDiv.innerHTML = '';
+          loadQuestions().catch(() => {
+            // Уже покажет ошибку
+          });
+        };
+        
+        if (answersDiv) {
+          answersDiv.innerHTML = '';
+          answersDiv.appendChild(retryBtn);
+        }
+        
+        reject(err);
+      });
+  });
+}
+  
   // Функция миграции истории при изменении вопросов
   function migrateHistoryToNewQuestions(oldHistory = {}, oldErrors = []) {
     const newHistory = {};
@@ -2081,3 +2285,4 @@ if (authOverlay) authOverlay.style.display = 'flex';
 if (waitOverlay) waitOverlay.style.display = 'none';
 
 window.initQuiz = initQuiz;
+
