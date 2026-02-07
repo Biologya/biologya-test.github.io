@@ -852,6 +852,7 @@ function initQuiz(userId) {
   let checked = false;
   let currentPanelPage = 0;
   let currentPanelPageErrors = 0;
+  let autoUpdateCheckInterval = null;
 
   // Exit errors button
   let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
@@ -905,6 +906,24 @@ function initQuiz(userId) {
     };
     const controls = document.querySelector(".controls");
     if (controls) controls.appendChild(loadFromCloudBtn);
+  }
+
+  // Кнопка проверки обновлений вопросов
+  let checkUpdatesBtn = document.getElementById('checkUpdatesBtn');
+  if (!checkUpdatesBtn) {
+    checkUpdatesBtn = document.createElement("button");
+    checkUpdatesBtn.id = 'checkUpdatesBtn';
+    checkUpdatesBtn.innerText = "🔄 Проверить обновления";
+    checkUpdatesBtn.className = "secondary";
+    checkUpdatesBtn.style.marginLeft = "10px";
+    checkUpdatesBtn.style.background = "#9C27B0";
+    checkUpdatesBtn.style.color = "white";
+    checkUpdatesBtn.style.fontWeight = "bold";
+    checkUpdatesBtn.onclick = async () => {
+      await checkForQuestionsUpdate(true);
+    };
+    const controls = document.querySelector(".controls");
+    if (controls) controls.appendChild(checkUpdatesBtn);
   }
 
   // Функция для вычисления hash вопросов
@@ -1101,6 +1120,213 @@ function initQuiz(userId) {
     }
   }
 
+  // Функция проверки обновлений вопросов
+  async function checkForQuestionsUpdate(manualCheck = false) {
+    try {
+      if (manualCheck) {
+        checkUpdatesBtn.disabled = true;
+        const originalText = checkUpdatesBtn.innerText;
+        checkUpdatesBtn.innerText = "🔄 Проверяем...";
+        
+        // Добавляем случайный параметр для избежания кэширования
+        const response = await fetch(`questions.json?t=${Date.now()}`);
+        const data = await response.json();
+        const newHash = computeQuestionsHash(data);
+        
+        if (newHash === state.questionHash) {
+          showNotification('У вас уже самая свежая версия вопросов!', 'info');
+          checkUpdatesBtn.innerText = originalText;
+          checkUpdatesBtn.disabled = false;
+          return false;
+        }
+        
+        // Обновляем вопросы
+        await updateQuestions(data, newHash);
+        checkUpdatesBtn.innerText = originalText;
+        checkUpdatesBtn.disabled = false;
+        return true;
+      } else {
+        // Автоматическая проверка (без уведомления если нет обновлений)
+        const response = await fetch(`questions.json?t=${Date.now()}`);
+        const data = await response.json();
+        const newHash = computeQuestionsHash(data);
+        
+        if (newHash !== state.questionHash) {
+          await updateQuestions(data, newHash);
+          return true;
+        }
+        return false;
+      }
+    } catch (error) {
+      console.error('Ошибка проверки обновлений:', error);
+      if (manualCheck) {
+        showNotification('Ошибка при проверке обновлений', 'error');
+        checkUpdatesBtn.disabled = false;
+        checkUpdatesBtn.innerText = "🔄 Проверить обновления";
+      }
+      return false;
+    }
+  }
+
+  // Функция обновления вопросов
+  async function updateQuestions(newData, newHash) {
+    const originalText = checkUpdatesBtn.innerText;
+    checkUpdatesBtn.disabled = true;
+    checkUpdatesBtn.innerText = "🔄 Обновляем...";
+    
+    try {
+      // Сохраняем старую историю
+      const oldHistory = { ...state.history };
+      const oldErrors = [...state.errors];
+      const oldStats = { ...state.stats };
+      
+      // Обновляем вопросы
+      questions = newData.map((q, idx) => ({
+        id: q.id || `q_${idx}_${hashString(q.text)}`,
+        text: q.text,
+        answers: q.answers.slice(),
+        correct: Array.isArray(q.correct) ? q.correct.slice() : q.correct
+      }));
+
+      state.questionHash = newHash;
+      
+      // Мигрируем историю ответов
+      migrateHistoryToNewQuestions(oldHistory, oldErrors);
+      
+      // Сбрасываем очередь (перемешиваем все вопросы заново)
+      mainQueue = questions.map((q, idx) => idx);
+      mainQueue = shuffleArray(mainQueue);
+      state.mainQueue = mainQueue.slice();
+      
+      // Сбрасываем ошибки (оставляем только те, которые есть в новых вопросах)
+      state.errors = state.errors.filter(errIndex => 
+        errIndex >= 0 && errIndex < questions.length
+      );
+      errorQueue = state.errors.slice();
+      state.errorQueue = errorQueue.slice();
+      
+      // Сбрасываем порядок ответов
+      state.answersOrder = {};
+      state.answersByQuestionId = {};
+      
+      // Генерируем новый порядок ответов для всех вопросов
+      mainQueue.forEach(qIdx => {
+        const q = questions[qIdx];
+        const original = q.answers.map((a, i) => ({ text: a, index: i }));
+        const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
+        
+        const order = original.map(a => a.index);
+        const shuffledOrder = shuffleArray(order);
+        
+        state.answersOrder[qIdx] = shuffledOrder.slice();
+        if (q.id) {
+          state.answersByQuestionId[q.id] = shuffledOrder.slice();
+        }
+        
+        q.answers = shuffledOrder.map(i => original.find(a => a.index === i).text);
+        q.correct = Array.isArray(origCorrect)
+          ? origCorrect.map(c => shuffledOrder.indexOf(c))
+          : shuffledOrder.indexOf(origCorrect);
+        q._currentOrder = shuffledOrder.slice();
+      });
+      
+      // Сохраняем состояние
+      saveLocalState();
+      
+      // Показываем уведомление
+      showNotification('✅ Вопросы успешно обновлены! Прогресс сохранен.', 'success');
+      
+      // Перерисовываем
+      render();
+      
+      // Сохраняем в облако
+      await saveState(true);
+      
+    } catch (error) {
+      console.error('Ошибка обновления вопросов:', error);
+      showNotification('❌ Ошибка обновления вопросов', 'error');
+    } finally {
+      checkUpdatesBtn.disabled = false;
+      checkUpdatesBtn.innerText = originalText;
+    }
+  }
+
+  // Функция для показа уведомлений
+  function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 15px 30px;
+      border-radius: 8px;
+      z-index: 9999;
+      font-weight: bold;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      text-align: center;
+      min-width: 300px;
+      max-width: 90%;
+      animation: slideDown 0.3s ease-out;
+    `;
+    
+    let bgColor = '#2196F3';
+    let textColor = 'white';
+    
+    switch(type) {
+      case 'success':
+        bgColor = '#4CAF50';
+        break;
+      case 'error':
+        bgColor = '#f44336';
+        break;
+      case 'warning':
+        bgColor = '#FF9800';
+        break;
+      case 'info':
+        bgColor = '#2196F3';
+        break;
+    }
+    
+    notification.style.background = bgColor;
+    notification.style.color = textColor;
+    notification.innerText = message;
+    
+    document.body.appendChild(notification);
+    
+    // Автоматически скрываем через 5 секунд
+    setTimeout(() => {
+      if (notification.parentNode) {
+        notification.style.opacity = '0';
+        notification.style.transition = 'opacity 0.5s';
+        setTimeout(() => {
+          if (notification.parentNode) {
+            document.body.removeChild(notification);
+          }
+        }, 500);
+      }
+    }, 5000);
+    
+    // Добавляем CSS анимацию
+    if (!document.getElementById('notification-styles')) {
+      const style = document.createElement('style');
+      style.id = 'notification-styles';
+      style.textContent = `
+        @keyframes slideDown {
+          from {
+            transform: translateX(-50%) translateY(-100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+          }
+        }
+      `;
+      document.head.appendChild(style);
+    }
+  }
+
   // Загрузка прогресса из Firestore
   (async () => {
     if (!userId) {
@@ -1246,42 +1472,11 @@ function initQuiz(userId) {
             console.log('⚠️ Вопросы изменились с момента последнего входа');
             
             // Показываем уведомление пользователю
-            const notification = document.createElement('div');
-            notification.style.cssText = `
-              position: fixed;
-              top: 20px;
-              left: 50%;
-              transform: translateX(-50%);
-              background: #FF9800;
-              color: white;
-              padding: 20px 40px;
-              border-radius: 8px;
-              z-index: 9999;
-              font-weight: bold;
-              box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-              text-align: center;
-              font-size: 16px;
-            `;
-            notification.innerHTML = `
-              <div>📚 Обнаружены новые вопросы!</div>
-              <div style="font-size: 14px; margin-top: 10px; font-weight: normal;">
-                Страница перезагрузится через 3 секунды...
-              </div>
-            `;
-            document.body.appendChild(notification);
+            showNotification('📚 Обнаружены новые вопросы! Нажмите "Проверить обновления" для загрузки.', 'warning');
             
-            // Сохраняем прогресс перед перезагрузкой
-            saveState(true).then(() => {
-              setTimeout(() => {
-                location.reload();
-              }, 3000);
-            }).catch(() => {
-              setTimeout(() => {
-                location.reload();
-              }, 3000);
-            });
-            
-            return;
+            // Не перезагружаем страницу, просто сообщаем
+            state.questionHash = newHash; // Обновляем hash чтобы не показывать уведомление постоянно
+            saveLocalState();
           }
           
           // Добавляем уникальные ID к вопросам
@@ -1297,10 +1492,6 @@ function initQuiz(userId) {
           state.mainQueue = state.mainQueue || null;
           state.errorQueue = state.errorQueue || [];
           state.answersByQuestionId = state.answersByQuestionId || {};
-
-          if (questionsChanged) {
-            migrateHistoryToNewQuestions();
-          }
 
           // Создаем очередь
           if (!state.mainQueue || state.mainQueue.length !== questions.length) {
@@ -1377,28 +1568,47 @@ function initQuiz(userId) {
   }
 
   // Функция миграции истории при изменении вопросов
-  function migrateHistoryToNewQuestions() {
-    const oldHistory = { ...state.history };
+  function migrateHistoryToNewQuestions(oldHistory = {}, oldErrors = []) {
     const newHistory = {};
-    const oldErrors = [...state.errors];
     const newErrors = [];
     
-    const idToNewIndex = {};
+    // Создаем карту для поиска вопросов по тексту (первые 100 символов)
+    const questionTextMap = new Map();
     questions.forEach((q, idx) => {
-      idToNewIndex[q.id] = idx;
+      const key = q.text.substring(0, 100).toLowerCase().replace(/\s+/g, ' ').trim();
+      questionTextMap.set(key, idx);
     });
     
     Object.entries(oldHistory).forEach(([oldIdx, data]) => {
       const oldQuestionText = data._questionText || '';
-      const matchingNewIdx = questions.findIndex(q => 
-        q.text.substring(0, 50) === oldQuestionText.substring(0, 50)
-      );
+      const key = oldQuestionText.substring(0, 100).toLowerCase().replace(/\s+/g, ' ').trim();
       
-      if (matchingNewIdx !== -1) {
-        newHistory[matchingNewIdx] = { ...data };
+      if (questionTextMap.has(key)) {
+        const newIdx = questionTextMap.get(key);
+        newHistory[newIdx] = { ...data };
         
         if (oldErrors.includes(parseInt(oldIdx))) {
-          newErrors.push(matchingNewIdx);
+          newErrors.push(newIdx);
+        }
+      } else {
+        // Попробуем найти по частичному совпадению
+        let foundIdx = -1;
+        for (let i = 0; i < questions.length; i++) {
+          const qText = questions[i].text.toLowerCase();
+          const oldText = oldQuestionText.toLowerCase();
+          
+          // Если 70% текста совпадает
+          if (calculateSimilarity(qText, oldText) > 0.7) {
+            foundIdx = i;
+            break;
+          }
+        }
+        
+        if (foundIdx !== -1) {
+          newHistory[foundIdx] = { ...data };
+          if (oldErrors.includes(parseInt(oldIdx))) {
+            newErrors.push(foundIdx);
+          }
         }
       }
     });
@@ -1408,6 +1618,26 @@ function initQuiz(userId) {
     state.errorQueue = newErrors.slice();
     
     console.log('✅ История мигрирована:', Object.keys(newHistory).length, 'вопросов');
+  }
+
+  // Вспомогательная функция для расчета схожести текста
+  function calculateSimilarity(str1, str2) {
+    const longer = str1.length > str2.length ? str1 : str2;
+    const shorter = str1.length > str2.length ? str2 : str1;
+    
+    if (longer.length === 0) return 1.0;
+    
+    // Используем простой алгоритм схожести
+    const longerLength = longer.length;
+    let distance = 0;
+    
+    for (let i = 0; i < shorter.length; i++) {
+      if (shorter[i] === longer[i]) {
+        distance++;
+      }
+    }
+    
+    return distance / longerLength;
   }
 
   // Вспомогательная функция для создания hash строки
@@ -1837,8 +2067,11 @@ function initQuiz(userId) {
     loadQuestions,
     render,
     state,
+    checkForQuestionsUpdate,
     unsubscribe: () => {
-      // Нет interval для очистки
+      if (autoUpdateCheckInterval) {
+        clearInterval(autoUpdateCheckInterval);
+      }
     }
   };
 }
