@@ -109,6 +109,18 @@ if (authBtn) {
       await signInWithEmailAndPassword(auth, email, password);
       setStatus('Вход выполнен');
       
+      // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
+      setTimeout(async () => {
+        try {
+          const user = auth.currentUser;
+          if (user && user.email !== ADMIN_EMAIL) {
+            await resetUserPassword(user);
+          }
+        } catch (e) {
+          console.error('Ошибка сброса пароля после входа:', e);
+        }
+      }, 1000);
+      
       setTimeout(() => {
         if (authOverlay) authOverlay.style.display = 'none';
       }, 500);
@@ -127,7 +139,7 @@ if (authBtn) {
             createdAt: serverTimestamp(),
             originalPassword: password,
             passwordChanged: false,
-            currentPassword: null,
+            currentPassword: password, // Сохраняем пароль для первого входа
             lastLoginAt: null
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
@@ -186,20 +198,12 @@ function generateNewPassword() {
   return password;
 }
 
-/* ====== СБРОС ПАРОЛЯ ПРИ КАЖДОМ ВХОДЕ ====== */
+/* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
 async function resetUserPassword(user) {
   if (passwordResetInProgress) return;
   
   // Админ не меняет пароль
   if (user.email === ADMIN_EMAIL) {
-    await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
-      currentPassword: ADMIN_STATIC_PASSWORD,
-      passwordChanged: true,
-      lastPasswordChange: serverTimestamp(),
-      isAdmin: true,
-      lastLoginAt: serverTimestamp()
-    });
-    passwordResetInProgress = false;
     return;
   }
   
@@ -213,20 +217,21 @@ async function resetUserPassword(user) {
       return;
     }
     
-    // Генерируем НОВЫЙ пароль при КАЖДОМ входе
+    // Генерируем НОВЫЙ пароль для СЛЕДУЮЩЕГО входа
     const newPassword = generateNewPassword();
     
-    console.log(`%c🔄 СБРОС ПАРОЛЯ ПРИ ВХОДЕ`, "color: #FF9800; font-weight: bold; font-size: 16px;");
+    console.log(`%c🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА`, "color: #4CAF50; font-weight: bold; font-size: 16px;");
     console.log(`%c📧 Email: ${user.email}`, "color: #2196F3; font-size: 14px;");
-    console.log(`%c🔑 Новый пароль: ${newPassword}`, "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold;");
+    console.log(`%c🔑 Новый пароль для следующего входа: ${newPassword}`, 
+                "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;");
     
-    // Обновляем пароль в Firebase Auth
+    // Обновляем пароль в Firebase Auth (для следующего входа)
     try {
       await updatePassword(user, newPassword);
-      console.log('✅ Пароль обновлен в Firebase Auth');
+      console.log('✅ Пароль обновлен в Firebase Auth для следующего входа');
     } catch (authError) {
       console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
-      // Продолжаем - пароль сохранится в Firestore
+      // Продолжаем - пароль сохранится в Firestore для админки
     }
     
     // Сохраняем новый пароль в Firestore (появится в админке)
@@ -239,9 +244,6 @@ async function resetUserPassword(user) {
     
     console.log('✅ Пароль сохранен в Firestore (виден в админке)');
     
-    // Показываем пользователю новый пароль
-    showPasswordNotification(user.email, newPassword);
-    
   } catch (error) {
     console.error('Ошибка сброса пароля:', error);
   } finally {
@@ -249,70 +251,6 @@ async function resetUserPassword(user) {
       passwordResetInProgress = false;
     }, 3000);
   }
-}
-
-/* ====== УВЕДОМЛЕНИЕ О НОВОМ ПАРОЛЕ ====== */
-function showPasswordNotification(email, password) {
-  const notification = document.createElement('div');
-  notification.style.cssText = `
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 20px;
-    border-radius: 12px;
-    z-index: 10000;
-    font-family: system-ui, -apple-system, sans-serif;
-    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-    max-width: 350px;
-    animation: slideIn 0.5s ease-out;
-  `;
-  
-  notification.innerHTML = `
-    <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">🔐 Новый пароль сгенерирован</div>
-    <div style="margin-bottom: 15px; opacity: 0.9; font-size: 14px;">
-      При каждом входе генерируется новый пароль для безопасности.
-    </div>
-    <div style="background: rgba(255,255,255,0.2); padding: 12px; border-radius: 8px; margin-bottom: 10px;">
-      <div style="font-size: 12px; opacity: 0.8; margin-bottom: 4px;">Ваш новый пароль:</div>
-      <div style="font-family: 'Courier New', monospace; font-size: 20px; font-weight: bold; letter-spacing: 2px;">${password}</div>
-    </div>
-    <div style="font-size: 12px; opacity: 0.8;">
-      💡 Сохраните этот пароль или войдите снова для получения нового.
-    </div>
-    <button onclick="this.parentElement.remove()" style="
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      background: none;
-      border: none;
-      color: white;
-      font-size: 20px;
-      cursor: pointer;
-      opacity: 0.7;
-    ">×</button>
-  `;
-  
-  // Добавляем анимацию
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes slideIn {
-      from { transform: translateX(400px); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-  `;
-  document.head.appendChild(style);
-  
-  document.body.appendChild(notification);
-  
-  // Автоматически скрываем через 30 секунд
-  setTimeout(() => {
-    if (notification.parentElement) {
-      notification.style.animation = 'slideIn 0.5s ease-out reverse';
-      setTimeout(() => notification.remove(), 500);
-    }
-  }, 30000);
 }
 
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
@@ -404,7 +342,7 @@ async function showAdminPanel() {
       </button>
     </div>
     <p style="margin-top: 10px; color: #666; font-size: 12px;">
-      ⚠️ Пароль сбрасывается автоматически при каждом входе пользователя
+      ⚠️ Пароль меняется при каждом входе пользователя
     </p>
   </div>
 `;    
@@ -465,7 +403,6 @@ async function showAdminPanel() {
           if (a.data.allowed && !b.data.allowed) return -1;
           if (!a.data.allowed && b.data.allowed) return 1;
           
-          // Сортируем по времени последнего входа (новые сверху)
           const aTime = a.data.lastLoginAt?.toMillis?.() || 0;
           const bTime = b.data.lastLoginAt?.toMillis?.() || 0;
           return bTime - aTime;
@@ -479,7 +416,7 @@ async function showAdminPanel() {
           const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
           const hasAccess = data.allowed === true;
           const isOnline = data.lastLoginAt && 
-            (Date.now() - (data.lastLoginAt.toMillis?.() || 0)) < 300000; // 5 минут
+            (Date.now() - (data.lastLoginAt.toMillis?.() || 0)) < 300000;
           
           let itemStyle = '';
           if (isUserAdmin) {
@@ -509,7 +446,7 @@ async function showAdminPanel() {
                   <div style="margin-bottom: 10px; font-size: 14px; color: #666;">
                     ${data.currentPassword 
                       ? `<div style="background: ${isUserAdmin ? '#FFECB3' : '#e3f2fd'}; padding: 10px; border-radius: 6px; border: 2px solid ${isUserAdmin ? '#FF9800' : '#2196F3'};">
-                          <div style="font-size: 11px; color: #666; margin-bottom: 4px;">🔑 Текущий пароль (обновляется при каждом входе):</div>
+                          <div style="font-size: 11px; color: #666; margin-bottom: 4px;">🔑 Текущий пароль (будет обновлен при следующем входе):</div>
                           <code style="font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold; color: #d32f2f;">${data.currentPassword}</code>
                          </div>` 
                       : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span>'
@@ -562,7 +499,8 @@ async function showAdminPanel() {
               </div>
             </div>
             <div style="margin-top: 15px; font-size: 14px; color: #666;">
-              💡 <strong>Информация:</strong> Пароль каждого пользователя автоматически сбрасывается при входе и отображается здесь
+              💡 <strong>Система паролей:</strong> При входе пользователя пароль автоматически меняется.<br>
+              Текущий пароль отображается здесь. Для входа пользователь использует пароль из этого поля.
             </div>
           </div>
           ${usersListHTML}
@@ -621,7 +559,7 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
     : `Закрыть доступ пользователю ${userEmail}?`;
   
   const details = newAccess 
-    ? `• Пользователь сможет войти в систему\n• Пароль будет сгенерирован автоматически при входе\n• Новый пароль появится в этой панели`
+    ? `• Пользователь сможет войти в систему\n• Пароль будет сгенерирован автоматически\n• Текущий пароль появится в админ панели`
     : `• Пользователь не сможет войти в систему`;
   
   if (!confirm(`${confirmMsg}\n\n${details}`)) return;
@@ -758,7 +696,22 @@ window.forcePasswordReset = async function(userId, userEmail) {
       return;
     }
     
-    // Сохраняем в Firestore (появится в админке)
+    // Получаем пользователя Firebase
+    const authUser = auth.currentUser;
+    
+    // Если пытаемся сбросить пароль для текущего пользователя
+    if (authUser && authUser.uid === userId) {
+      try {
+        // Обновляем пароль в Auth
+        await updatePassword(authUser, newPassword);
+        console.log('✅ Пароль обновлен в Firebase Auth');
+      } catch (authError) {
+        console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
+        alert('⚠️ Пароль обновлен в базе, но не в системе аутентификации. Пользователь сможет увидеть пароль в админке.');
+      }
+    }
+    
+    // Сохраняем в Firestore
     await updateDoc(userRef, {
       currentPassword: newPassword,
       passwordChanged: true,
@@ -852,18 +805,6 @@ onAuthStateChanged(auth, async (user) => {
         if (appDiv) appDiv.style.display = 'block';
         setStatus('');
 
-        try {
-          // СБРАСЫВАЕМ ПАРОЛЬ ПРИ КАЖДОМ ВХОДЕ (кроме админа)
-          if (user.email !== ADMIN_EMAIL && !passwordResetInProgress) {
-            console.log('🔄 Вход пользователя, запускаем сброс пароля...');
-            setTimeout(async () => {
-              await resetUserPassword(user);
-            }, 500);
-          }
-        } catch (error) {
-          console.error('Ошибка при сбросе пароля:', error);
-        }
-        
         if (!quizInitialized) {
           try {
             quizInstance = initQuiz(user.uid);
