@@ -1808,91 +1808,40 @@ async function loadQuestions() {
 
     console.log(`📚 Загружено ${questions.length} вопросов`);
 
-    const currentHash = computeQuestionsHash(data);
+// 🔄 Всегда пересобираем очередь
+console.log('🔄 Пересборка очереди (выполненные фиксированы, остальные мешаются)');
 
-    // Решаем, нужна ли новая очередь
-    const isFirstLoad = !state.mainQueue || state.mainQueue.length === 0;
-    const questionsChanged = state.questionHash !== currentHash;
-    const needNewQueue = isFirstLoad || questionsChanged;
+const oldQueue = state.mainQueue?.length
+  ? state.mainQueue.slice()
+  : [...Array(questions.length).keys()];
 
-    if (needNewQueue) {
-      console.log('🔄 Создаем новую очередь...', isFirstLoad ? '(первая загрузка)' : '(вопросы изменились)');
+const newQueue = new Array(oldQueue.length);
+const uncompleted = [];
 
-      if (isFirstLoad) {
-        // Первая загрузка - полностью перемешиваем все индексы
-        mainQueue = shuffleArray([...Array(questions.length).keys()]);
-        console.log('✅ Первая загрузка: все вопросы перемешаны');
-      } else {
-        // Перезагрузка/обновление: сохраняем позиции отмеченных (checked), перемешиваем невыполненные
-        const oldQueue = state.mainQueue || [];
-        const newQueue = new Array(questions.length).fill(undefined);
-        const usedIndices = new Set();
+// 1️⃣ Оставляем выполненные на месте
+oldQueue.forEach((qId, position) => {
+  const isChecked = !!state.history?.[qId]?.checked;
 
-        // 1) Сохраняем выполненные (checked) на их старых позициях если возможно
-        oldQueue.forEach((qId, position) => {
-          const wasChecked = !!state.history?.[qId]?.checked;
-          if (wasChecked && qId < questions.length) {
-            // ставим на ту же позицию если в границах
-            if (position < newQueue.length && newQueue[position] === undefined) {
-              newQueue[position] = qId;
-              usedIndices.add(qId);
-            } else {
-              // пытаемся найти ближайшую свободную
-              for (let offset = 0; offset < newQueue.length; offset++) {
-                if (position + offset < newQueue.length && newQueue[position + offset] === undefined) {
-                  newQueue[position + offset] = qId;
-                  usedIndices.add(qId);
-                  break;
-                } else if (position - offset >= 0 && newQueue[position - offset] === undefined) {
-                  newQueue[position - offset] = qId;
-                  usedIndices.add(qId);
-                  break;
-                }
-              }
-            }
-          }
-        });
+  if (isChecked && qId < questions.length) {
+    newQueue[position] = qId;
+  } else if (qId < questions.length) {
+    uncompleted.push(qId);
+  }
+});
 
-        // 2) Собираем пул всех оставшихся (невыполненных): берем оставшиеся из oldQueue + всякие новые вопросы
-        const uncompletedPool = [];
+// 2️⃣ Перемешиваем невыполненные
+const shuffled = shuffleArray(uncompleted);
 
-        // Добавляем те элементы старой очереди, которые ещё не использованы и существуют в новом наборе
-        oldQueue.forEach(qId => {
-          if (qId < questions.length && !usedIndices.has(qId) && !state.history?.[qId]?.checked) {
-            uncompletedPool.push(qId);
-            usedIndices.add(qId); // чтобы не добавить дважды
-          }
-        });
+// 3️⃣ Заполняем пустые позиции
+let idx = 0;
+for (let i = 0; i < newQueue.length; i++) {
+  if (newQueue[i] === undefined) {
+    newQueue[i] = shuffled[idx++];
+  }
+}
 
-        // Добавляем совершенно новые вопросы (которые не были в старой очереди)
-        for (let i = 0; i < questions.length; i++) {
-          if (!oldQueue.includes(i) && !usedIndices.has(i)) {
-            uncompletedPool.push(i);
-            usedIndices.add(i);
-          }
-        }
-
-        // Перемешиваем невыполненные
-        const shuffledUncompleted = shuffleArray(uncompletedPool);
-
-        // 3) Заполняем пустые позиции newQueue перемешанными невыполненными
-        let uIdx = 0;
-        for (let i = 0; i < newQueue.length; i++) {
-          if (newQueue[i] === undefined && uIdx < shuffledUncompleted.length) {
-            newQueue[i] = shuffledUncompleted[uIdx++];
-          }
-        }
-        // Если остались (крайний случай) добавляем в конец
-        while (uIdx < shuffledUncompleted.length) {
-          newQueue.push(shuffledUncompleted[uIdx++]);
-        }
-
-        mainQueue = newQueue.filter(idx => idx !== undefined);
-        console.log(`✅ Очередь обновлена: ${mainQueue.length} вопросов (включая невыполненные).`);
-      }
-
-      state.mainQueue = mainQueue.slice();
-      state.questionHash = currentHash;
+mainQueue = newQueue;
+state.mainQueue = mainQueue.slice();
     } else {
       mainQueue = state.mainQueue.slice();
       console.log('✅ Используем сохранённую очередь (из state)');
@@ -2531,6 +2480,7 @@ if (authOverlay) authOverlay.style.display = 'flex';
 if (waitOverlay) waitOverlay.style.display = 'none';
 
 window.initQuiz = initQuiz;
+
 
 
 
