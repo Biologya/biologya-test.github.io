@@ -320,82 +320,93 @@ button.secondary { background: #81c784; }
 
 /* ====== ДЕКОРАТИВНЫЙ ФОН ====== */
 :root{
---bg: #eaf5ea;
---card:#fff;
---text:#162a16;
---accent:#4caf50;
---sun: rgba(255,230,180,0.28);
---leaf-shadow: rgba(10,30,10,0.35);
 }
 
 
-/* Базовые стили страницы */
-html,body{height:100%;margin:0;font-family: 'Segoe UI', system-ui, sans-serif;background:var(--bg);color:var(--text);}
-.app{margin-left:70px;padding:15px;max-width:1100px;box-sizing:border-box}
-.card{background:var(--card);padding:20px;border-radius:12px;box-shadow:0 8px 20px rgba(0,0,0,0.06)}
+/* --- Bokeh солнечные кружки --- */
+.bg-bokeh{position:absolute;left:10%;top:8%;width:600px;height:600px;z-index:-89;opacity:0.28;filter:blur(12px) saturate(1.1);}
+.bg-bokeh span{position:absolute;border-radius:50%;background:radial-gradient(circle, rgba(255,238,170,0.95) 0%, rgba(255,200,80,0.35) 40%, transparent 60%);}
+.bg-bokeh .b1{width:160px;height:160px;left:0;top:10%;}
+.bg-bokeh .b2{width:90px;height:90px;left:25%;top:40%;opacity:0.7;}
+.bg-bokeh .b3{width:220px;height:220px;left:55%;top:0;opacity:0.45}
 
 
-/* ====== НОВЫЕ ФОТОРЕАЛИСТИЧНЫЕ ДЕКОРАЦИИ ====== */
-.decor-wrapper{position:fixed;inset:0;pointer-events:none;z-index:-3;overflow:hidden;background-image: radial-gradient(circle at 20% 10%, rgba(255,250,230,0.55) 0%, transparent 25%), linear-gradient(180deg, rgba(240,255,240,0.6) 0%, rgba(234,245,234,0.2) 60%);mix-blend-mode:normal}
-.decor-wrapper::after{content:'';position:absolute;inset:0;pointer-events:none;background: radial-gradient(1200px 600px at 50% 25%, rgba(255,241,200,0.22), transparent 25%);mix-blend-mode: screen;opacity:0.95}
-.edge-layer{position:absolute;inset:0;pointer-events:none}
-.leaf-blob{position:absolute;width:36vmax;max-width:680px;max-height:680px;opacity:0.95;filter:drop-shadow(0 18px 40px var(--leaf-shadow));transform-origin:center center}
-.leaf-blob.small{width:20vmax;max-width:380px;opacity:0.9;filter:drop-shadow(0 12px 30px var(--leaf-shadow));}
-.vignette{position:absolute;inset:0;pointer-events:none;z-index:2;mix-blend-mode:multiply;background:radial-gradient(closest-side, transparent 45%, rgba(12,20,10,0.08) 90%)}
-.vines{position:absolute;top:-6%;left:0;width:100%;height:35%;pointer-events:none;z-index:1;mix-blend-mode:normal}
-.vine{position:absolute;top:0;width:28%;height:180%;opacity:0.95;transform-origin:top center;filter:drop-shadow(0 8px 20px rgba(0,0,0,0.18))}
-.vine.tall{height:220%}
-.decor-isometric{transform-origin:center center;transform: perspective(900px) rotateX(48deg) translateY(-6vh) scale(1.02)}
-.layer-front{filter:blur(0px) saturate(110%);opacity:1}
-.layer-mid{filter:blur(1px) saturate(95%);opacity:0.92}
-.layer-back{filter:blur(2px) saturate(85%);opacity:0.78}
-.leaf-highlight{position:absolute;inset:0;background:linear-gradient(120deg, rgba(255,255,230,0.2), transparent 30%);mix-blend-mode:overlay;pointer-events:none}
-
-
-@media (max-width:900px){
-.leaf-blob{width:46vmax}
-.leaf-blob.small{width:30vmax}
-.decor-isometric{transform: perspective(700px) rotateX(40deg) translateY(-2vh) scale(1)}
+/* --- Угловые кроны и листья --- */
+.crown{
+position:absolute;z-index:-80;filter:drop-shadow(0 18px 30px var(--leaf-shadow));transform-origin:center;opacity:0.98;
 }
-@media (max-width:480px){
-.leaf-blob{display:none}
-.vine{display:none}
-.decor-wrapper::after{opacity:0.6}
-}
+.crown.corner-tl{top:-6%;left:-6%;transform:translate(-4%,-4%) rotate(-6deg) scale(1.06);} /* верх левый */
+.crown.corner-tr{top:-6%;right:-6%;transform:translate(4%,-4%) rotate(6deg) scale(1.04);} /* верх правый */
+.crown.corner-bl{bottom:-6%;left:-6%;transform:translate(-4%,4%) rotate(6deg) scale(1.02);} /* низ лев */
+.crown.corner-br{bottom:-6%;right:-6%;transform:translate(4%,4%) rotate(-6deg) scale(1.03);} /* низ прав */
 
 
-body.dark{--bg:#0b0f0b;--card:#121212;--text:#e9f5ea}
-body.dark .decor-wrapper::after{background: radial-gradient(1200px 600px at 50% 25%, rgba(255,241,200,0.06), transparent 25%)}
+/* монстера — более детальная svg внутри */
+.monstera{width:460px;height:auto;mix-blend-mode:multiply;opacity:0.98}
+.philo{width:340px;height:auto;opacity:0.95}
 
 
-.pos-left-top{left:-6%;top:-8%;}
-.pos-left-bottom{left:-10%;bottom:-10%;}
-.pos-right-top{right:-6%;top:-6%;}
-.pos-right-bottom{right:-8%;bottom:-8%;}
-.rotate-10{transform:rotate(10deg)}
-.rotate--10{transform:rotate(-10deg)}
-.parallax{transition:transform 0.15s linear}
+/* лианы, свисающие сверху */
+.vine{position:absolute;top:-5%;width:260px;height:0;z-index:-78;opacity:0.95}
+.vine .strand{position:absolute;left:50%;transform:translateX(-50%);width:6px;background:linear-gradient(180deg,#2e7d32,#1b5e20);border-radius:999px;box-shadow:0 6px 16px rgba(0,0,0,0.25);}
+.vine .leaf{position:absolute;width:120px;height:80px;left:50%;transform-origin:top center;transform:translateX(-40%) rotate(-22deg);}
 
 
-/* Небольшие вспомогательные стили для существующей разметки */
-#questionPanelWrapper{position:fixed;top:50px;left:0;width:60px;height:calc(100vh - 60px);background:#f5f5f5;padding:5px;border-right:1px solid #ccc;display:flex;flex-direction:column;align-items:center;box-shadow:2px 0 5px rgba(0,0,0,0.1);z-index:100;transition:width 0.3s}
-#togglePanelBtn{margin-bottom:10px;cursor:pointer;padding:3px 6px;font-size:14px;background:#fff;border:1px solid #ccc;border-radius:3px}
-#questionPanel{display:flex;flex-direction:column;gap:6px;overflow-y:auto;flex-grow:1;text-align:center;width:100%;padding:5px 0}
-#questionPanel button{flex:0 0 auto;width:45px;height:45px;border-radius:50%;border:1px solid #ccc;cursor:pointer;background:#eee;color:#000;font-size:14px;transition:all 0.2s}
+.vine.v1{left:6%;}
+.vine.v2{left:20%;transform:scaleX(-1);} /* зеркально */
+.vine.v3{left:35%;}
+.vine.v4{right:23%;}
+.vine.v5{right:9%;transform:scaleX(-1);}
 
 
-.app{padding-left:70px;padding-right:15px;max-width:1000px;min-height:calc(100vh - 30px);transition:padding-left 0.3s ease}
-.header{margin-bottom:15px}
-.card{margin-bottom:15px;padding:20px;background:#fff;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.1)}
-.controls button{margin-right:6px;padding:8px 12px;font-size:16px;border-radius:4px;cursor:pointer}
+/* лианы разной длины */
+.vine .strand.s1{height:26vh;left:22%;}
+.vine .strand.s2{height:30vh;left:42%;}
+.vine .strand.s3{height:38vh;left:60%;}
+
+
+/* мелкие листья в местах хвоста */
+.small-leaf{position:absolute;width:90px;height:60px;opacity:0.9;filter:drop-shadow(0 6px 12px rgba(0,0,0,0.14));}
+
+
+/* Текстурированные тени и грунт внизу */
+.ground-shadow{position:absolute;left:0;right:0;bottom:-6%;height:26vh;z-index:-85;pointer-events:none;background:radial-gradient(80% 30% at 50% 100%, rgba(0,0,0,0.18), transparent 40%);filter:blur(30px);}
+
+
+/* лёгкие биофигурки для научного акцента (полупрозрачные) */
+.bio-item{position:absolute;opacity:0.22;z-index:-76;filter:blur(0.8px) drop-shadow(0 6px 16px rgba(0,0,0,0.06));}
+.bio-item.dna{width:120px;height:180px;right:6%;bottom:18%;}
+.bio-item.chl{width:90px;height:140px;left:8%;top:30%;}
+
+
+/* движения — небольшая анимация для живости */
+@keyframes slowFloat{0%{transform:translateY(0) rotate(0deg)}50%{transform:translateY(-8px) rotate(1deg)}100%{transform:translateY(0) rotate(0deg)}}
+.crown, .small-leaf, .bio-item{animation:slowFloat 9s ease-in-out infinite}
+
+
+/* --- дополнительные нитки росы и паутинки --- */
+.dewdrop{position:absolute;width:28px;height:36px;border-radius:50% 50% 46% 46%/60% 60% 40% 40%;background:linear-gradient(180deg,rgba(255,255,255,0.95),rgba(180,240,200,0.55));box-shadow:inset -2px -2px 6px rgba(0,0,0,0.08);opacity:0.9;filter:blur(0.2px);}
+.web{position:absolute;opacity:0.12;filter:blur(0.4px);}
 
 
 /* адаптив */
-@media (max-width:600px){
-#questionPanelWrapper{width:50px;padding:4px;top:40px;height:calc(100vh - 50px)}
-#questionPanel button{width:40px;height:40px;font-size:13px}
-.app{margin-left:60px;padding:10px}
+@media (max-width:1024px){
+.monstera{width:320px}
+.philo{width:240px}
+.crown{filter:drop-shadow(0 10px 18px rgba(0,0,0,0.16))}
 }
+@media (max-width:680px){
+.monstera{display:none}
+.vine{display:none}
+.bio-item{display:none}
+.bg-bokeh{display:none}
+#bg-decor::before{opacity:0.8}
+}
+
+
+/* утилитарные: оставляем центр пустым — добавляем маску, чтобы не заходить на контент */
+#bg-decor .center-safe-mask{position:absolute;inset:18% 18%;z-index:-70;background:transparent;pointer-events:none;}
+#bg-decor .center-safe-mask::after{content:"";position:absolute;inset:0;border-radius:14px;box-shadow:inset 0 0 0 9999px rgba(255,255,255,0.0);}
 
 /* ====== Адаптивность ====== */
 @media (max-width: 600px) {
@@ -409,6 +420,7 @@ body.dark .decor-wrapper::after{background: radial-gradient(1200px 600px at 50% 
   .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
 }
+
 
 
 
