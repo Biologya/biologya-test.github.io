@@ -6,73 +6,89 @@
   <title>Биология — тест (защищённый)</title>
   <link rel="stylesheet" href="style.css" />
   
-<!-- ДЕКОРАТИВНЫЙ СЛОЙ -->
-<div class="decor-wrapper decor-isometric" aria-hidden="true">
-<!-- SVG definitions -->
-<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+<!-- ---- Фоновые декоративные элементы (всё слева/справа/углы) ---- -->
+<defs><linearGradient id="vL3" x1="0" x2="1"><stop offset="0" stop-color="#7bd68a"/><stop offset="1" stop-color="#2e7d32"/></linearGradient></defs>
+<path d="M8,86 C22,36 84,10 146,26 C126,64 88,92 32,94" fill="url(#vL3)"/>
+</svg>
+</div>
+
+
+<!-- нижние крупные тени/фоны -->
+<div class="ground-shadow"></div>
+
+
+<!-- прозрачные капли росы в углах -->
+<div class="dewdrop" style="top:18%;left:6%;transform:rotate(-12deg)"></div>
+<div class="dewdrop" style="bottom:10%;right:10%;transform:rotate(18deg);width:24px;height:30px;opacity:0.85"></div>
+
+
+<!-- небольшие биофигуры (для научного контекста) -->
+<svg class="bio-item dna" viewBox="0 0 60 120" style="transform:translateZ(0);opacity:0.2">
 <defs>
-<linearGradient id="gLeaf" x1="0" x2="1">
-<stop offset="0%" stop-color="#6FCF97" />
-<stop offset="45%" stop-color="#2E8B57" />
-<stop offset="100%" stop-color="#155724" />
-</linearGradient>
-
-
-<pattern id="veinPattern" patternUnits="userSpaceOnUse" width="6" height="6">
-<path d="M0 3 L6 3" stroke="rgba(255,255,255,0.06)" stroke-width="0.6"/>
-</pattern>
-
-
-<symbol id="monstera" viewBox="0 0 400 400">
-<path d="M200 20 C120 20 40 80 30 160 C20 240 80 320 160 360 C240 400 320 360 360 280 C400 200 320 60 200 20z" fill="url(#gLeaf)"/>
-<path d="M160 120 C140 140 160 160 200 170" stroke="rgba(0,0,0,0.06)" stroke-width="6" fill="none"/>
-<path d="M210 130 C230 150 250 170 280 190" stroke="rgba(0,0,0,0.05)" stroke-width="6" fill="none"/>
-<rect x="0" y="0" width="400" height="400" fill="url(#veinPattern)" opacity="0.06"/>
-</symbol>
-
-
-<symbol id="vine" viewBox="0 0 200 600">
-<path d="M30 0 C10 120 60 180 40 300 C10 420 90 480 60 600" fill="none" stroke="#2f7a2f" stroke-width="6" stroke-linecap="round"/>
-<g fill="url(#gLeaf)">
-<ellipse cx="24" cy="80" rx="10" ry="18" transform="rotate(-20 24 80)"/>
-<ellipse cx="36" cy="180" rx="12" ry="22" transform="rotate(12 36 180)"/>
-<ellipse cx="20" cy="320" rx="11" ry="20" transform="rotate(-12 20 320)"/>
-<ellipse cx="28" cy="480" rx="13" ry="24" transform="rotate(10 28 480)"/>
-</g>
-</symbol>
-
-
-<symbol id="leafThin" viewBox="0 0 200 400">
-<path d="M20 200 C60 80 140 80 180 200 C140 320 60 320 20 200z" fill="url(#gLeaf)"/>
-</symbol>
+<linearGradient id="dnaG" x1="0" x2="1"><stop offset="0" stop-color="#a3e3a8"/><stop offset="1" stop-color="#66b66f"/></linearGradient>
 </defs>
+<g stroke="url(#dnaG)" stroke-width="3" fill="none">
+<path d="M10 6 C 22 20, 38 20, 50 6"/>
+<path d="M10 114 C 22 100, 38 100, 50 114"/>
+<path d="M16 20 L 44 94" stroke-linecap="round"/>
+<path d="M44 20 L 16 94" stroke-linecap="round"/>
+</g>
 </svg>
 
 
-<div class="edge-layer vines layer-front parallax">
-<svg class="vine pos-left-top" width="340" height="720" viewBox="0 0 200 600"><use href="#vine"></use></svg>
-<svg class="vine tall pos-right-top" width="300" height="880" viewBox="0 0 200 600" style="right:8%"><use href="#vine"></use></svg>
-<svg class="vine pos-right-top" width="220" height="640" viewBox="0 0 200 600" style="right:22%"><use href="#vine"></use></svg>
+<svg class="bio-item chl" viewBox="0 0 60 100" style="opacity:0.2">
+<defs>
+<linearGradient id="chl" x1="0" x2="1"><stop offset="0" stop-color="#9ee6a7"/><stop offset="1" stop-color="#3f8e3a"/></linearGradient>
+</defs>
+<ellipse cx="30" cy="50" rx="26" ry="40" fill="url(#chl)"/>
+<g stroke="rgba(255,255,255,0.18)" stroke-width="2">
+<path d="M10 40 Q 30 20 50 40" />
+<path d="M10 60 Q 30 80 50 60" />
+</g>
+</svg>
+
+
+<!-- паутинка в верхнем правом углу -->
+<svg class="web" viewBox="0 0 140 140" style="top:6%;right:4%;position:absolute;">
+<g stroke="rgba(255,255,255,0.6)" stroke-width="1" fill="none">
+<path d="M70 10 L70 70 L120 70" />
+<circle cx="70" cy="70" r="40" stroke-opacity="0.12" />
+<circle cx="70" cy="70" r="20" stroke-opacity="0.08" />
+</g>
+</svg>
+
+
+<!-- несколько мелких листиков/элементов вдоль правого края -->
+<svg class="small-leaf" viewBox="0 0 160 110" style="right:2%;bottom:30%;position:absolute;transform:scale(0.9)rotate(-8deg);">
+<defs><linearGradient id="sL1" x1="0" x2="1"><stop offset="0" stop-color="#9aeaa0"/><stop offset="1" stop-color="#2e7d32"/></linearGradient></defs>
+<path d="M8,86 C22,36 84,10 146,26 C126,64 88,92 32,94" fill="url(#sL1)"/>
+</svg>
+
+
+<svg class="small-leaf" viewBox="0 0 160 110" style="left:2%;top:55%;position:absolute;transform:scale(0.85)rotate(10deg);">
+<defs><linearGradient id="sL2" x1="0" x2="1"><stop offset="0" stop-color="#9aeaa0"/><stop offset="1" stop-color="#1f6e2c"/></linearGradient></defs>
+<path d="M8,86 C22,36 84,10 146,26 C126,64 88,92 32,94" fill="url(#sL2)"/>
+</svg>
+
+
+<!-- защитная зона: не рисуем декор прямо в центре -->
+<div class="center-safe-mask"></div>
+
+
 </div>
 
 
-<div class="edge-layer layer-mid parallax">
-<svg class="leaf-blob pos-left-top" viewBox="0 0 400 400"><use href="#monstera"/></svg>
-<svg class="leaf-blob pos-right-top rotate--10 small" viewBox="0 0 400 400" style="right:-8%;top:-6%"><use href="#monstera"/></svg>
-<svg class="leaf-blob pos-left-bottom rotate-10 small" viewBox="0 0 400 400" style="left:-10%;bottom:-6%"><use href="#monstera"/></svg>
-<svg class="leaf-blob pos-right-bottom" viewBox="0 0 400 400" style="right:-6%;bottom:-6%"><use href="#monstera"/></svg>
-</div>
+<!-- ====== Пример: основной контент (оставлен пустым, чтобы видно было фон) ====== -->
+<main style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:40px;box-sizing:border-box;">
+<section style="width:min(1200px,94%);background:rgba(255,255,255,0.9);border-radius:12px;padding:28px;box-shadow:0 12px 40px rgba(10,30,10,0.08);backdrop-filter:blur(4px);">
+<h1 style="margin:0 0 10px 0;color:#124">Здесь будет контент — центр свободен</h1>
+<p style="margin:0;color:#345;opacity:0.9;">Добавьте сюда ваши тесты, карточки и интерфейс — фон остаётся декоративным и не мешает.</p>
+</section>
+</main>
 
 
-<div class="edge-layer layer-back parallax">
-<svg class="leaf-blob small" viewBox="0 0 200 400" style="left:18%;top:12%;opacity:0.7;transform:scale(0.6) rotate(-8deg)"><use href="#leafThin"/></svg>
-<svg class="leaf-blob small" viewBox="0 0 200 400" style="right:12%;bottom:18%;opacity:0.65;transform:scale(0.72) rotate(6deg)"><use href="#leafThin"/></svg>
-</div>
-
-
-<div class="leaf-highlight" aria-hidden="true"></div>
-<div class="vignette" aria-hidden="true"></div>
-</div>
+</body>
+</html>
   
   <!-- ====== Встроенный стиль панели и адаптивность ====== -->
   <style>
@@ -708,6 +724,7 @@
   </script>
 </body>
 </html>
+
 
 
 
