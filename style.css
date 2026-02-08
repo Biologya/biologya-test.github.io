@@ -327,13 +327,15 @@ body::before {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  z-index: -1;
+  z-index: -2;
   overflow: hidden;
   background: 
     /* Градиентная сетка как под микроскопом */
     radial-gradient(circle at 20% 80%, rgba(76, 175, 80, 0.08) 0%, transparent 50%),
     radial-gradient(circle at 80% 20%, rgba(33, 150, 243, 0.06) 0%, transparent 50%),
-    radial-gradient(circle at 40% 40%, rgba(129, 199, 132, 0.05) 0%, transparent 40%);
+    radial-gradient(circle at 40% 40%, rgba(129, 199, 132, 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 60% 60%, rgba(76, 175, 80, 0.04) 0%, transparent 45%),
+    radial-gradient(circle at 10% 30%, rgba(33, 150, 243, 0.05) 0%, transparent 35%);
 }
 
 /* Контейнер для декоративных элементов */
@@ -351,8 +353,8 @@ body::before {
 /* Стили для разных био-элементов */
 .bio-element {
   position: absolute;
-  opacity: 0.15;
-  animation: float 20s infinite ease-in-out;
+  opacity: 0.12;
+  transition: all 0.5s ease;
 }
 
 /* Клетка растения */
@@ -363,6 +365,7 @@ body::before {
   border-radius: 50%;
   position: relative;
   background: radial-gradient(circle at 30% 30%, rgba(76, 175, 80, 0.2), transparent 70%);
+  animation: float 15s infinite ease-in-out, drift-slow 40s infinite linear;
 }
 
 .cell-plant::before {
@@ -398,7 +401,7 @@ body::before {
   border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
   position: relative;
   background: radial-gradient(circle at 40% 40%, rgba(33, 150, 243, 0.15), transparent 70%);
-  animation: morph 15s infinite ease-in-out;
+  animation: morph 12s infinite ease-in-out, drift-reverse 35s infinite linear;
 }
 
 .cell-animal::before {
@@ -418,6 +421,7 @@ body::before {
   width: 60px;
   height: 100px;
   position: relative;
+  animation: float 18s infinite ease-in-out, rotate-slow 25s infinite linear;
 }
 
 .dna-helix::before,
@@ -444,7 +448,8 @@ body::before {
   background: linear-gradient(90deg, var(--primary), var(--accent));
   border-radius: 20px;
   position: relative;
-  opacity: 0.2;
+  opacity: 0.18;
+  animation: wiggle 8s infinite ease-in-out, drift 30s infinite linear;
 }
 
 .bacteria::before {
@@ -472,6 +477,7 @@ body::before {
   position: relative;
   opacity: 0.15;
   transform: rotate(-45deg);
+  animation: sway 10s infinite ease-in-out, drift-slow 45s infinite linear;
 }
 
 .leaf::before {
@@ -490,6 +496,7 @@ body::before {
   width: 50px;
   height: 50px;
   position: relative;
+  animation: pulse-scale 6s infinite ease-in-out, drift-reverse 50s infinite linear;
 }
 
 .molecule::before {
@@ -529,7 +536,7 @@ body::before {
   background: radial-gradient(circle, rgba(76, 175, 80, 0.2), transparent);
   border: 2px solid var(--primary);
   border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
-  animation: blob 8s infinite ease-in-out;
+  animation: blob 10s infinite ease-in-out, drift 35s infinite linear;
 }
 
 /* Хлоропласт */
@@ -540,6 +547,7 @@ body::before {
   border-radius: 50%;
   position: relative;
   opacity: 0.15;
+  animation: float 14s infinite ease-in-out, drift-slow 40s infinite linear;
 }
 
 .chloroplast::before {
@@ -565,6 +573,7 @@ body::before {
   position: relative;
   opacity: 0.15;
   transform: rotate(-15deg);
+  animation: wiggle 7s infinite ease-in-out, drift-reverse 32s infinite linear;
 }
 
 .mitochondria::before {
@@ -587,6 +596,7 @@ body::before {
   border-radius: 50%;
   position: relative;
   opacity: 0.15;
+  animation: pulse-scale 5s infinite ease-in-out, drift 28s infinite linear;
 }
 
 .virus::before,
@@ -618,6 +628,7 @@ body::before {
   background: radial-gradient(circle, var(--primary), transparent);
   border-radius: 50%;
   position: relative;
+  animation: pulse 4s infinite ease-in-out, drift-slow 60s infinite linear;
 }
 
 .spore::before {
@@ -629,15 +640,274 @@ body::before {
   bottom: -5px;
   border: 1px dashed var(--primary);
   border-radius: 50%;
-  animation: pulse 3s infinite;
+  animation: pulse-ring 3s infinite;
+}
+
+/* Нейрон/нервная клетка */
+.neuron {
+  width: 120px;
+  height: 60px;
+  position: relative;
+  opacity: 0.12;
+  animation: pulse-scale 8s infinite ease-in-out, drift 45s infinite linear;
+}
+
+.neuron::before {
+  content: '';
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  background: var(--accent);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.neuron::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+  box-shadow: 
+    0 -15px 0 -1px var(--accent),
+    0 15px 0 -1px var(--accent),
+    -30px -8px 0 -1px var(--accent),
+    30px -8px 0 -1px var(--accent),
+    -30px 8px 0 -1px var(--accent),
+    30px 8px 0 -1px var(--accent);
+}
+
+/* Красная кровяная тельце */
+.erythrocyte {
+  width: 100px;
+  height: 60px;
+  background: radial-gradient(ellipse, rgba(229, 57, 53, 0.3), transparent);
+  border: 2px solid rgba(229, 57, 53, 0.4);
+  border-radius: 50%;
+  position: relative;
+  animation: float 12s infinite ease-in-out, drift-slow 38s infinite linear;
+}
+
+.erythrocyte::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 30px;
+  background: rgba(229, 57, 53, 0.2);
+  border-radius: 50%;
+}
+
+/* Белая кровяная клетка */
+.leukocyte {
+  width: 70px;
+  height: 70px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.4), transparent);
+  border: 2px dashed rgba(158, 158, 158, 0.3);
+  border-radius: 50%;
+  position: relative;
+  animation: morph 15s infinite ease-in-out, drift 42s infinite linear;
+}
+
+.leukocyte::before {
+  content: '';
+  position: absolute;
+  top: 20%;
+  left: 20%;
+  width: 30%;
+  height: 30%;
+  background: rgba(158, 158, 158, 0.2);
+  border-radius: 50%;
+  box-shadow: 
+    25px 0 0 rgba(158, 158, 158, 0.2),
+    0 25px 0 rgba(158, 158, 158, 0.2),
+    25px 25px 0 rgba(158, 158, 158, 0.2);
+}
+
+/* Парамеций */
+.paramecium {
+  width: 110px;
+  height: 50px;
+  background: linear-gradient(135deg, rgba(129, 199, 132, 0.3), rgba(76, 175, 80, 0.2));
+  border: 2px solid var(--primary);
+  border-radius: 50% 20% 50% 20%;
+  position: relative;
+  animation: wiggle 6s infinite ease-in-out, drift-reverse 36s infinite linear;
+}
+
+.paramecium::before {
+  content: '';
+  position: absolute;
+  top: 30%;
+  left: 30%;
+  width: 8px;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 50%;
+  box-shadow: 15px 0 0 rgba(0, 0, 0, 0.2);
+}
+
+/* Эвглена зелёная */
+.euglena {
+  width: 80px;
+  height: 30px;
+  background: linear-gradient(90deg, var(--primary), #66bb6a);
+  border-radius: 50% 10% 50% 10%;
+  position: relative;
+  opacity: 0.2;
+  animation: wiggle 5s infinite ease-in-out, drift 33s infinite linear;
+}
+
+.euglena::before {
+  content: '';
+  position: absolute;
+  right: -20px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 25px;
+  height: 2px;
+  background: var(--primary);
+  border-radius: 0 50% 50% 0;
+  animation: whip 0.5s infinite alternate;
+}
+
+@keyframes whip {
+  from { transform: translateY(-50%) rotate(-10deg); }
+  to { transform: translateY(-50%) rotate(10deg); }
+}
+
+/* Спорангий */
+.sporangium {
+  width: 60px;
+  height: 80px;
+  position: relative;
+  animation: sway 12s infinite ease-in-out, drift-slow 48s infinite linear;
+}
+
+.sporangium::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 40px;
+  background: var(--primary);
+}
+
+.sporangium::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 50px;
+  height: 40px;
+  background: radial-gradient(ellipse, rgba(76, 175, 80, 0.3), transparent);
+  border: 2px solid var(--primary);
+  border-radius: 50% 50% 40% 40%;
+}
+
+/* Пыльцевое зерно */
+.pollen {
+  width: 50px;
+  height: 50px;
+  background: radial-gradient(circle, #ffb74d, transparent);
+  border-radius: 50%;
+  position: relative;
+  opacity: 0.2;
+  animation: pulse-scale 7s infinite ease-in-out, drift 40s infinite linear;
+}
+
+.pollen::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  border: 2px dotted #ff9800;
+  border-radius: 50%;
+}
+
+/* Корневой волосок */
+.root-hair {
+  width: 3px;
+  height: 100px;
+  background: linear-gradient(180deg, var(--primary), transparent);
+  position: relative;
+  opacity: 0.25;
+  animation: sway 15s infinite ease-in-out, grow-shrink 20s infinite ease-in-out;
+}
+
+.root-hair::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -10px;
+  width: 20px;
+  height: 20px;
+  background: rgba(76, 175, 80, 0.2);
+  border-radius: 50%;
+}
+
+/* Усики бактерий */
+.pili {
+  width: 60px;
+  height: 30px;
+  background: rgba(76, 175, 80, 0.2);
+  border-radius: 50%;
+  position: relative;
+  animation: float 10s infinite ease-in-out, drift-reverse 37s infinite linear;
+}
+
+.pili::before,
+.pili::after {
+  content: '';
+  position: absolute;
+  width: 20px;
+  height: 2px;
+  background: var(--primary);
+  top: 50%;
+}
+
+.pili::before {
+  left: -15px;
+  transform: rotate(-30deg);
+  box-shadow: 0 -8px 0 var(--primary), 0 8px 0 var(--primary);
+}
+
+.pili::after {
+  right: -15px;
+  transform: rotate(30deg);
+  box-shadow: 0 -8px 0 var(--primary), 0 8px 0 var(--primary);
+}
+
+/* Жгутик */
+.flagellum {
+  width: 150px;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  position: relative;
+  opacity: 0.2;
+  border-radius: 50%;
+  animation: wave 3s infinite ease-in-out, drift 55s infinite linear;
 }
 
 /* ====== АНИМАЦИИ ====== */
 @keyframes float {
   0%, 100% { transform: translateY(0) rotate(0deg); }
-  25% { transform: translateY(-20px) rotate(5deg); }
+  25% { transform: translateY(-15px) rotate(3deg); }
   50% { transform: translateY(0) rotate(0deg); }
-  75% { transform: translateY(20px) rotate(-5deg); }
+  75% { transform: translateY(15px) rotate(-3deg); }
 }
 
 @keyframes morph {
@@ -652,6 +922,11 @@ body::before {
   to { transform: rotate(360deg); }
 }
 
+@keyframes rotate-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 @keyframes blob {
   0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
   25% { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
@@ -661,51 +936,116 @@ body::before {
 
 @keyframes pulse {
   0%, 100% { transform: scale(1); opacity: 0.5; }
-  50% { transform: scale(1.3); opacity: 0; }
+  50% { transform: scale(1.2); opacity: 0.8; }
+}
+
+@keyframes pulse-ring {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.5); opacity: 0; }
+}
+
+@keyframes pulse-scale {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
 }
 
 @keyframes drift {
-  0% { transform: translateX(-100px) translateY(0); }
-  50% { transform: translateX(calc(100vw + 100px)) translateY(-50px); }
-  100% { transform: translateX(calc(100vw + 100px)) translateY(50px); }
+  0% { transform: translateX(-150px) translateY(0); }
+  100% { transform: translateX(calc(100vw + 150px)) translateY(30px); }
 }
 
-/* ====== ПОЗИЦИОНИРОВАНИЕ ЭЛЕМЕНТОВ ====== */
-.bio-element:nth-child(1) { top: 10%; left: 5%; animation-delay: 0s; }
-.bio-element:nth-child(2) { top: 20%; right: 10%; animation-delay: 2s; }
-.bio-element:nth-child(3) { top: 60%; left: 8%; animation-delay: 4s; }
-.bio-element:nth-child(4) { bottom: 20%; right: 5%; animation-delay: 1s; }
-.bio-element:nth-child(5) { top: 40%; left: 15%; animation-delay: 3s; }
-.bio-element:nth-child(6) { bottom: 30%; left: 20%; animation-delay: 5s; }
-.bio-element:nth-child(7) { top: 15%; right: 20%; animation-delay: 2.5s; }
-.bio-element:nth-child(8) { bottom: 10%; right: 15%; animation-delay: 1.5s; }
-.bio-element:nth-child(9) { top: 70%; right: 25%; animation-delay: 4.5s; }
-.bio-element:nth-child(10) { top: 5%; left: 30%; animation-delay: 3.5s; }
-.bio-element:nth-child(11) { bottom: 40%; left: 5%; animation-delay: 6s; }
-.bio-element:nth-child(12) { top: 50%; right: 5%; animation-delay: 0.5s; }
+@keyframes drift-reverse {
+  0% { transform: translateX(calc(100vw + 150px)) translateY(0); }
+  100% { transform: translateX(-150px) translateY(-30px); }
+}
 
-/* Разные размеры для разнообразия */
-.bio-element:nth-child(3n) { transform: scale(0.7); }
-.bio-element:nth-child(4n) { transform: scale(1.3); }
-.bio-element:nth-child(5n) { transform: scale(0.9); }
+@keyframes drift-slow {
+  0% { transform: translateX(-100px) translateY(0); }
+  50% { transform: translateX(calc(50vw)) translateY(-20px); }
+  100% { transform: translateX(calc(100vw + 100px)) translateY(20px); }
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: rotate(-5deg); }
+  50% { transform: rotate(5deg); }
+}
+
+@keyframes sway {
+  0%, 100% { transform: rotate(-10deg); }
+  50% { transform: rotate(10deg); }
+}
+
+@keyframes wave {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.5); }
+}
+
+@keyframes grow-shrink {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(1.2); }
+}
+
+/* ====== ПОЗИЦИОНИРОВАНИЕ ЭЛЕМЕНТОВ (случайное распределение) ====== */
+.bio-element:nth-child(1) { top: 5%; left: 3%; animation-delay: 0s, 0s; }
+.bio-element:nth-child(2) { top: 15%; right: 8%; animation-delay: 1s, 5s; }
+.bio-element:nth-child(3) { top: 25%; left: 12%; animation-delay: 2s, 10s; }
+.bio-element:nth-child(4) { bottom: 25%; right: 5%; animation-delay: 0.5s, 3s; }
+.bio-element:nth-child(5) { top: 35%; left: 20%; animation-delay: 3s, 8s; }
+.bio-element:nth-child(6) { bottom: 15%; left: 15%; animation-delay: 1.5s, 12s; }
+.bio-element:nth-child(7) { top: 10%; right: 25%; animation-delay: 2.5s, 6s; }
+.bio-element:nth-child(8) { bottom: 35%; right: 15%; animation-delay: 0.8s, 15s; }
+.bio-element:nth-child(9) { top: 45%; right: 10%; animation-delay: 4s, 9s; }
+.bio-element:nth-child(10) { top: 8%; left: 35%; animation-delay: 3.5s, 4s; }
+.bio-element:nth-child(11) { bottom: 45%; left: 8%; animation-delay: 5s, 11s; }
+.bio-element:nth-child(12) { top: 55%; right: 3%; animation-delay: 0.3s, 7s; }
+.bio-element:nth-child(13) { top: 65%; left: 25%; animation-delay: 2.2s, 14s; }
+.bio-element:nth-child(14) { bottom: 5%; right: 30%; animation-delay: 1.8s, 2s; }
+.bio-element:nth-child(15) { top: 20%; left: 45%; animation-delay: 4.5s, 16s; }
+.bio-element:nth-child(16) { bottom: 20%; left: 35%; animation-delay: 0.6s, 13s; }
+.bio-element:nth-child(17) { top: 75%; right: 20%; animation-delay: 3.2s, 18s; }
+.bio-element:nth-child(18) { top: 30%; right: 35%; animation-delay: 1.2s, 20s; }
+.bio-element:nth-child(19) { bottom: 55%; left: 2%; animation-delay: 5.5s, 1s; }
+.bio-element:nth-child(20) { top: 50%; left: 5%; animation-delay: 2.8s, 17s; }
+.bio-element:nth-child(21) { top: 85%; left: 40%; animation-delay: 0.9s, 19s; }
+.bio-element:nth-child(22) { bottom: 10%; right: 45%; animation-delay: 4.2s, 22s; }
+.bio-element:nth-child(23) { top: 40%; left: 55%; animation-delay: 1.6s, 24s; }
+.bio-element:nth-child(24) { top: 70%; right: 40%; animation-delay: 3.8s, 21s; }
+.bio-element:nth-child(25) { bottom: 30%; left: 50%; animation-delay: 0.4s, 25s; }
+
+/* Разные размеры и скорости для разнообразия */
+.bio-element:nth-child(3n) { transform: scale(0.6); }
+.bio-element:nth-child(4n) { transform: scale(1.2); }
+.bio-element:nth-child(5n) { transform: scale(0.8); }
+.bio-element:nth-child(7n) { animation-duration: 12s, 35s; }
+.bio-element:nth-child(11n) { animation-duration: 18s, 45s; }
 
 /* ====== ТЕМНАЯ ТЕМА ====== */
 body.dark .bio-element {
-  opacity: 0.1;
+  opacity: 0.08;
 }
 
 body.dark .cell-plant,
 body.dark .cell-animal {
-  border-color: rgba(255,255,255,0.3);
+  border-color: rgba(255,255,255,0.2);
+}
+
+body.dark .leaf {
+  opacity: 0.1;
 }
 
 /* ====== МЕДИА-ЗАПРОСЫ ====== */
 @media (max-width: 768px) {
   .bio-element {
-    transform: scale(0.6);
+    transform: scale(0.5);
   }
-  .bio-element:nth-child(n+7) {
-    display: none; /* На мобильных показываем меньше элементов */
+  .bio-element:nth-child(n+15) {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .bio-element:nth-child(n+10) {
+    display: none;
   }
 }
 
@@ -721,5 +1061,6 @@ body.dark .cell-animal {
   .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
 }
+
 
 
