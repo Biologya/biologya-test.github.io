@@ -1246,20 +1246,23 @@ async function updateQuestions(newData, newHash) {
     
     // 1. СОХРАНЯЕМ текущую историю с привязкой к ТЕКСТУ вопроса и СТАРЫМ ИНДЕКСАМ ОТВЕТОВ
     const historyByText = new Map();
-    const errorsByText = new Map(); // Отдельно сохраняем ошибки
+    const errorsByText = new Map();
+    const positionByText = new Map(); // Сохраняем позицию вопроса в старой очереди
     
-    // Сохраняем историю по тексту вопроса ВМЕСТЕ с оригинальными индексами ответов
-    mainQueue.forEach(qId => {
+    // Сохраняем историю и позиции по тексту вопроса
+    mainQueue.forEach((qId, position) => {
       const q = questions[qId];
       if (!q) return;
       
       const history = state.history[qId];
       const textKey = q.text.substring(0, 300).toLowerCase().trim();
       
+      // Сохраняем позицию вопроса в текущей очереди
+      positionByText.set(textKey, position);
+      
       if (history && history.checked) {
-        // Получаем оригинальные индексы выбранных ответов (до перемешивания)
+        // Получаем оригинальные индексы выбранных ответов
         const originalSelected = history.selected.map(idx => {
-          // Преобразуем текущий индекс обратно в оригинальный
           return q._currentOrder ? q._currentOrder[idx] : idx;
         });
         
@@ -1268,9 +1271,10 @@ async function updateQuestions(newData, newHash) {
           checked: true,
           counted: history.counted,
           wasCorrect: history.wasCorrect,
-          isError: state.errors.includes(qId) // Сохраняем статус ошибки
+          isError: state.errors.includes(qId),
+          oldPosition: position // Сохраняем старую позицию
         });
-        console.log(`💾 Сохранена история для: "${textKey.substring(0, 50)}..."`, originalSelected);
+        console.log(`💾 Сохранена история для: "${textKey.substring(0, 50)}..." на позиции ${position}`);
       }
       
       // Сохраняем информацию об ошибках отдельно
@@ -1286,7 +1290,7 @@ async function updateQuestions(newData, newHash) {
 
     // 2. Загружаем НОВЫЕ вопросы
     const validQuestions = [];
-    const questionMap = new Map(); // текст -> индекс
+    const questionMap = new Map();
     
     for (let i = 0; i < newData.length; i++) {
       const q = newData[i];
@@ -1332,18 +1336,22 @@ async function updateQuestions(newData, newHash) {
     questions = validQuestions;
     state.questionHash = newHash;
     
-    // 4. ВОССТАНАВЛИВАЕМ историю по тексту вопроса с КОРРЕКТНЫМИ ИНДЕКСАМИ
+    // 4. ВОССТАНАВЛИВАЕМ историю и создаем новую очередь с СОХРАНЕНИЕМ ПОРЯДКА
     const newHistory = {};
-    const newErrors = []; // Новый массив ошибок
+    const newErrors = [];
     let restoredCount = 0;
+    
+    // Массив для формирования новой очереди: [ {index: 0, isCompleted: true}, ... ]
+    const queueStructure = [];
     
     questions.forEach((q, idx) => {
       const textKey = q.text.substring(0, 300).toLowerCase().trim();
       const saved = historyByText.get(textKey);
       const errorInfo = errorsByText.get(textKey);
+      const oldPosition = positionByText.get(textKey);
       
       if (saved) {
-        // Проверяем, совпадает ли количество ответов
+        // Проверяем валидность ответов
         const maxOriginalIndex = Math.max(...saved.originalSelected, -1);
         const answersCountValid = saved.originalSelected.length === 0 || 
                                   maxOriginalIndex < q.answers.length;
@@ -1356,59 +1364,115 @@ async function updateQuestions(newData, newHash) {
             wasCorrect: saved.wasCorrect,
             isError: saved.isError,
             _questionText: q.text.substring(0, 100),
-            _restored: true
+            _restored: true,
+            oldPosition: saved.oldPosition
           };
           restoredCount++;
           
-          // ВОССТАНАВЛИВАЕМ ОШИБКУ, если она была
+          // ВОССТАНАВЛИВАЕМ ОШИБКУ
           if (saved.isError) {
             newErrors.push(idx);
-            console.log(`🔄 Восстановлена ошибка для: "${textKey.substring(0, 50)}..."`);
           }
           
-          console.log(`✅ Восстановлена история для: "${textKey.substring(0, 50)}..."`);
+          // Добавляем в структуру очереди как выполненный
+          queueStructure.push({
+            index: idx,
+            isCompleted: true,
+            oldPosition: saved.oldPosition
+          });
+          
+          console.log(`✅ Восстановлена история для: "${textKey.substring(0, 50)}..." на позиции ${saved.oldPosition}`);
         } else {
-          console.warn(`⚠️ Структура ответов изменилась для: "${textKey.substring(0, 50)}..."`);
+          // Если структура изменилась, считаем невыполненным
+          queueStructure.push({
+            index: idx,
+            isCompleted: false,
+            oldPosition: oldPosition !== undefined ? oldPosition : Infinity
+          });
         }
+      } else {
+        // Новый или невыполненный вопрос
+        queueStructure.push({
+          index: idx,
+          isCompleted: false,
+          oldPosition: oldPosition !== undefined ? oldPosition : Infinity
+        });
       }
     });
     
     state.history = newHistory;
-    state.errors = newErrors; // Обновляем массив ошибок
-    errorQueue = newErrors.slice(); // Обновляем очередь ошибок
+    state.errors = newErrors;
+    errorQueue = newErrors.slice();
     state.errorQueue = errorQueue.slice();
     
     console.log(`✅ Восстановлено ${restoredCount} историй, ${newErrors.length} ошибок`);
 
-    // 5. СОЗДАЕМ НОВУЮ ОЧЕРЕДЬ - отмеченные в начале, НЕВЫПОЛНЕННЫЕ (неотмеченные) ПЕРЕМЕШИВАЕМ
+    // 5. ФОРМИРУЕМ НОВУЮ ОЧЕРЕДЬ с сохранением относительного порядка выполненных
     
-    // Сначала определяем, какие вопросы отмечены (выполнены) в новом массиве
-    const completedIndices = []; // Отмеченные (выполненные) - не перемешиваем
-    const uncompletedIndices = []; // Неотмеченные (невыполненные) - перемешиваем
+    // Разделяем на выполненные и невыполненные
+    const completedItems = queueStructure.filter(item => item.isCompleted);
+    const uncompletedItems = queueStructure.filter(item => !item.isCompleted);
     
-    for (let i = 0; i < questions.length; i++) {
-      if (state.history[i]?._restored) {
-        completedIndices.push(i);
-      } else {
-        uncompletedIndices.push(i);
+    // Перемешиваем ТОЛЬКО невыполненные
+    const shuffledUncompleted = shuffleArray(uncompletedItems);
+    
+    // Создаем финальную очередь, сохраняя относительные позиции выполненных
+    // Выполненные встают на свои старые позиции (по возможности), 
+    // невыполненные заполняют оставшиеся места в перемешанном порядке
+    
+    // Сортируем выполненные по старой позиции
+    completedItems.sort((a, b) => a.oldPosition - b.oldPosition);
+    
+    // Создаем массив для финальной очереди
+    const finalQueue = new Array(queueStructure.length);
+    const usedPositions = new Set();
+    
+    // Сначала размещаем выполненные вопросы на их старые позиции (если возможно)
+    // или на ближайшие доступные позиции
+    completedItems.forEach(item => {
+      let targetPos = item.oldPosition;
+      // Если позиция занята или выходит за границы, ищем ближайшую свободную
+      if (targetPos >= finalQueue.length || finalQueue[targetPos] !== undefined) {
+        // Ищем ближайшую свободную позицию
+        let found = false;
+        for (let offset = 0; offset < finalQueue.length && !found; offset++) {
+          // Пробуем вправо
+          if (targetPos + offset < finalQueue.length && finalQueue[targetPos + offset] === undefined) {
+            targetPos = targetPos + offset;
+            found = true;
+          }
+          // Пробуем влево
+          else if (targetPos - offset >= 0 && finalQueue[targetPos - offset] === undefined) {
+            targetPos = targetPos - offset;
+            found = true;
+          }
+        }
+      }
+      finalQueue[targetPos] = item.index;
+      usedPositions.add(targetPos);
+    });
+    
+    // Заполняем оставшиеся позиции перемешанными невыполненными
+    let uncompletedIndex = 0;
+    for (let i = 0; i < finalQueue.length; i++) {
+      if (finalQueue[i] === undefined && uncompletedIndex < shuffledUncompleted.length) {
+        finalQueue[i] = shuffledUncompleted[uncompletedIndex].index;
+        uncompletedIndex++;
       }
     }
     
-    console.log(`📊 Выполненных: ${completedIndices.length}, Невыполненных: ${uncompletedIndices.length}`);
+    // Если остались невыполненные (не должно, но на всякий случай), добавляем в конец
+    while (uncompletedIndex < shuffledUncompleted.length) {
+      finalQueue.push(shuffledUncompleted[uncompletedIndex].index);
+      uncompletedIndex++;
+    }
     
-    // Перемешиваем ТОЛЬКО невыполненные (неотмеченные)
-    const shuffledUncompleted = shuffleArray(uncompletedIndices);
-    
-    // Формируем новую очередь: выполненные в начале (в порядке следования в новом файле), 
-    // потом перемешанные невыполненные
-    mainQueue = [...completedIndices, ...shuffledUncompleted];
-    
+    mainQueue = finalQueue.filter(idx => idx !== undefined);
     state.mainQueue = mainQueue.slice();
     
-    // 6. Ошибки уже восстановлены в шаге 4, но убедимся что они есть в errorQueue
-    // (они уже добавлены в newErrors и errorQueue)
-    
-    // 7. ОБРАБАТЫВАЕМ ПОРЯДОК ОТВЕТОВ и ПРИМЕНЯЕМ ВЫБРАННЫЕ ОТВЕТЫ
+    console.log(`📊 Финальная очередь: ${completedItems.length} выполненных сохранили порядок, ${shuffledUncompleted.length} невыполненных перемешаны`);
+
+    // 6. ОБРАБАТЫВАЕМ ПОРЯДОК ОТВЕТОВ
     state.answersOrder = {};
     state.answersByQuestionId = {};
     
@@ -1422,18 +1486,15 @@ async function updateQuestions(newData, newHash) {
       let order;
       
       if (state.history[qIdx]?._restored) {
-        // Для восстановленных вопросов создаем порядок, который сохраняет правильность выбранных ответов
+        // Для выполненных вопросов сохраняем правильность ответов
         const savedOriginalSelected = state.history[qIdx].originalSelected;
         
-        // Создаем порядок: сначала выбранные ответы в случайном порядке, потом остальные
         const remaining = original.filter(a => !savedOriginalSelected.includes(a.index));
         const shuffledRemaining = shuffleArray(remaining);
         
-        // Формируем финальный порядок
         order = [];
         const usedOriginalIndices = new Set();
         
-        // Сначала размещаем выбранные ответы
         savedOriginalSelected.forEach(origIdx => {
           if (!usedOriginalIndices.has(origIdx)) {
             order.push(origIdx);
@@ -1441,7 +1502,6 @@ async function updateQuestions(newData, newHash) {
           }
         });
         
-        // Затем добавляем оставшиеся в перемешанном порядке
         shuffledRemaining.forEach(a => {
           if (!usedOriginalIndices.has(a.index)) {
             order.push(a.index);
@@ -1449,14 +1509,11 @@ async function updateQuestions(newData, newHash) {
           }
         });
         
-        // Если что-то пошло не так, используем полное перемешивание
         if (order.length !== q.answers.length) {
           order = shuffleArray(original.map(a => a.index));
         }
-        
-        console.log(`🔄 Создан специальный порядок для выполненного вопроса ${qIdx}`);
       } else {
-        // Для невыполненных вопросов - случайный порядок
+        // Для невыполненных - случайный порядок
         order = shuffleArray(original.map(a => a.index));
       }
       
@@ -1465,29 +1522,25 @@ async function updateQuestions(newData, newHash) {
         state.answersByQuestionId[q.id] = order.slice();
       }
       
-      // Применяем порядок к вопросу
       q.answers = order.map(i => original.find(a => a.index === i).text);
       q.correct = Array.isArray(origCorrect)
         ? origCorrect.map(c => order.indexOf(c))
         : order.indexOf(origCorrect);
       q._currentOrder = order.slice();
       
-      // 8. ПРИМЕНЯЕМ ВЫБРАННЫЕ ОТВЕТЫ для выполненных вопросов
+      // Применяем выбранные ответы для выполненных вопросов
       if (state.history[qIdx]?._restored) {
         const savedOriginalSelected = state.history[qIdx].originalSelected;
-        // Конвертируем оригинальные индексы в новые позиции
         const newSelected = savedOriginalSelected.map(origIdx => order.indexOf(origIdx))
           .filter(idx => idx !== -1);
-        
         state.history[qIdx].selected = newSelected;
-        console.log(`✅ Применены ответы для вопроса ${qIdx}:`, newSelected);
       }
     });
     
     questionsLoaded = true;
     saveLocalState();
     
-    showNotification(`✅ Вопросы обновлены! Загружено ${validQuestions.length}, восстановлено ${restoredCount} ответов, ${newErrors.length} ошибок.`, 'success');
+    showNotification(`✅ Обновлено! ${validQuestions.length} вопросов, выполненные сохранили порядок.`, 'success');
     
     render();
     await saveState(true);
@@ -1501,7 +1554,6 @@ async function updateQuestions(newData, newHash) {
     checkUpdatesBtn.innerText = originalText;
   }
 }
-
   // Функция для показа уведомлений
   function showNotification(message, type = 'info') {
     const notification = document.createElement('div');
@@ -1738,7 +1790,6 @@ async function loadQuestions() {
     
     const data = validation.data;
     
-    // Загружаем ВСЕ вопросы
     questions = data.map((q, index) => ({
       id: q.id || `q_${index}_${hashString(q.text || '')}`,
       text: q.text || `Вопрос ${index + 1}`,
@@ -1748,10 +1799,8 @@ async function loadQuestions() {
 
     console.log(`📚 Загружено ${questions.length} вопросов`);
 
-    // Проверяем, изменился ли хэш вопросов
     const currentHash = computeQuestionsHash(data);
     
-    // Если хэш изменился или очередь пустая/неполная - обновляем очередь
     const needNewQueue = !state.mainQueue || 
                          state.mainQueue.length !== questions.length ||
                          state.questionHash !== currentHash;
@@ -1759,45 +1808,85 @@ async function loadQuestions() {
     if (needNewQueue) {
       console.log('🔄 Создаем новую очередь...');
       
-      // Если это первый запуск или вопросы изменились
       if (!state.mainQueue || state.mainQueue.length === 0) {
         // Первая загрузка - полностью перемешиваем
         mainQueue = shuffleArray([...Array(questions.length).keys()]);
       } else {
-        // Вопросы изменились или перезагрузка - сохраняем выполненные, перемешиваем невыполненные
+        // Перезагрузка - сохраняем порядок выполненных, перемешиваем невыполненные
         const oldQueue = state.mainQueue;
-        const completedIndices = []; // Выполненные (checked)
-        const uncompletedIndices = []; // Невыполненные (не checked)
         
-        // Собираем информацию о старых вопросах
-        oldQueue.forEach((qId) => {
-          if (qId < questions.length) { // Проверяем, что индекс валидный
-            if (state.history[qId]?.checked) {
-              completedIndices.push(qId);
-            } else {
-              uncompletedIndices.push(qId);
-            }
-          }
+        // Создаем структуру с информацией о каждом вопросе
+        const queueStructure = oldQueue.map((qId, position) => {
+          const isCompleted = state.history[qId]?.checked || false;
+          return {
+            index: qId,
+            isCompleted: isCompleted,
+            oldPosition: position
+          };
         });
         
-        // Добавляем новые вопросы (которых не было в старой очереди) как невыполненные
+        // Добавляем новые вопросы
         for (let i = 0; i < questions.length; i++) {
           if (!oldQueue.includes(i)) {
-            uncompletedIndices.push(i);
+            queueStructure.push({
+              index: i,
+              isCompleted: false,
+              oldPosition: Infinity
+            });
           }
         }
         
-        // Перемешиваем ТОЛЬКО невыполненные
-        const shuffledUncompleted = shuffleArray(uncompletedIndices);
+        // Разделяем и перемешиваем
+        const completedItems = queueStructure.filter(item => item.isCompleted);
+        const uncompletedItems = queueStructure.filter(item => !item.isCompleted);
         
-        // Формируем новую очередь: выполненные в начале (в их порядке), потом перемешанные невыполненные
-        mainQueue = [...completedIndices, ...shuffledUncompleted];
+        // Сортируем выполненные по старой позиции (сохраняем порядок)
+        completedItems.sort((a, b) => a.oldPosition - b.oldPosition);
+        
+        // Перемешиваем невыполненные
+        const shuffledUncompleted = shuffleArray(uncompletedItems);
+        
+        // Формируем финальную очередь
+        const finalQueue = new Array(queueStructure.length);
+        
+        // Размещаем выполненные на их позиции
+        completedItems.forEach(item => {
+          let targetPos = item.oldPosition;
+          if (targetPos >= finalQueue.length || finalQueue[targetPos] !== undefined) {
+            // Ищем ближайшую свободную
+            for (let i = 0; i < finalQueue.length; i++) {
+              if (finalQueue[i] === undefined) {
+                targetPos = i;
+                break;
+              }
+            }
+          }
+          if (targetPos < finalQueue.length) {
+            finalQueue[targetPos] = item.index;
+          }
+        });
+        
+        // Заполняем пустые места невыполненными
+        let uncompletedIdx = 0;
+        for (let i = 0; i < finalQueue.length; i++) {
+          if (finalQueue[i] === undefined && uncompletedIdx < shuffledUncompleted.length) {
+            finalQueue[i] = shuffledUncompleted[uncompletedIdx].index;
+            uncompletedIdx++;
+          }
+        }
+        
+        // Добавляем оставшиеся в конец
+        while (uncompletedIdx < shuffledUncompleted.length) {
+          finalQueue.push(shuffledUncompleted[uncompletedIdx].index);
+          uncompletedIdx++;
+        }
+        
+        mainQueue = finalQueue.filter(idx => idx !== undefined);
       }
       
       state.mainQueue = mainQueue.slice();
       state.questionHash = currentHash;
     } else {
-      // Используем сохраненную очередь
       mainQueue = state.mainQueue.slice();
       console.log('✅ Используем сохраненную очередь');
     }
@@ -1814,10 +1903,8 @@ async function loadQuestions() {
 
       let order; 
       if (state.answersOrder[qId] && state.answersOrder[qId].length === q.answers.length) {
-        // Используем сохраненный порядок
         order = state.answersOrder[qId].slice();
       } else {
-        // Создаем новый случайный порядок
         order = shuffleArray(original.map(a => a.index));
         state.answersOrder[qId] = order.slice();
       }
@@ -1829,17 +1916,14 @@ async function loadQuestions() {
       q._currentOrder = order.slice();
     });
 
-    // Восстанавливаем очередь ошибок из state.errors
-    errorQueue = state.errors && state.errors.length
-      ? state.errors.slice()
-      : [];
+    errorQueue = state.errors && state.errors.length ? state.errors.slice() : [];
     state.errorQueue = errorQueue.slice();
 
     questionsLoaded = true;
     saveLocalState();
     render();
     
-    console.log('✅ Вопросы успешно загружены и отображены');
+    console.log('✅ Вопросы успешно загружены');
     
   } catch (err) {
     console.error('❌ Ошибка загрузки вопросов:', err);
@@ -1847,7 +1931,6 @@ async function loadQuestions() {
     throw err;
   }
 }
-
 // Функция для диагностики JSON файла
 async function diagnoseQuestionsFile() {
   try {
@@ -2427,5 +2510,6 @@ if (authOverlay) authOverlay.style.display = 'flex';
 if (waitOverlay) waitOverlay.style.display = 'none';
 
 window.initQuiz = initQuiz;
+
 
 
