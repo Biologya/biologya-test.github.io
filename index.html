@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="style.css" />
   
 <!-- Декоративные био-элементы -->
-<div class="bio-decoration">
+<div class="bio-decoration" id="bioDecoration">
   <div class="bio-element cell-plant"></div>
   <div class="bio-element dna-helix"></div>
   <div class="bio-element cell-animal"></div>
@@ -19,8 +19,55 @@
   <div class="bio-element mitochondria"></div>
   <div class="bio-element virus"></div>
   <div class="bio-element spore"></div>
-  <div class="bio-element cell-plant" style="animation-duration: 25s;"></div>
+  <div class="bio-element neuron"></div>
+  <div class="bio-element erythrocyte"></div>
+  <div class="bio-element leukocyte"></div>
+  <div class="bio-element paramecium"></div>
+  <div class="bio-element euglena"></div>
+  <div class="bio-element sporangium"></div>
+  <div class="bio-element pollen"></div>
+  <div class="bio-element root-hair"></div>
+  <div class="bio-element pili"></div>
+  <div class="bio-element flagellum"></div>
+  <div class="bio-element cell-plant"></div>
+  <div class="bio-element bacteria"></div>
+  <div class="bio-element amoeba"></div>
+  <div class="bio-element dna-helix"></div>
 </div>
+
+<script>
+  // Случайное перемешивание позиций при загрузке
+  (function() {
+    const container = document.getElementById('bioDecoration');
+    const elements = Array.from(container.children);
+    
+    // Перемешиваем массив
+    for (let i = elements.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [elements[i], elements[j]] = [elements[j], elements[i]];
+    }
+    
+    // Переставляем элементы в DOM
+    elements.forEach(el => container.appendChild(el));
+    
+    // Случайные задержки анимации для каждого элемента
+    elements.forEach((el, index) => {
+      const randomDelay = Math.random() * 10;
+      const randomDuration = 15 + Math.random() * 20;
+      el.style.animationDelay = `${randomDelay}s, ${randomDelay * 2}s`;
+      
+      // Случайное начальное положение
+      const randomTop = Math.random() * 90;
+      const randomLeft = Math.random() * 90;
+      
+      // Не меняем положение слишком сильно, чтобы не выйти за экран
+      if (index % 3 === 0) {
+        el.style.top = `${randomTop}%`;
+        el.style.left = `${randomLeft}%`;
+      }
+    });
+  })();
+</script>
   
   <!-- ====== Встроенный стиль панели и адаптивность ====== -->
   <style>
@@ -656,5 +703,6 @@
   </script>
 </body>
 </html>
+
 
 
