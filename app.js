@@ -89,6 +89,72 @@ let userUnsubscribe = null;
 let saveProgressBtn = null;
 let isInitializing = false;
 
+<script>
+  // Плавное перемешивание и позиционирование
+  (function() {
+    const container = document.getElementById('bioDecoration');
+    if (!container) return;
+    
+    const elements = Array.from(container.children);
+    
+    // Плавное перемешивание Фишера-Йейтса
+    for (let i = elements.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [elements[i], elements[j]] = [elements[j], elements[i]];
+    }
+    
+    elements.forEach(el => container.appendChild(el));
+    
+    // Плавные случайные параметры
+    elements.forEach((el, index) => {
+      const randomDelay = Math.random() * 10;
+      const randomDuration = 12 + Math.random() * 8;
+      el.style.animationDelay = `${randomDelay}s, ${randomDelay * 2.5}s`;
+      el.style.animationDuration = `${randomDuration}s, ${randomDuration * 2.5}s`;
+      
+      // Некоторые элементы случайно зеркалируем плавно
+      if (Math.random() > 0.5) {
+        el.style.transform += ' scaleX(-1)';
+      }
+      
+      // Мягкая случайная прозрачность
+      const baseOpacity = 0.45 + Math.random() * 0.15;
+      el.style.opacity = baseOpacity;
+    });
+    
+    // Плавное положение солнца
+    const sun = document.querySelector('.sun');
+    if (sun) {
+      const sunPositions = [
+        { top: '3%', left: '5%' },
+        { top: '5%', right: '10%' },
+        { top: '2%', left: '40%' },
+        { top: '6%', left: '20%' },
+        { top: '4%', right: '25%' }
+      ];
+      const pos = sunPositions[Math.floor(Math.random() * sunPositions.length)];
+      Object.assign(sun.style, pos);
+      sun.style.transition = 'all 2s ease';
+    }
+    
+    // Плавные облака
+    const clouds = document.querySelectorAll('.cloud');
+    clouds.forEach((cloud, i) => {
+      cloud.style.top = `${3 + Math.random() * 15}%`;
+      cloud.style.animationDuration = `${50 + Math.random() * 40}s`;
+      cloud.style.animationDelay = `${i * 15}s`;
+      cloud.style.opacity = 0.5 + Math.random() * 0.2;
+    });
+    
+    // Плавное появление при загрузке
+    document.body.style.opacity = '0';
+    setTimeout(() => {
+      document.body.style.transition = 'opacity 1.5s ease';
+      document.body.style.opacity = '1';
+    }, 100);
+  })();
+</script>
+
 /* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
@@ -2511,6 +2577,7 @@ if (authOverlay) authOverlay.style.display = 'flex';
 if (waitOverlay) waitOverlay.style.display = 'none';
 
 window.initQuiz = initQuiz;
+
 
 
 
