@@ -1311,16 +1311,15 @@ async function updateQuestions(newData, newHash) {
         }
         
         const questionId = q.id || `q_${i}_${hashString(text)}`;
-        
-        validQuestions.push({
-          id: questionId,
-          text: text,
-          answers: answers,
-          correct: correct,
-          _originalCorrect: correct,
-          _originalAnswers: [...answers]
-        });
-        
+
+validQuestions.push({
+  id: questionId,
+  text: text,
+  answers: answers,
+  _originalCorrect: correct,
+  isMulti: Array.isArray(correct),
+  _originalAnswers: [...answers]
+});
         const textKey = text.substring(0, 300).toLowerCase().trim();
         questionMap.set(textKey, validQuestions.length - 1);
       }
@@ -1779,152 +1778,173 @@ function validateQuestionsJson(text) {
 async function loadQuestions() {
   try {
     console.log('📥 Начинаем загрузку вопросов...');
-    
+
     const response = await fetch("questions.json");
     const text = await response.text();
-    
+
     const validation = validateQuestionsJson(text);
     if (!validation.valid) {
       throw new Error(validation.error);
     }
-    
+
     const data = validation.data;
-    
-    questions = data.map((q, index) => ({
-      id: q.id || `q_${index}_${hashString(q.text || '')}`,
-      text: q.text || `Вопрос ${index + 1}`,
-      answers: Array.isArray(q.answers) ? [...q.answers] : ["Нет ответов"],
-      correct: Array.isArray(q.correct) ? [...q.correct] : (q.correct !== undefined ? q.correct : 0)
-    }));
+
+    // Мэп вопросов: сохраняем признак isMulti (был ли correct массивом в JSON)
+    questions = data.map((q, index) => {
+      const rawCorrect = q.correct;
+      const isMulti = Array.isArray(rawCorrect);
+      const storedCorrect = isMulti ? [...rawCorrect] : (rawCorrect !== undefined ? rawCorrect : 0);
+
+      return {
+        id: q.id || `q_${index}_${hashString(q.text || '')}`,
+        text: q.text || `Вопрос ${index + 1}`,
+        answers: Array.isArray(q.answers) ? [...q.answers] : ["Нет ответов"],
+        // _originalCorrect хранит исходный raw correct (массив или число)
+        _originalCorrect: storedCorrect,
+        // isMulti = true если в исходном JSON был массив []
+        isMulti: isMulti
+      };
+    });
 
     console.log(`📚 Загружено ${questions.length} вопросов`);
 
     const currentHash = computeQuestionsHash(data);
-    
-    // Проверяем, нужно ли создавать новую очередь
+
+    // Решаем, нужна ли новая очередь
     const isFirstLoad = !state.mainQueue || state.mainQueue.length === 0;
     const questionsChanged = state.questionHash !== currentHash;
     const needNewQueue = isFirstLoad || questionsChanged;
-    
+
     if (needNewQueue) {
       console.log('🔄 Создаем новую очередь...', isFirstLoad ? '(первая загрузка)' : '(вопросы изменились)');
-      
+
       if (isFirstLoad) {
-        // Первая загрузка - полностью перемешиваем все вопросы
+        // Первая загрузка - полностью перемешиваем все индексы
         mainQueue = shuffleArray([...Array(questions.length).keys()]);
         console.log('✅ Первая загрузка: все вопросы перемешаны');
       } else {
-        // Перезагрузка или обновление вопросов - сохраняем позиции выполненных, перемешиваем невыполненные
-        const oldQueue = state.mainQueue;
-        
-        // Создаем массив для новой очереди той же длины
-        const newQueue = new Array(questions.length);
+        // Перезагрузка/обновление: сохраняем позиции отмеченных (checked), перемешиваем невыполненные
+        const oldQueue = state.mainQueue || [];
+        const newQueue = new Array(questions.length).fill(undefined);
         const usedIndices = new Set();
-        
-        // Шаг 1: Размещаем выполненные вопросы на их старых позициях
-        const completedPositions = []; // [{position: 0, qId: 5}, ...]
-        
+
+        // 1) Сохраняем выполненные (checked) на их старых позициях если возможно
         oldQueue.forEach((qId, position) => {
-          // Проверяем, что вопрос существует в новом наборе и был выполнен
-          if (qId < questions.length && state.history[qId]?.checked) {
-            // Сохраняем на той же позиции, если возможно
-            if (position < newQueue.length) {
+          const wasChecked = !!state.history?.[qId]?.checked;
+          if (wasChecked && qId < questions.length) {
+            // ставим на ту же позицию если в границах
+            if (position < newQueue.length && newQueue[position] === undefined) {
               newQueue[position] = qId;
               usedIndices.add(qId);
-              completedPositions.push({position, qId});
+            } else {
+              // пытаемся найти ближайшую свободную
+              for (let offset = 0; offset < newQueue.length; offset++) {
+                if (position + offset < newQueue.length && newQueue[position + offset] === undefined) {
+                  newQueue[position + offset] = qId;
+                  usedIndices.add(qId);
+                  break;
+                } else if (position - offset >= 0 && newQueue[position - offset] === undefined) {
+                  newQueue[position - offset] = qId;
+                  usedIndices.add(qId);
+                  break;
+                }
+              }
             }
           }
         });
-        
-        console.log(`📊 Найдено ${completedPositions.length} выполненных вопросов, сохраняем их позиции`);
-        
-        // Шаг 2: Собираем все невыполненные вопросы (из старой очереди + новые)
+
+        // 2) Собираем пул всех оставшихся (невыполненных): берем оставшиеся из oldQueue + всякие новые вопросы
         const uncompletedPool = [];
-        
-        // Добавляем невыполненные из старой очереди
-        oldQueue.forEach((qId) => {
-          if (qId < questions.length && !usedIndices.has(qId) && !state.history[qId]?.checked) {
+
+        // Добавляем те элементы старой очереди, которые ещё не использованы и существуют в новом наборе
+        oldQueue.forEach(qId => {
+          if (qId < questions.length && !usedIndices.has(qId) && !state.history?.[qId]?.checked) {
             uncompletedPool.push(qId);
+            usedIndices.add(qId); // чтобы не добавить дважды
           }
         });
-        
-        // Добавляем совершенно новые вопросы (которых не было в старой очереди)
+
+        // Добавляем совершенно новые вопросы (которые не были в старой очереди)
         for (let i = 0; i < questions.length; i++) {
           if (!oldQueue.includes(i) && !usedIndices.has(i)) {
             uncompletedPool.push(i);
+            usedIndices.add(i);
           }
         }
-        
-        // Шаг 3: Перемешиваем невыполненные
+
+        // Перемешиваем невыполненные
         const shuffledUncompleted = shuffleArray(uncompletedPool);
-        console.log(`🎲 Перемешано ${shuffledUncompleted.length} невыполненных вопросов`);
-        
-        // Шаг 4: Заполняем пустые позиции перемешанными невыполненными
-        let uncompletedIdx = 0;
+
+        // 3) Заполняем пустые позиции newQueue перемешанными невыполненными
+        let uIdx = 0;
         for (let i = 0; i < newQueue.length; i++) {
-          if (newQueue[i] === undefined && uncompletedIdx < shuffledUncompleted.length) {
-            newQueue[i] = shuffledUncompleted[uncompletedIdx];
-            uncompletedIdx++;
+          if (newQueue[i] === undefined && uIdx < shuffledUncompleted.length) {
+            newQueue[i] = shuffledUncompleted[uIdx++];
           }
         }
-        
-        // Шаг 5: Если остались невыполненные (не должно, но на всякий случай), добавляем в конец
-        while (uncompletedIdx < shuffledUncompleted.length) {
-          newQueue.push(shuffledUncompleted[uncompletedIdx]);
-          uncompletedIdx++;
+        // Если остались (крайний случай) добавляем в конец
+        while (uIdx < shuffledUncompleted.length) {
+          newQueue.push(shuffledUncompleted[uIdx++]);
         }
-        
-        // Фильтруем undefined (если вдруг позиций меньше чем вопросов)
+
         mainQueue = newQueue.filter(idx => idx !== undefined);
-        
-        console.log(`✅ Очередь обновлена: ${completedPositions.length} выполненных на местах, ${shuffledUncompleted.length} невыполненных перемешаны`);
+        console.log(`✅ Очередь обновлена: ${mainQueue.length} вопросов (включая невыполненные).`);
       }
-      
+
       state.mainQueue = mainQueue.slice();
       state.questionHash = currentHash;
     } else {
-      // Обычная перезагрузка без изменений - используем сохраненную очередь
       mainQueue = state.mainQueue.slice();
-      console.log('✅ Используем сохраненную очередь (перезагрузка без изменений)');
+      console.log('✅ Используем сохранённую очередь (из state)');
     }
 
-    // Обрабатываем порядок ответов
+    // Применяем порядок ответов (randomize) и вычисляем итоговый correct (индексы)
     state.answersOrder = state.answersOrder || {};
-    
+
     mainQueue.forEach(qId => {
       const q = questions[qId];
       if (!q) return;
-      
-      const original = q.answers.map((a, i) => ({ text: a, index: i }));
-      const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
 
-      let order; 
+      const original = q.answers.map((a, i) => ({ text: a, index: i }));
+      const origCorrect = q._originalCorrect;
+
+      // создаём порядок ответов (если есть сохранённый порядок — используем)
+      let order;
       if (state.answersOrder[qId] && state.answersOrder[qId].length === q.answers.length) {
-        // Используем сохраненный порядок для выполненных вопросов
         order = state.answersOrder[qId].slice();
       } else {
-        // Создаем новый случайный порядок для невыполненных
         order = shuffleArray(original.map(a => a.index));
         state.answersOrder[qId] = order.slice();
       }
 
+      // перезаписываем текст ответов в новом порядке
       q.answers = order.map(i => original.find(a => a.index === i).text);
-      q.correct = Array.isArray(origCorrect)
-        ? origCorrect.map(c => order.indexOf(c))
-        : order.indexOf(origCorrect);
+
+      // вычисляем q.correct как индекс(ы) в новом порядке
+      if (Array.isArray(origCorrect)) {
+        // origCorrect — массив номеров (в исходном порядке)
+        q.correct = origCorrect.map(c => order.indexOf(c));
+      } else {
+        q.correct = order.indexOf(origCorrect);
+      }
+
+      // сохраняем признак многовыборности отдельно — исходный JSON был массивом?
+      q.isMulti = Array.isArray(origCorrect);
+
+      // текущий порядок для восстановления
       q._currentOrder = order.slice();
     });
 
     // Восстанавливаем очередь ошибок
-    errorQueue = state.errors && state.errors.length ? state.errors.slice() : [];
+    errorQueue = (state.errors && state.errors.length) ? state.errors.slice() : [];
     state.errorQueue = errorQueue.slice();
 
     questionsLoaded = true;
     saveLocalState();
     render();
-    
+
     console.log('✅ Вопросы успешно загружены и отображены');
-    
+
   } catch (err) {
     console.error('❌ Ошибка загрузки вопросов:', err);
     if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
@@ -2511,6 +2531,7 @@ if (authOverlay) authOverlay.style.display = 'flex';
 if (waitOverlay) waitOverlay.style.display = 'none';
 
 window.initQuiz = initQuiz;
+
 
 
 
