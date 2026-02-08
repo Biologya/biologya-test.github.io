@@ -318,6 +318,397 @@ button.secondary { background: #81c784; }
 .authCard .muted { margin-top: 8px; color: #666; font-size: 14px; }
 .small-ghost { margin-top: 10px; background: transparent; color: var(--accent); border: none; cursor: pointer; font-size: 14px; }
 
+/* ====== ДЕКОРАТИВНЫЙ ФОН ====== */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+  overflow: hidden;
+  background: 
+    /* Градиентная сетка как под микроскопом */
+    radial-gradient(circle at 20% 80%, rgba(76, 175, 80, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(33, 150, 243, 0.06) 0%, transparent 50%),
+    radial-gradient(circle at 40% 40%, rgba(129, 199, 132, 0.05) 0%, transparent 40%);
+}
+
+/* Контейнер для декоративных элементов */
+.bio-decoration {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -1;
+  overflow: hidden;
+}
+
+/* Стили для разных био-элементов */
+.bio-element {
+  position: absolute;
+  opacity: 0.15;
+  animation: float 20s infinite ease-in-out;
+}
+
+/* Клетка растения */
+.cell-plant {
+  width: 80px;
+  height: 80px;
+  border: 3px solid var(--primary);
+  border-radius: 50%;
+  position: relative;
+  background: radial-gradient(circle at 30% 30%, rgba(76, 175, 80, 0.2), transparent 70%);
+}
+
+.cell-plant::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  border: 2px solid var(--primary);
+  border-radius: 50%;
+  opacity: 0.5;
+}
+
+.cell-plant::after {
+  content: '';
+  position: absolute;
+  top: 20%;
+  left: 20%;
+  width: 15px;
+  height: 15px;
+  background: var(--primary);
+  border-radius: 50%;
+  opacity: 0.4;
+}
+
+/* Клетка животного */
+.cell-animal {
+  width: 70px;
+  height: 70px;
+  border: 3px solid var(--accent);
+  border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%;
+  position: relative;
+  background: radial-gradient(circle at 40% 40%, rgba(33, 150, 243, 0.15), transparent 70%);
+  animation: morph 15s infinite ease-in-out;
+}
+
+.cell-animal::before {
+  content: '';
+  position: absolute;
+  top: 30%;
+  left: 30%;
+  width: 20px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 50%;
+  opacity: 0.3;
+}
+
+/* Спираль ДНК */
+.dna-helix {
+  width: 60px;
+  height: 100px;
+  position: relative;
+}
+
+.dna-helix::before,
+.dna-helix::after {
+  content: '';
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 2px solid transparent;
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: rotate 10s linear infinite;
+}
+
+.dna-helix::before {
+  border-right-color: var(--accent);
+  animation-direction: reverse;
+}
+
+/* Бактерия/микроорганизм */
+.bacteria {
+  width: 100px;
+  height: 40px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  border-radius: 20px;
+  position: relative;
+  opacity: 0.2;
+}
+
+.bacteria::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 10%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  background: rgba(255,255,255,0.5);
+  border-radius: 50%;
+  box-shadow: 
+    20px 0 0 rgba(255,255,255,0.5),
+    40px 0 0 rgba(255,255,255,0.5),
+    60px 0 0 rgba(255,255,255,0.5);
+}
+
+/* Лист растения */
+.leaf {
+  width: 60px;
+  height: 100px;
+  background: linear-gradient(135deg, var(--primary), #81c784);
+  border-radius: 0% 100% 0% 100%;
+  position: relative;
+  opacity: 0.15;
+  transform: rotate(-45deg);
+}
+
+.leaf::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: rgba(255,255,255,0.3);
+  transform: translateY(-50%);
+}
+
+/* Молекула/атом */
+.molecule {
+  width: 50px;
+  height: 50px;
+  position: relative;
+}
+
+.molecule::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  background: var(--accent);
+  border-radius: 50%;
+  opacity: 0.4;
+}
+
+.molecule::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  background: var(--primary);
+  border-radius: 50%;
+  opacity: 0.5;
+  box-shadow: 
+    0 38px 0 var(--primary),
+    -19px 19px 0 var(--accent),
+    19px 19px 0 var(--accent);
+}
+
+/* Амёба/простейший */
+.amoeba {
+  width: 90px;
+  height: 90px;
+  background: radial-gradient(circle, rgba(76, 175, 80, 0.2), transparent);
+  border: 2px solid var(--primary);
+  border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%;
+  animation: blob 8s infinite ease-in-out;
+}
+
+/* Хлоропласт */
+.chloroplast {
+  width: 50px;
+  height: 80px;
+  background: linear-gradient(180deg, #4caf50, #2e7d32);
+  border-radius: 50%;
+  position: relative;
+  opacity: 0.15;
+}
+
+.chloroplast::before {
+  content: '';
+  position: absolute;
+  top: 10%;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: rgba(255,255,255,0.3);
+  box-shadow: 
+    0 15px 0 rgba(255,255,255,0.3),
+    0 30px 0 rgba(255,255,255,0.3),
+    0 45px 0 rgba(255,255,255,0.3);
+}
+
+/* Митохондрия */
+.mitochondria {
+  width: 80px;
+  height: 40px;
+  background: linear-gradient(90deg, #ff7043, #f4511e);
+  border-radius: 20px;
+  position: relative;
+  opacity: 0.15;
+  transform: rotate(-15deg);
+}
+
+.mitochondria::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 20%;
+  right: 20%;
+  height: 2px;
+  background: rgba(255,255,255,0.4);
+  transform: translateY(-50%);
+  box-shadow: 0 -8px 0 rgba(255,255,255,0.4), 0 8px 0 rgba(255,255,255,0.4);
+}
+
+/* Вирус/бактериофаг */
+.virus {
+  width: 40px;
+  height: 40px;
+  background: var(--wrong);
+  border-radius: 50%;
+  position: relative;
+  opacity: 0.15;
+}
+
+.virus::before,
+.virus::after {
+  content: '';
+  position: absolute;
+  width: 30px;
+  height: 3px;
+  background: var(--wrong);
+  top: 50%;
+  left: 50%;
+  transform-origin: center;
+}
+
+.virus::before {
+  transform: translate(-50%, -50%) rotate(0deg);
+  box-shadow: 0 -15px 0 var(--wrong), 0 15px 0 var(--wrong);
+}
+
+.virus::after {
+  transform: translate(-50%, -50%) rotate(60deg);
+  box-shadow: 0 -15px 0 var(--wrong), 0 15px 0 var(--wrong);
+}
+
+/* Споры/пыльца */
+.spore {
+  width: 20px;
+  height: 20px;
+  background: radial-gradient(circle, var(--primary), transparent);
+  border-radius: 50%;
+  position: relative;
+}
+
+.spore::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: -5px;
+  right: -5px;
+  bottom: -5px;
+  border: 1px dashed var(--primary);
+  border-radius: 50%;
+  animation: pulse 3s infinite;
+}
+
+/* ====== АНИМАЦИИ ====== */
+@keyframes float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25% { transform: translateY(-20px) rotate(5deg); }
+  50% { transform: translateY(0) rotate(0deg); }
+  75% { transform: translateY(20px) rotate(-5deg); }
+}
+
+@keyframes morph {
+  0%, 100% { border-radius: 40% 60% 70% 30% / 40% 50% 60% 50%; }
+  25% { border-radius: 60% 40% 30% 70% / 60% 30% 40% 60%; }
+  50% { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+  75% { border-radius: 60% 40% 60% 40% / 40% 50% 60% 50%; }
+}
+
+@keyframes rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes blob {
+  0%, 100% { border-radius: 60% 40% 30% 70% / 60% 30% 70% 40%; }
+  25% { border-radius: 30% 60% 70% 40% / 50% 60% 30% 60%; }
+  50% { border-radius: 50% 60% 30% 60% / 30% 60% 70% 40%; }
+  75% { border-radius: 60% 40% 60% 40% / 40% 50% 60% 50%; }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 0.5; }
+  50% { transform: scale(1.3); opacity: 0; }
+}
+
+@keyframes drift {
+  0% { transform: translateX(-100px) translateY(0); }
+  50% { transform: translateX(calc(100vw + 100px)) translateY(-50px); }
+  100% { transform: translateX(calc(100vw + 100px)) translateY(50px); }
+}
+
+/* ====== ПОЗИЦИОНИРОВАНИЕ ЭЛЕМЕНТОВ ====== */
+.bio-element:nth-child(1) { top: 10%; left: 5%; animation-delay: 0s; }
+.bio-element:nth-child(2) { top: 20%; right: 10%; animation-delay: 2s; }
+.bio-element:nth-child(3) { top: 60%; left: 8%; animation-delay: 4s; }
+.bio-element:nth-child(4) { bottom: 20%; right: 5%; animation-delay: 1s; }
+.bio-element:nth-child(5) { top: 40%; left: 15%; animation-delay: 3s; }
+.bio-element:nth-child(6) { bottom: 30%; left: 20%; animation-delay: 5s; }
+.bio-element:nth-child(7) { top: 15%; right: 20%; animation-delay: 2.5s; }
+.bio-element:nth-child(8) { bottom: 10%; right: 15%; animation-delay: 1.5s; }
+.bio-element:nth-child(9) { top: 70%; right: 25%; animation-delay: 4.5s; }
+.bio-element:nth-child(10) { top: 5%; left: 30%; animation-delay: 3.5s; }
+.bio-element:nth-child(11) { bottom: 40%; left: 5%; animation-delay: 6s; }
+.bio-element:nth-child(12) { top: 50%; right: 5%; animation-delay: 0.5s; }
+
+/* Разные размеры для разнообразия */
+.bio-element:nth-child(3n) { transform: scale(0.7); }
+.bio-element:nth-child(4n) { transform: scale(1.3); }
+.bio-element:nth-child(5n) { transform: scale(0.9); }
+
+/* ====== ТЕМНАЯ ТЕМА ====== */
+body.dark .bio-element {
+  opacity: 0.1;
+}
+
+body.dark .cell-plant,
+body.dark .cell-animal {
+  border-color: rgba(255,255,255,0.3);
+}
+
+/* ====== МЕДИА-ЗАПРОСЫ ====== */
+@media (max-width: 768px) {
+  .bio-element {
+    transform: scale(0.6);
+  }
+  .bio-element:nth-child(n+7) {
+    display: none; /* На мобильных показываем меньше элементов */
+  }
+}
+
 /* ====== Адаптивность ====== */
 @media (max-width: 600px) {
   #questionPanelWrapper { width: 50px; top: 40px; height: calc(100vh - 50px); }
@@ -330,4 +721,5 @@ button.secondary { background: #81c784; }
   .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
 }
+
 
