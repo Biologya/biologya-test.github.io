@@ -6,230 +6,118 @@
   <title>Биология — тест (защищённый)</title>
   <link rel="stylesheet" href="style.css" />
   
-<!-- Левый лес -->
-<div class="forest-left">
-  <div class="tree">
-    <div class="tree-crown"></div>
-    <div class="tree-trunk"></div>
-  </div>
-  <div class="tree">
-    <div class="tree-crown"></div>
-    <div class="tree-trunk"></div>
-  </div>
-  <div class="pine-tree">
-    <div class="pine-trunk"></div>
-    <div class="pine-levels">
-      <div class="pine-level"></div>
-      <div class="pine-level"></div>
-      <div class="pine-level"></div>
-    </div>
-  </div>
-  <div class="bush">
-    <div class="bush-part"></div>
-    <div class="bush-part"></div>
-    <div class="bush-part"></div>
-    <div class="bush-part"></div>
-  </div>
-  <div class="grass">
-    <div class="grass-blade"></div>
-    <div class="grass-blade"></div>
-    <div class="grass-blade"></div>
-    <div class="grass-blade"></div>
-    <div class="grass-blade"></div>
-  </div>
-  <div class="flower">
-    <div class="flower-stem"></div>
-    <div class="flower-head">
-      <div class="flower-petals">
-        <div class="flower-petal"></div>
-        <div class="flower-petal"></div>
-        <div class="flower-petal"></div>
-        <div class="flower-petal"></div>
-        <div class="flower-petal"></div>
-      </div>
-      <div class="flower-center"></div>
-    </div>
-  </div>
-  <div class="tree">
-    <div class="tree-crown"></div>
-    <div class="tree-trunk"></div>
-  </div>
+<!-- ДЕКОРАТИВНЫЙ СЛОЙ -->
+<div id="pageNav" aria-label="Навигация по страницам"></div>
+<div id="resetWrapper">
+<button id="resetBtn" title="Сбросить весь прогресс">RESET</button>
+</div>
 </div>
 
-<!-- Правый лес -->
-<div class="forest-right">
-  <div class="tree">
-    <div class="tree-crown"></div>
-    <div class="tree-trunk"></div>
-  </div>
-  <div class="pine-tree">
-    <div class="pine-trunk"></div>
-    <div class="pine-levels">
-      <div class="pine-level"></div>
-      <div class="pine-level"></div>
-      <div class="pine-level"></div>
-    </div>
-  </div>
-  <div class="bush">
-    <div class="bush-part"></div>
-    <div class="bush-part"></div>
-    <div class="bush-part"></div>
-    <div class="bush-part"></div>
-  </div>
-  <div class="grass">
-    <div class="grass-blade"></div>
-    <div class="grass-blade"></div>
-    <div class="grass-blade"></div>
-    <div class="grass-blade"></div>
-    <div class="grass-blade"></div>
-  </div>
-  <div class="flower">
-    <div class="flower-stem"></div>
-    <div class="flower-head">
-      <div class="flower-petals">
-        <div class="flower-petal"></div>
-        <div class="flower-petal"></div>
-        <div class="flower-petal"></div>
-        <div class="flower-petal"></div>
-        <div class="flower-petal"></div>
-      </div>
-      <div class="flower-center"></div>
-    </div>
-  </div>
-  <div class="tree">
-    <div class="tree-crown"></div>
-    <div class="tree-trunk"></div>
-  </div>
-  <div class="pine-tree">
-    <div class="pine-trunk"></div>
-    <div class="pine-levels">
-      <div class="pine-level"></div>
-      <div class="pine-level"></div>
-      <div class="pine-level"></div>
-    </div>
-  </div>
+
+<main class="app" id="app" role="main">
+<header class="header">
+<div id="topRow" style="display:flex; justify-content:space-between; align-items:center;">
+<div>
+<div id="progressText" aria-live="polite">Вопрос 1 из 1</div>
+<div class="progress-bar" aria-hidden="true">
+<div id="progressFill" style="width:0%"></div>
+</div>
+</div>
+<div id="userControls" style="display:flex; gap:8px; align-items:center;">
+<div id="userEmail" style="font-size:14px; color:#444" aria-live="polite"></div>
+<button id="logoutBtn" class="secondary">Выйти</button>
+</div>
+</div>
+</header>
+
+
+<section class="card" aria-labelledby="questionText">
+<h2 id="questionText">Тест будет показан после подтверждения</h2>
+<div id="answers" role="list"></div>
+</section>
+
+
+<div class="controls" role="region" aria-label="Управление тестом">
+<button id="prevBtn">Предыдущий</button>
+<button id="submitBtn">Ответить</button>
+<button id="nextBtn">Следующий вопрос</button>
 </div>
 
-<!-- Декоративные био-элементы и природа -->
-<div class="bio-decoration" id="bioDecoration">
-  <!-- Микроорганизмы -->
-  <div class="bio-element cell-plant"></div>
-  <div class="bio-element dna-helix"></div>
-  <div class="bio-element cell-animal"></div>
-  <div class="bio-element bacteria"></div>
-  <div class="bio-element leaf"></div>
-  <div class="bio-element molecule"></div>
-  <div class="bio-element amoeba"></div>
-  <div class="bio-element chloroplast"></div>
-  <div class="bio-element mitochondria"></div>
-  <div class="bio-element virus"></div>
-  <div class="bio-element spore"></div>
-  
-  <!-- Насекомые и птицы -->
-  <div class="bio-element butterfly">
-    <div class="butterfly-wing left"></div>
-    <div class="butterfly-wing right"></div>
-    <div class="butterfly-body"></div>
-    <div class="butterfly-antenna left"></div>
-    <div class="butterfly-antenna right"></div>
-  </div>
-  <div class="bio-element bird">
-    <div class="bird-body"></div>
-    <div class="bird-wing left"></div>
-    <div class="bird-wing right"></div>
-    <div class="bird-beak"></div>
-  </div>
-  <div class="bio-element butterfly">
-    <div class="butterfly-wing left"></div>
-    <div class="butterfly-wing right"></div>
-    <div class="butterfly-body"></div>
-    <div class="butterfly-antenna left"></div>
-    <div class="butterfly-antenna right"></div>
-  </div>
-  
-  <!-- Небесные тела -->
-  <div class="bio-element sun"></div>
-  <div class="bio-element cloud"></div>
-  <div class="bio-element cloud"></div>
-  
-  <!-- Дополнительные микроорганизмы -->
-  <div class="bio-element cell-plant"></div>
-  <div class="bio-element bacteria"></div>
-  <div class="bio-element amoeba"></div>
-  <div class="bio-element dna-helix"></div>
-  <div class="bio-element leaf"></div>
-  <div class="bio-element spore"></div>
-  <div class="bio-element molecule"></div>
-  <div class="bio-element virus"></div>
-  <div class="bio-element cell-animal"></div>
-  <div class="bio-element chloroplast"></div>
-  
-  <!-- Ещё бабочки -->
-  <div class="bio-element butterfly">
-    <div class="butterfly-wing left"></div>
-    <div class="butterfly-wing right"></div>
-    <div class="butterfly-body"></div>
-    <div class="butterfly-antenna left"></div>
-    <div class="butterfly-antenna right"></div>
-  </div>
-  
-  <!-- Паутинка и роса -->
-  <div class="bio-element spider-web"></div>
-  <div class="bio-element dewdrop"></div>
-  <div class="bio-element dewdrop"></div>
+
+<footer class="footer">
+<button id="errorsBtn">Работа над ошибками</button>
+<div id="stats" aria-live="polite"></div>
+</footer>
+</main>
+
+
+<!-- AUTH и WAIT overlay -->
+<div id="authOverlay" style="display:none">
+<div class="authCard" role="dialog" aria-modal="true" aria-labelledby="authTitle">
+<h1 id="authTitle">Доступ к тесту</h1>
+<input id="email" type="email" placeholder="Email" autocomplete="username" />
+<input id="password" type="password" placeholder="Пароль" autocomplete="current-password" />
+<button id="authBtn">Войти / Зарегистрироваться</button>
+<p id="authStatus" class="muted">Введите e-mail и пароль — если учётной записи нет, она создастся автоматически.</p>
+<button id="helpBtn" class="small-ghost">Я администратор — где поменять доступ?</button>
 </div>
+</div>
+
+
+<div id="waitOverlay" style="display:none" aria-hidden="true">
+<div class="authCard" role="dialog" aria-modal="true">
+<h1>⏳ Ожидание подтверждения</h1>
+<p class="muted">Ваша заявка принята. Администратор проверит и откроет доступ.</p>
+<p class="muted" style="font-size:13px">Админ: Firebase Console → Firestore → коллекция <strong>users</strong> → поменять <strong>allowed</strong> на <strong>true</strong>.</p>
+<button id="signOutFromWait" class="small-ghost">Выйти из аккаунта</button>
+</div>
+</div>
+
 
 <script>
-  // Случайное перемешивание и позиционирование
-  (function() {
-    const container = document.getElementById('bioDecoration');
-    const elements = Array.from(container.children);
-    
-    // Перемешиваем
-    for (let i = elements.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [elements[i], elements[j]] = [elements[j], elements[i]];
-    }
-    
-    elements.forEach(el => container.appendChild(el));
-    
-    // Случайные параметры
-    elements.forEach((el, index) => {
-      const randomDelay = Math.random() * 8;
-      el.style.animationDelay = `${randomDelay}s, ${randomDelay * 2}s`;
-      
-      // Некоторые элементы случайно зеркалируем
-      if (Math.random() > 0.5) {
-        el.style.transform += ' scaleX(-1)';
-      }
-      
-      // Случайная прозрачность для разнообразия
-      const baseOpacity = 0.3 + Math.random() * 0.2;
-      el.style.opacity = baseOpacity;
-    });
-    
-    // Случайное положение солнца
-    const sun = document.querySelector('.sun');
-    if (sun) {
-      const sunPositions = [
-        { top: '5%', left: '10%' },
-        { top: '8%', right: '15%' },
-        { top: '3%', left: '50%' },
-        { top: '10%', left: '30%' }
-      ];
-      const pos = sunPositions[Math.floor(Math.random() * sunPositions.length)];
-      Object.assign(sun.style, pos);
-    }
-    
-    // Случайное положение облаков
-    const clouds = document.querySelectorAll('.cloud');
-    clouds.forEach((cloud, i) => {
-      cloud.style.top = `${5 + Math.random() * 20}%`;
-      cloud.style.animationDuration = `${40 + Math.random() * 40}s`;
-      cloud.style.animationDelay = `${i * 10}s`;
-    });
-  })();
+(function(){
+const parallaxEls = document.querySelectorAll('.parallax');
+function onMove(e){
+const cx = window.innerWidth/2, cy = window.innerHeight/2;
+const x = (e.clientX - cx)/cx;
+const y = (e.clientY - cy)/cy;
+parallaxEls.forEach((el,i)=>{
+const depth = (i%3)+1;
+const tx = -x * 10 * depth;
+const ty = -y * 6 * depth;
+el.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${1 - depth*0.01})`;
+});
+}
+window.addEventListener('mousemove', onMove);
+let last = 0;
+window.addEventListener('scroll', ()=>{
+const s = window.scrollY;
+if(Math.abs(s-last) < 2) return; last = s;
+document.querySelectorAll('.layer-back, .layer-mid, .layer-front').forEach((el,i)=>{
+const m = i*0.03;
+el.style.transform = `translateY(${s*m}px)`;
+});
+},{passive:true});
+})();
+
+
+// Кнопка сворачивания панели
+const wrapper = document.getElementById("questionPanelWrapper");
+const toggleBtn = document.getElementById("togglePanelBtn");
+toggleBtn.onclick = () => {
+wrapper.classList.toggle("collapsed");
+if (wrapper.classList.contains('collapsed')) {
+toggleBtn.textContent = '⇦';
+toggleBtn.title = 'Развернуть панель';
+} else {
+toggleBtn.textContent = '⇨';
+toggleBtn.title = 'Свернуть панель';
+}
+};
+wrapper.classList.remove("collapsed");
 </script>
+</body>
+</html>
   
   <!-- ====== Встроенный стиль панели и адаптивность ====== -->
   <style>
@@ -865,6 +753,7 @@
   </script>
 </body>
 </html>
+
 
 
 
