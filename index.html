@@ -7,117 +7,72 @@
   <link rel="stylesheet" href="style.css" />
   
 <!-- ДЕКОРАТИВНЫЙ СЛОЙ -->
-<div id="pageNav" aria-label="Навигация по страницам"></div>
-<div id="resetWrapper">
-<button id="resetBtn" title="Сбросить весь прогресс">RESET</button>
-</div>
-</div>
+<div class="decor-wrapper decor-isometric" aria-hidden="true">
+<!-- SVG definitions -->
+<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+<defs>
+<linearGradient id="gLeaf" x1="0" x2="1">
+<stop offset="0%" stop-color="#6FCF97" />
+<stop offset="45%" stop-color="#2E8B57" />
+<stop offset="100%" stop-color="#155724" />
+</linearGradient>
 
 
-<main class="app" id="app" role="main">
-<header class="header">
-<div id="topRow" style="display:flex; justify-content:space-between; align-items:center;">
-<div>
-<div id="progressText" aria-live="polite">Вопрос 1 из 1</div>
-<div class="progress-bar" aria-hidden="true">
-<div id="progressFill" style="width:0%"></div>
-</div>
-</div>
-<div id="userControls" style="display:flex; gap:8px; align-items:center;">
-<div id="userEmail" style="font-size:14px; color:#444" aria-live="polite"></div>
-<button id="logoutBtn" class="secondary">Выйти</button>
-</div>
-</div>
-</header>
+<pattern id="veinPattern" patternUnits="userSpaceOnUse" width="6" height="6">
+<path d="M0 3 L6 3" stroke="rgba(255,255,255,0.06)" stroke-width="0.6"/>
+</pattern>
 
 
-<section class="card" aria-labelledby="questionText">
-<h2 id="questionText">Тест будет показан после подтверждения</h2>
-<div id="answers" role="list"></div>
-</section>
+<symbol id="monstera" viewBox="0 0 400 400">
+<path d="M200 20 C120 20 40 80 30 160 C20 240 80 320 160 360 C240 400 320 360 360 280 C400 200 320 60 200 20z" fill="url(#gLeaf)"/>
+<path d="M160 120 C140 140 160 160 200 170" stroke="rgba(0,0,0,0.06)" stroke-width="6" fill="none"/>
+<path d="M210 130 C230 150 250 170 280 190" stroke="rgba(0,0,0,0.05)" stroke-width="6" fill="none"/>
+<rect x="0" y="0" width="400" height="400" fill="url(#veinPattern)" opacity="0.06"/>
+</symbol>
 
 
-<div class="controls" role="region" aria-label="Управление тестом">
-<button id="prevBtn">Предыдущий</button>
-<button id="submitBtn">Ответить</button>
-<button id="nextBtn">Следующий вопрос</button>
-</div>
+<symbol id="vine" viewBox="0 0 200 600">
+<path d="M30 0 C10 120 60 180 40 300 C10 420 90 480 60 600" fill="none" stroke="#2f7a2f" stroke-width="6" stroke-linecap="round"/>
+<g fill="url(#gLeaf)">
+<ellipse cx="24" cy="80" rx="10" ry="18" transform="rotate(-20 24 80)"/>
+<ellipse cx="36" cy="180" rx="12" ry="22" transform="rotate(12 36 180)"/>
+<ellipse cx="20" cy="320" rx="11" ry="20" transform="rotate(-12 20 320)"/>
+<ellipse cx="28" cy="480" rx="13" ry="24" transform="rotate(10 28 480)"/>
+</g>
+</symbol>
 
 
-<footer class="footer">
-<button id="errorsBtn">Работа над ошибками</button>
-<div id="stats" aria-live="polite"></div>
-</footer>
-</main>
+<symbol id="leafThin" viewBox="0 0 200 400">
+<path d="M20 200 C60 80 140 80 180 200 C140 320 60 320 20 200z" fill="url(#gLeaf)"/>
+</symbol>
+</defs>
+</svg>
 
 
-<!-- AUTH и WAIT overlay -->
-<div id="authOverlay" style="display:none">
-<div class="authCard" role="dialog" aria-modal="true" aria-labelledby="authTitle">
-<h1 id="authTitle">Доступ к тесту</h1>
-<input id="email" type="email" placeholder="Email" autocomplete="username" />
-<input id="password" type="password" placeholder="Пароль" autocomplete="current-password" />
-<button id="authBtn">Войти / Зарегистрироваться</button>
-<p id="authStatus" class="muted">Введите e-mail и пароль — если учётной записи нет, она создастся автоматически.</p>
-<button id="helpBtn" class="small-ghost">Я администратор — где поменять доступ?</button>
-</div>
+<div class="edge-layer vines layer-front parallax">
+<svg class="vine pos-left-top" width="340" height="720" viewBox="0 0 200 600"><use href="#vine"></use></svg>
+<svg class="vine tall pos-right-top" width="300" height="880" viewBox="0 0 200 600" style="right:8%"><use href="#vine"></use></svg>
+<svg class="vine pos-right-top" width="220" height="640" viewBox="0 0 200 600" style="right:22%"><use href="#vine"></use></svg>
 </div>
 
 
-<div id="waitOverlay" style="display:none" aria-hidden="true">
-<div class="authCard" role="dialog" aria-modal="true">
-<h1>⏳ Ожидание подтверждения</h1>
-<p class="muted">Ваша заявка принята. Администратор проверит и откроет доступ.</p>
-<p class="muted" style="font-size:13px">Админ: Firebase Console → Firestore → коллекция <strong>users</strong> → поменять <strong>allowed</strong> на <strong>true</strong>.</p>
-<button id="signOutFromWait" class="small-ghost">Выйти из аккаунта</button>
-</div>
+<div class="edge-layer layer-mid parallax">
+<svg class="leaf-blob pos-left-top" viewBox="0 0 400 400"><use href="#monstera"/></svg>
+<svg class="leaf-blob pos-right-top rotate--10 small" viewBox="0 0 400 400" style="right:-8%;top:-6%"><use href="#monstera"/></svg>
+<svg class="leaf-blob pos-left-bottom rotate-10 small" viewBox="0 0 400 400" style="left:-10%;bottom:-6%"><use href="#monstera"/></svg>
+<svg class="leaf-blob pos-right-bottom" viewBox="0 0 400 400" style="right:-6%;bottom:-6%"><use href="#monstera"/></svg>
 </div>
 
 
-<script>
-(function(){
-const parallaxEls = document.querySelectorAll('.parallax');
-function onMove(e){
-const cx = window.innerWidth/2, cy = window.innerHeight/2;
-const x = (e.clientX - cx)/cx;
-const y = (e.clientY - cy)/cy;
-parallaxEls.forEach((el,i)=>{
-const depth = (i%3)+1;
-const tx = -x * 10 * depth;
-const ty = -y * 6 * depth;
-el.style.transform = `translate3d(${tx}px, ${ty}px, 0) scale(${1 - depth*0.01})`;
-});
-}
-window.addEventListener('mousemove', onMove);
-let last = 0;
-window.addEventListener('scroll', ()=>{
-const s = window.scrollY;
-if(Math.abs(s-last) < 2) return; last = s;
-document.querySelectorAll('.layer-back, .layer-mid, .layer-front').forEach((el,i)=>{
-const m = i*0.03;
-el.style.transform = `translateY(${s*m}px)`;
-});
-},{passive:true});
-})();
+<div class="edge-layer layer-back parallax">
+<svg class="leaf-blob small" viewBox="0 0 200 400" style="left:18%;top:12%;opacity:0.7;transform:scale(0.6) rotate(-8deg)"><use href="#leafThin"/></svg>
+<svg class="leaf-blob small" viewBox="0 0 200 400" style="right:12%;bottom:18%;opacity:0.65;transform:scale(0.72) rotate(6deg)"><use href="#leafThin"/></svg>
+</div>
 
 
-// Кнопка сворачивания панели
-const wrapper = document.getElementById("questionPanelWrapper");
-const toggleBtn = document.getElementById("togglePanelBtn");
-toggleBtn.onclick = () => {
-wrapper.classList.toggle("collapsed");
-if (wrapper.classList.contains('collapsed')) {
-toggleBtn.textContent = '⇦';
-toggleBtn.title = 'Развернуть панель';
-} else {
-toggleBtn.textContent = '⇨';
-toggleBtn.title = 'Свернуть панель';
-}
-};
-wrapper.classList.remove("collapsed");
-</script>
-</body>
-</html>
+<div class="leaf-highlight" aria-hidden="true"></div>
+<div class="vignette" aria-hidden="true"></div>
+</div>
   
   <!-- ====== Встроенный стиль панели и адаптивность ====== -->
   <style>
@@ -753,6 +708,7 @@ wrapper.classList.remove("collapsed");
   </script>
 </body>
 </html>
+
 
 
 
