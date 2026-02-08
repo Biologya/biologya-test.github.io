@@ -853,6 +853,7 @@ function initQuiz(userId) {
   let currentPanelPage = 0;
   let currentPanelPageErrors = 0;
   let autoUpdateCheckInterval = null;
+  let questionsLoaded = false; // Флаг загрузки вопросов
 
   // Exit errors button
   let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
@@ -1120,7 +1121,7 @@ function initQuiz(userId) {
     }
   }
 
- // Функция проверки обновлений вопросов
+ // Функция проверки обновлений вопросов - ТОЛЬКО ПРОВЕРКА, БЕЗ ПЕРЕЗАГРУЗКИ
 async function checkForQuestionsUpdate(manualCheck = false) {
   try {
     if (manualCheck) {
@@ -1158,16 +1159,6 @@ async function checkForQuestionsUpdate(manualCheck = false) {
       
       console.log(`📥 Получено ${data.length} вопросов из файла`);
       
-      // Выводим информацию о первых нескольких вопросах для отладки
-      console.log('Примеры загруженных вопросов:');
-      for (let i = 0; i < Math.min(3, data.length); i++) {
-        console.log(`Вопрос ${i + 1}:`, {
-          text: data[i].text?.substring(0, 100) + '...',
-          answersCount: data[i].answers?.length || 0,
-          correct: data[i].correct
-        });
-      }
-      
       const newHash = computeQuestionsHash(data);
       console.log(`🔢 Хэш файла: ${newHash}`);
       console.log(`🔢 Хэш текущий: ${state.questionHash}`);
@@ -1184,19 +1175,28 @@ async function checkForQuestionsUpdate(manualCheck = false) {
       const newCount = data.length;
       const addedQuestions = newCount - currentCount;
       
-      showNotification(
-        `📚 Обновление вопросов: было ${currentCount}, стало ${newCount} (${addedQuestions > 0 ? '+' + addedQuestions : addedQuestions})`, 
-        'warning'
+      // СПРАШИВАЕМ ПОЛЬЗОВАТЕЛЯ, ХОЧЕТ ЛИ ОН ОБНОВИТЬ
+      const shouldUpdate = confirm(
+        `📚 Доступно обновление вопросов!\n\n` +
+        `Было: ${currentCount} вопросов\n` +
+        `Стало: ${newCount} вопросов\n` +
+        `(${addedQuestions > 0 ? '+' + addedQuestions : addedQuestions})\n\n` +
+        `Обновить сейчас?`
       );
       
-      // Обновляем вопросы
-      await updateQuestions(data, newHash);
+      if (shouldUpdate) {
+        // Обновляем вопросы
+        await updateQuestions(data, newHash);
+      } else {
+        showNotification('Обновление отложено. Нажмите "Проверить обновления" снова для обновления.', 'info');
+      }
+      
       checkUpdatesBtn.innerText = originalText;
       checkUpdatesBtn.disabled = false;
-      return true;
+      return shouldUpdate;
       
     } else {
-      // Автоматическая проверка - упрощенная
+      // Автоматическая проверка - только проверка, без обновления
       try {
         const response = await fetch(`questions.json?t=${Date.now()}`);
         if (!response.ok) return false;
@@ -1212,8 +1212,9 @@ async function checkForQuestionsUpdate(manualCheck = false) {
         const newHash = computeQuestionsHash(data);
         
         if (newHash !== state.questionHash) {
-          console.log(`🔄 Автообновление: обнаружены новые вопросы (${data.length})`);
-          await updateQuestions(data, newHash);
+          console.log(`🔄 Доступны новые вопросы (${data.length}). Нажмите "Проверить обновления" для загрузки.`);
+          // НЕ обновляем автоматически, только показываем уведомление
+          showNotification(`📚 Доступно обновление: ${data.length} вопросов!`, 'warning');
           return true;
         }
         return false;
@@ -1246,35 +1247,19 @@ async function updateQuestions(newData, newHash) {
     const oldErrors = [...state.errors];
     const oldQueue = state.mainQueue ? [...state.mainQueue] : [];
     
-    // Создаем маппинг старых вопросов по тексту
-    const oldQuestionMap = new Map();
-    if (questions.length > 0) {
-      questions.forEach((q, idx) => {
-        const textKey = q.text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
-        oldQuestionMap.set(textKey, {
-          index: idx,
-          checked: state.history[idx]?.checked || false,
-          selected: state.history[idx]?.selected || []
-        });
-      });
-    }
-    
-    // Загружаем ВСЕ вопросы без фильтрации, только проверяем структуру
+    // Загружаем ВСЕ вопросы без фильтрации
     const validQuestions = [];
     const questionMap = new Map();
     
     for (let i = 0; i < newData.length; i++) {
       const q = newData[i];
       
-      // Минимальная проверка - только чтобы не было ошибок
       if (q && typeof q === 'object') {
-        // Обеспечиваем минимальную структуру
         const text = q.text || `Вопрос ${i + 1}`;
         const answers = Array.isArray(q.answers) && q.answers.length > 0 
           ? [...q.answers] 
           : ["Ответ не загружен"];
         
-        // Пытаемся получить правильный ответ
         let correct = 0;
         if (q.correct !== undefined) {
           if (Array.isArray(q.correct)) {
@@ -1293,7 +1278,6 @@ async function updateQuestions(newData, newHash) {
           correct: correct
         });
         
-        // Сохраняем маппинг по тексту вопроса для миграции
         const textKey = text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
         questionMap.set(textKey, validQuestions.length - 1);
       }
@@ -1301,7 +1285,6 @@ async function updateQuestions(newData, newHash) {
     
     console.log(`✅ Загружено ${validQuestions.length} вопросов`);
     
-    // ПРОВЕРКА: если новых вопросов 0, прерываем обновление
     if (validQuestions.length === 0) {
       throw new Error('Не удалось загрузить ни одного вопроса');
     }
@@ -1310,14 +1293,11 @@ async function updateQuestions(newData, newHash) {
     questions = validQuestions;
     state.questionHash = newHash;
     
-    // Мигрируем историю ответов
-    migrateHistoryToNewQuestions(oldHistory, oldErrors, questionMap, oldQuestionMap);
+    // Мигрируем историю
+    migrateHistoryToNewQuestions(oldHistory, oldErrors, questionMap);
     
-    // СОЗДАЕМ НОВУЮ ОЧЕРЕДЬ с правильными индексами
-    // Сначала создаем массив всех индексов новых вопросов
+    // СОЗДАЕМ НОВУЮ ОЧЕРЕДЬ
     const allNewIndices = [...Array(questions.length).keys()];
-    
-    // Разделяем на отмеченные и неотмеченные по мигрированной истории
     const markedIndices = [];
     const unmarkedIndices = [];
     
@@ -1334,107 +1314,55 @@ async function updateQuestions(newData, newHash) {
     // Перемешиваем ТОЛЬКО неотмеченные
     const shuffledUnmarked = shuffleArray(unmarkedIndices);
     
-    // Формируем новую очередь: отмеченные в начале (в порядке следования), потом перемешанные неотмеченные
-    // ИЛИ сохраняем позиции отмеченных, если это возможно
-    
-    // Вариант 1: Простой - отмеченные в начале по порядку, неотмеченные перемешанные в конце
+    // Формируем новую очередь: отмеченные в начале, потом перемешанные неотмеченные
     mainQueue = [...markedIndices, ...shuffledUnmarked];
     
-    // Вариант 2: Сложный - пытаемся сохранить позиции (закомментировано, если нужно раскомментировать)
-    /*
-    const newQueue = new Array(questions.length);
-    const usedPositions = new Set();
-    
-    // Ставим отмеченные вопросы на позиции, где они были в старой очереди
-    markedIndices.forEach(qId => {
-      const oldPos = oldQueue.findIndex(oldId => {
-        const oldQ = questions[oldId];
-        if (!oldQ) return false;
-        const textKey = oldQ.text.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
-        return questionMap.get(textKey) === qId;
-      });
-      
-      if (oldPos !== -1 && oldPos < newQueue.length && !usedPositions.has(oldPos)) {
-        newQueue[oldPos] = qId;
-        usedPositions.add(oldPos);
-      }
-    });
-    
-    // Перемешиваем неотмеченные
-    const shuffledUnmarkedFinal = shuffleArray([...unmarkedIndices]);
-    let unmarkedIndex = 0;
-    
-    // Заполняем пустые позиции перемешанными неотмеченными
-    for (let i = 0; i < newQueue.length; i++) {
-      if (newQueue[i] === undefined && unmarkedIndex < shuffledUnmarkedFinal.length) {
-        newQueue[i] = shuffledUnmarkedFinal[unmarkedIndex++];
-      }
-    }
-    
-    // Добавляем оставшиеся неотмеченные в конец
-    while (unmarkedIndex < shuffledUnmarkedFinal.length) {
-      newQueue.push(shuffledUnmarkedFinal[unmarkedIndex++]);
-    }
-    
-    // Убираем undefined
-    mainQueue = newQueue.filter(qId => qId !== undefined);
-    */
-    
-    // Если очередь пустая (не должно произойти, но на всякий случай)
+    // Если очередь пустая (не должно произойти)
     if (mainQueue.length === 0) {
       mainQueue = shuffleArray([...Array(questions.length).keys()]);
     }
     
     state.mainQueue = mainQueue.slice();
     
-    // Сбрасываем ошибки (оставляем только те, которые есть в новых вопросах)
+    // Обновляем ошибки
     state.errors = state.errors.filter(errIndex => 
       errIndex >= 0 && errIndex < questions.length
     );
     errorQueue = state.errors.slice();
     state.errorQueue = errorQueue.slice();
     
-    // Сбрасываем порядок ответов для новых вопросов
+    // Сбрасываем порядок ответов
     state.answersOrder = {};
     state.answersByQuestionId = {};
     
-    // Генерируем новый порядок ответов для всех вопросов
+    // Генерируем новый порядок ответов
     mainQueue.forEach(qIdx => {
       const q = questions[qIdx];
-      if (!q) {
-        console.error(`❌ Вопрос с индексом ${qIdx} не найден`);
-        return;
-      }
+      if (!q) return;
       
       const original = q.answers.map((a, i) => ({ text: a, index: i }));
       const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
       
-      // Создаем новый случайный порядок ответов
-      const order = original.map(a => a.index);
-      const shuffledOrder = shuffleArray(order);
+      const order = shuffleArray(original.map(a => a.index));
       
-      state.answersOrder[qIdx] = shuffledOrder.slice();
+      state.answersOrder[qIdx] = order.slice();
       if (q.id) {
-        state.answersByQuestionId[q.id] = shuffledOrder.slice();
+        state.answersByQuestionId[q.id] = order.slice();
       }
       
-      q.answers = shuffledOrder.map(i => original.find(a => a.index === i).text);
+      q.answers = order.map(i => original.find(a => a.index === i).text);
       q.correct = Array.isArray(origCorrect)
-        ? origCorrect.map(c => shuffledOrder.indexOf(c))
-        : shuffledOrder.indexOf(origCorrect);
-      q._currentOrder = shuffledOrder.slice();
+        ? origCorrect.map(c => order.indexOf(c))
+        : order.indexOf(origCorrect);
+      q._currentOrder = order.slice();
     });
     
-    // Сохраняем состояние
+    questionsLoaded = true;
     saveLocalState();
     
-    // Показываем уведомление
     showNotification(`✅ Вопросы успешно обновлены! Загружено ${validQuestions.length} вопросов.`, 'success');
     
-    // Перерисовываем
     render();
-    
-    // Сохраняем в облако
     await saveState(true);
     
   } catch (error) {
@@ -1490,7 +1418,6 @@ async function updateQuestions(newData, newHash) {
     
     document.body.appendChild(notification);
     
-    // Автоматически скрываем через 5 секунд
     setTimeout(() => {
       if (notification.parentNode) {
         notification.style.opacity = '0';
@@ -1503,7 +1430,6 @@ async function updateQuestions(newData, newHash) {
       }
     }, 5000);
     
-    // Добавляем CSS анимацию
     if (!document.getElementById('notification-styles')) {
       const style = document.createElement('style');
       style.id = 'notification-styles';
@@ -1526,7 +1452,7 @@ async function updateQuestions(newData, newHash) {
   // Загрузка прогресса из Firestore
   (async () => {
     if (!userId) {
-      loadQuestions();
+      await loadQuestions();
       return;
     }
     
@@ -1548,7 +1474,7 @@ async function updateQuestions(newData, newHash) {
               const preservedFields = [
                 'history', 'answersOrder', 'mainQueue', 'errorQueue',
                 'errors', 'errorAttempts', 'stats', 'queueType',
-                'mainIndex', 'index', 'lastSyncTimestamp', 'answersByQuestionId'
+                'mainIndex', 'index', 'lastSyncTimestamp', 'answersByQuestionId', 'questionHash'
               ];
               
               const currentIndex = state.index;
@@ -1599,7 +1525,7 @@ async function updateQuestions(newData, newHash) {
       console.error('Ошибка загрузки прогресса:', e); 
     }
     
-    loadQuestions();
+    await loadQuestions();
   })();
 
   // Функция сохранения только в локальное хранилище
@@ -1655,7 +1581,7 @@ async function updateQuestions(newData, newHash) {
     return newArr;
   }
 
-// Функция для проверки валидности JSON перед загрузкой:
+// Функция для проверки валидности JSON
 function validateQuestionsJson(text) {
   try {
     const data = JSON.parse(text);
@@ -1664,141 +1590,134 @@ function validateQuestionsJson(text) {
       return { valid: false, error: 'questions.json должен содержать массив' };
     }
     
-    // Проверяем каждый вопрос
-    const invalidQuestions = [];
-    for (let i = 0; i < data.length; i++) {
-      const q = data[i];
-      if (!q || typeof q !== 'object') {
-        invalidQuestions.push({ index: i, error: 'не объект' });
-        continue;
-      }
-      if (!q.text || typeof q.text !== 'string') {
-        invalidQuestions.push({ index: i, error: 'отсутствует текст вопроса' });
-      }
-      if (!Array.isArray(q.answers) || q.answers.length === 0) {
-        invalidQuestions.push({ index: i, error: 'отсутствуют ответы' });
-      }
-      if (q.correct === undefined) {
-        invalidQuestions.push({ index: i, error: 'отсутствует правильный ответ' });
-      }
-    }
-    
-    if (invalidQuestions.length > 0) {
-      console.warn('Найдены проблемные вопросы:', invalidQuestions.slice(0, 5));
-      // Не возвращаем ошибку, просто логируем - загрузим что можем
-    }
-    
     return { valid: true, data: data };
   } catch (error) {
     return { valid: false, error: `Ошибка парсинга JSON: ${error.message}` };
   }
 }
   
-  // Загрузка вопросов с проверкой изменений ТОЛЬКО ПРИ ЗАГРУЗКЕ
-  function loadQuestions() {
-    return new Promise((resolve, reject) => {
-      fetch("questions.json")
-        .then(r => r.text()) // Сначала получаем как текст для валидации
-        .then(text => {
-          const validation = validateQuestionsJson(text);
-          if (!validation.valid) {
-            throw new Error(validation.error);
-          }
-          return validation.data;
-        })
-        .then(data => {
-          // Загружаем ВСЕ вопросы без фильтрации
-          questions = data.map((q, index) => ({
-            id: q.id || `q_${index}_${hashString(q.text || '')}`,
-            text: q.text || `Вопрос ${index + 1}`,
-            answers: Array.isArray(q.answers) ? [...q.answers] : ["Нет ответов"],
-            correct: Array.isArray(q.correct) ? [...q.correct] : (q.correct !== undefined ? q.correct : 0)
-          }));
+  // Загрузка вопросов - ИСПРАВЛЕННАЯ ВЕРСИЯ
+  async function loadQuestions() {
+    try {
+      console.log('📥 Начинаем загрузку вопросов...');
+      
+      const response = await fetch("questions.json");
+      const text = await response.text();
+      
+      const validation = validateQuestionsJson(text);
+      if (!validation.valid) {
+        throw new Error(validation.error);
+      }
+      
+      const data = validation.data;
+      
+      // Загружаем ВСЕ вопросы
+      questions = data.map((q, index) => ({
+        id: q.id || `q_${index}_${hashString(q.text || '')}`,
+        text: q.text || `Вопрос ${index + 1}`,
+        answers: Array.isArray(q.answers) ? [...q.answers] : ["Нет ответов"],
+        correct: Array.isArray(q.correct) ? [...q.correct] : (q.correct !== undefined ? q.correct : 0)
+      }));
 
-          console.log(`📚 Загружено ${questions.length} вопросов`);
+      console.log(`📚 Загружено ${questions.length} вопросов`);
 
-          state.answersOrder = state.answersOrder || {};
-          state.mainQueue = state.mainQueue || null;
-          state.errorQueue = state.errorQueue || [];
-
-          // Если нет сохраненной очереди или она неполная
-          if (!state.mainQueue || state.mainQueue.length !== questions.length) {
-            // Создаем полностью перемешанную очередь
-            mainQueue = [...Array(questions.length).keys()];
-            mainQueue = shuffleArray(mainQueue);
-          } else {
-            // Используем сохраненную очередь из Firestore
-            mainQueue = state.mainQueue.slice();
-            
-            // ПЕРЕМЕШИВАЕМ ТОЛЬКО НЕОТМЕЧЕННЫЕ ВОПРОСЫ
-            const markedPositions = []; // [position, qId]
-            const unmarkedPositions = []; // [position, qId]
-            
-            mainQueue.forEach((qId, pos) => {
+      // Проверяем, изменился ли хэш вопросов
+      const currentHash = computeQuestionsHash(data);
+      
+      // Если хэш изменился или очередь пустая/неполная - обновляем очередь
+      const needNewQueue = !state.mainQueue || 
+                           state.mainQueue.length !== questions.length ||
+                           state.questionHash !== currentHash;
+      
+      if (needNewQueue) {
+        console.log('🔄 Создаем новую очередь...');
+        
+        // Если это первый запуск или вопросы изменились
+        if (!state.mainQueue || state.mainQueue.length === 0) {
+          // Первая загрузка - полностью перемешиваем
+          mainQueue = shuffleArray([...Array(questions.length).keys()]);
+        } else {
+          // Вопросы изменились - сохраняем отмеченные, перемешиваем неотмеченные
+          const oldQueue = state.mainQueue;
+          const markedIndices = [];
+          const unmarkedIndices = [];
+          
+          // Собираем информацию о старых вопросах
+          oldQueue.forEach((qId) => {
+            if (qId < questions.length) { // Проверяем, что индекс валидный
               if (state.history[qId]?.checked) {
-                // Отмеченный вопрос - сохраняем его позицию
-                markedPositions.push([pos, qId]);
+                markedIndices.push(qId);
               } else {
-                // Неотмеченный вопрос - запоминаем его позицию и ID
-                unmarkedPositions.push([pos, qId]);
+                unmarkedIndices.push(qId);
               }
-            });
-            
-            // Перемешиваем только неотмеченные вопросы
-            const shuffledUnmarked = shuffleArray(unmarkedPositions.map(([pos, qId]) => qId));
-            
-            // Заменяем неотмеченные вопросы на новые перемешанные
-            let unmarkedIndex = 0;
-            mainQueue = mainQueue.map((qId, pos) => {
-              const isMarked = state.history[qId]?.checked;
-              if (!isMarked && unmarkedIndex < shuffledUnmarked.length) {
-                return shuffledUnmarked[unmarkedIndex++];
-              }
-              return qId;
-            });
+            }
+          });
+          
+          // Добавляем новые вопросы (которых не было в старой очереди)
+          for (let i = 0; i < questions.length; i++) {
+            if (!oldQueue.includes(i)) {
+              unmarkedIndices.push(i);
+            }
           }
           
-          state.mainQueue = mainQueue.slice();
+          // Перемешиваем только неотмеченные
+          const shuffledUnmarked = shuffleArray(unmarkedIndices);
+          
+          // Формируем новую очередь: отмеченные в начале (в их порядке), потом перемешанные неотмеченные
+          mainQueue = [...markedIndices, ...shuffledUnmarked];
+        }
+        
+        state.mainQueue = mainQueue.slice();
+        state.questionHash = currentHash;
+      } else {
+        // Используем сохраненную очередь
+        mainQueue = state.mainQueue.slice();
+        console.log('✅ Используем сохраненную очередь');
+      }
 
-          // Обрабатываем порядок ответов для каждого вопроса
-          mainQueue.forEach(qId => {
-            const q = questions[qId];
-            const original = q.answers.map((a, i) => ({ text: a, index: i }));
-            const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
+      // Обрабатываем порядок ответов
+      state.answersOrder = state.answersOrder || {};
+      
+      mainQueue.forEach(qId => {
+        const q = questions[qId];
+        if (!q) return;
+        
+        const original = q.answers.map((a, i) => ({ text: a, index: i }));
+        const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
 
-            let order; 
-            if (state.answersOrder[qId]) {
-              // Используем сохраненный порядок ответов из Firestore
-              order = state.answersOrder[qId].slice();
-            } else {
-              // Создаем новый случайный порядок ответов
-              order = original.map(a => a.index);
-              order = shuffleArray(order);
-              state.answersOrder[qId] = order.slice();
-            }
+        let order; 
+        if (state.answersOrder[qId] && state.answersOrder[qId].length === q.answers.length) {
+          // Используем сохраненный порядок
+          order = state.answersOrder[qId].slice();
+        } else {
+          // Создаем новый случайный порядок
+          order = shuffleArray(original.map(a => a.index));
+          state.answersOrder[qId] = order.slice();
+        }
 
-            q.answers = order.map(i => original.find(a => a.index === i).text);
-            q.correct = Array.isArray(origCorrect)
-              ? origCorrect.map(c => order.indexOf(c))
-              : order.indexOf(origCorrect);
-            q._currentOrder = order.slice();
-          });
+        q.answers = order.map(i => original.find(a => a.index === i).text);
+        q.correct = Array.isArray(origCorrect)
+          ? origCorrect.map(c => order.indexOf(c))
+          : order.indexOf(origCorrect);
+        q._currentOrder = order.slice();
+      });
 
-          errorQueue = state.errorQueue && state.errorQueue.length
-            ? state.errorQueue.slice()
-            : (state.errors ? state.errors.slice() : []);
-          state.errorQueue = errorQueue.slice();
+      errorQueue = state.errorQueue && state.errorQueue.length
+        ? state.errorQueue.slice()
+        : (state.errors ? state.errors.slice() : []);
+      state.errorQueue = errorQueue.slice();
 
-          saveLocalState();
-          render();
-          resolve();
-        })
-        .catch(err => {
-          console.error('Ошибка загрузки вопросов:', err);
-          if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
-          reject(err);
-        });
-    });
+      questionsLoaded = true;
+      saveLocalState();
+      render();
+      
+      console.log('✅ Вопросы успешно загружены и отображены');
+      
+    } catch (err) {
+      console.error('❌ Ошибка загрузки вопросов:', err);
+      if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
+      throw err;
+    }
   }
 
 // Функция для диагностики JSON файла
@@ -1809,7 +1728,6 @@ async function diagnoseQuestionsFile() {
     
     console.log('=== ДИАГНОСТИКА ФАЙЛА ВОПРОСОВ ===');
     console.log('Длина файла:', text.length, 'символов');
-    console.log('Первые 500 символов:', text.substring(0, 500));
     
     const validation = validateQuestionsJson(text);
     if (!validation.valid) {
@@ -1820,30 +1738,6 @@ async function diagnoseQuestionsFile() {
     const data = validation.data;
     console.log('✅ Валидация пройдена');
     console.log('Количество вопросов:', data.length);
-    
-    // Проверяем каждый вопрос
-    const problematic = [];
-    data.forEach((q, idx) => {
-      if (!q.text || !q.answers || q.correct === undefined) {
-        problematic.push(idx + 1);
-      }
-    });
-    
-    if (problematic.length > 0) {
-      console.log('⚠️ Проблемные вопросы:', problematic);
-    } else {
-      console.log('✅ Все вопросы выглядят корректно');
-    }
-    
-    // Выводим первые 3 вопроса
-    console.log('\nПримеры вопросов:');
-    for (let i = 0; i < Math.min(3, data.length); i++) {
-      console.log(`Вопрос ${i + 1}:`, {
-        text: data[i].text?.substring(0, 100) + '...',
-        answersCount: data[i].answers?.length || 0,
-        correct: data[i].correct
-      });
-    }
     
   } catch (error) {
     console.error('Ошибка диагностики:', error);
@@ -1862,7 +1756,7 @@ if (!forceReloadBtn) {
   forceReloadBtn.style.color = "white";
   forceReloadBtn.style.fontWeight = "bold";
   forceReloadBtn.onclick = async () => {
-    if (confirm('⚠️ Принудительно перезагрузить все вопросы из файла?\n\nЭто сбросит порядок очереди, но сохранит историю ответов.')) {
+    if (confirm('⚠️ Принудительно перезагрузить все вопросы?\n\nЭто сбросит порядок очереди, но сохранит историю ответов.')) {
       state.mainQueue = null;
       state.questionHash = null;
       await loadQuestions();
@@ -1873,15 +1767,13 @@ if (!forceReloadBtn) {
   if (controls) controls.appendChild(forceReloadBtn);
 }
   
-// Вызовите эту функцию в консоли для отладки
 console.log('Для диагностики вызовите: diagnoseQuestionsFile()');
   
   // Функция миграции истории при изменении вопросов
-  function migrateHistoryToNewQuestions(oldHistory = {}, oldErrors = [], questionMap = null, oldQuestionMap = null) {
+  function migrateHistoryToNewQuestions(oldHistory = {}, oldErrors = [], questionMap = null) {
   const newHistory = {};
   const newErrors = [];
   
-  // Мигрируем историю
   Object.entries(oldHistory).forEach(([oldIdx, data]) => {
     const oldQuestionText = data._questionText || '';
     const key = oldQuestionText.substring(0, 200).toLowerCase().replace(/\s+/g, ' ').trim();
@@ -1933,7 +1825,6 @@ console.log('Для диагностики вызовите: diagnoseQuestionsFi
     
     if (longer.length === 0) return 1.0;
     
-    // Используем простой алгоритм схожести
     const longerLength = longer.length;
     let distance = 0;
     
@@ -1956,30 +1847,6 @@ console.log('Для диагностики вызовите: diagnoseQuestionsFi
     }
     return Math.abs(hash).toString(36).substring(0, 8);
   }
-
-  // Функция для диагностики конкретного вопроса
-function diagnoseQuestion(index) {
-  if (!questions || !questions[index]) {
-    console.error(`❌ Вопрос ${index} не найден`);
-    return;
-  }
-  
-  const q = questions[index];
-  console.log(`🔍 Диагностика вопроса ${index}:`);
-  console.log(`  Текст: "${q.text?.substring(0, 100)}..."`);
-  console.log(`  Тип text: ${typeof q.text}`);
-  console.log(`  Ответы: ${q.answers ? `массив из ${q.answers.length} элементов` : 'отсутствует'}`);
-  console.log(`  Тип answers: ${Array.isArray(q.answers) ? 'массив' : typeof q.answers}`);
-  console.log(`  Правильный ответ: ${q.correct}`);
-  console.log(`  Тип correct: ${typeof q.correct}, isArray: ${Array.isArray(q.correct)}`);
-  
-  if (q.answers && Array.isArray(q.answers)) {
-    console.log(`  Примеры ответов:`);
-    q.answers.slice(0, 3).forEach((ans, i) => {
-      console.log(`    ${i}: "${ans?.substring(0, 50)}..." (тип: ${typeof ans})`);
-    });
-  }
-}
 
   // Queue helpers
   function currentQueue() { 
@@ -2059,6 +1926,8 @@ function diagnoseQuestion(index) {
 
   // Function to determine button status
   function getButtonStatus(qId) {
+    if (!questions[qId]) return "unchecked";
+    
     if (state.history[qId]?.checked) {
       const sel = state.history[qId].selected || [];
       const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
@@ -2103,6 +1972,8 @@ function diagnoseQuestion(index) {
   // Highlight answers
   function highlightAnswers(qId) {
     const q = questions[qId];
+    if (!q) return;
+    
     const correctIndexes = Array.isArray(q.correct) ? q.correct : [q.correct];
     const answerEls = answersDiv ? [...answersDiv.children] : [];
     
@@ -2140,6 +2011,12 @@ function diagnoseQuestion(index) {
 
   // Render question
   function render() {
+    // Если вопросы еще не загружены, не рендерим
+    if (!questionsLoaded || questions.length === 0) {
+      console.log('⏳ Вопросы еще не загружены...');
+      return;
+    }
+    
     const queue = currentQueue();
     if (exitErrorsBtn) exitErrorsBtn.style.display = state.queueType === "errors" ? "inline-block" : "none";
 
@@ -2164,17 +2041,11 @@ function diagnoseQuestion(index) {
     const qId = queue[state.index];
     const q = questions[qId];
     
-    // ПРОВЕРКА: если вопрос не найден, показываем ошибку и переходим к следующему
+    // ПРОВЕРКА: если вопрос не найден
     if (!q) {
-      console.error(`❌ Вопрос с индексом ${qId} не найден в массиве questions (длина: ${questions.length})`);
-      qText.innerText = `Ошибка: вопрос не найден (ID: ${qId})`;
+      console.error(`❌ Вопрос с индексом ${qId} не найден`);
+      qText.innerText = `Ошибка загрузки вопроса. Попробуйте обновить страницу.`;
       answersDiv.innerHTML = "";
-      if (submitBtn) submitBtn.style.display = "none";
-      if (nextBtn) nextBtn.style.display = "inline-block";
-      if (nextBtn) nextBtn.onclick = () => {
-        state.index++;
-        render();
-      };
       return;
     }
     
@@ -2249,6 +2120,8 @@ function diagnoseQuestion(index) {
     const queue = currentQueue();
     const qId = queue[state.index];
     const q = questions[qId];
+    
+    if (!q) return;
 
     const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
     const selectedSet = new Set(selected);
