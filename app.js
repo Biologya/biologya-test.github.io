@@ -214,7 +214,7 @@ async function getClientIP() {
 /* ====== ОБНОВЛЕННАЯ ФУНКЦИЯ АВТОРИЗАЦИИ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
-    const email = (emailInput?.value || '').trim().toLowerCase();
+    const email = (emailInput?.value || '').trim();
     const password = passInput?.value || '';
     
     if (!email || !email.includes('@')) {
@@ -228,28 +228,30 @@ if (authBtn) {
     }
 
     setStatus('Проверяем доступ...');
+    authBtn.disabled = true;
+    authBtn.innerText = 'Проверка...';
     
     try {
-      authBtn.disabled = true;
-      authBtn.innerText = 'Проверка...';
+      console.log(`Попытка входа для: ${email}`);
       
       // Пробуем войти с введенными данными
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
       
-      // Успешный вход
+      console.log('✅ Вход успешен:', user.uid);
       setStatus('✅ Вход выполнен');
       
-      // Сбрасываем пароль для следующего входа (кроме админа)
-      setTimeout(async () => {
-        try {
-          const user = auth.currentUser;
-          if (user && user.email !== ADMIN_EMAIL.toLowerCase()) {
+      // Для администратора - не меняем пароль
+      if (user.email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+        // Для обычных пользователей сбрасываем пароль для следующего входа
+        setTimeout(async () => {
+          try {
             await resetUserPassword(user);
+          } catch (e) {
+            console.error('Ошибка сброса пароля:', e);
           }
-        } catch (e) {
-          console.error('Ошибка сброса пароля:', e);
-        }
-      }, 1000);
+        }, 1000);
+      }
       
       // Скрываем overlay
       setTimeout(() => {
@@ -265,47 +267,52 @@ if (authBtn) {
         try {
           authBtn.innerText = 'Регистрация...';
           
+          console.log(`Регистрируем нового пользователя: ${email}`);
+          
           // Регистрируем в Firebase Auth
           const userCredential = await createUserWithEmailAndPassword(auth, email, password);
           const user = userCredential.user;
           
           console.log('✅ Firebase Auth регистрация успешна:', user.uid);
           
-          // Регистрируем в нашей системе
+          // Регистрируем в нашей системе (Firestore)
           await handleUserRegistration(email, password, user.uid);
           
-          // Выходим, чтобы пользователь вошел с новыми данными
-          await signOut(auth);
+          // Теперь пробуем войти с новыми данными
+          await signInWithEmailAndPassword(auth, email, password);
           
-          // Показываем сообщение
-          setStatus('✅ Регистрация успешна! Теперь войдите с вашими данными');
+          setStatus('✅ Регистрация и вход успешны!');
           
-          // Очищаем поле пароля
-          if (passInput) passInput.value = '';
-          
-          // Фокус на пароль для входа
+          // Скрываем overlay
           setTimeout(() => {
-            if (passInput) passInput.focus();
-          }, 100);
+            if (authOverlay) authOverlay.style.display = 'none';
+          }, 500);
           
         } catch(err2) {
-          console.error('Ошибка регистрации:', err2);
+          console.error('Ошибка регистрации:', err2.code, err2.message);
+          
+          // Выходим на случай если регистрация частично удалась
+          try {
+            await signOut(auth);
+          } catch (signOutErr) {
+            console.error('Ошибка выхода:', signOutErr);
+          }
           
           if (err2.code === 'auth/email-already-in-use') {
-            setStatus('Этот email уже зарегистрирован. Используйте другой или войдите', true);
+            setStatus('Этот email уже зарегистрирован. Попробуйте войти', true);
           } else if (err2.code === 'auth/weak-password') {
-            setStatus('Пароль слишком слабый. Используйте не менее 6 символов', true);
+            setStatus('Пароль должен содержать не менее 6 символов', true);
           } else if (err2.code === 'auth/invalid-email') {
             setStatus('Некорректный email адрес', true);
           } else if (err2.code === 'auth/operation-not-allowed') {
-            setStatus('Регистрация по email/паролю отключена', true);
+            setStatus('Регистрация по email/паролю отключена. Обратитесь к администратору.', true);
           } else {
-            setStatus(`Ошибка регистрации: ${err2.message || 'Неизвестная ошибка'}`, true);
+            setStatus(`Ошибка: ${err2.message || 'Неизвестная ошибка'}`, true);
           }
         }
         
       } else if (e.code === 'auth/wrong-password') {
-        setStatus('Неверный пароль. Попробуйте еще раз или восстановите пароль', true);
+        setStatus('Неверный пароль. Попробуйте еще раз', true);
       } else if (e.code === 'auth/invalid-credential') {
         setStatus('Неверные данные для входа. Проверьте email и пароль', true);
       } else if (e.code === 'auth/too-many-requests') {
@@ -313,7 +320,7 @@ if (authBtn) {
       } else if (e.code === 'auth/user-disabled') {
         setStatus('Аккаунт отключен администратором', true);
       } else {
-        setStatus(`Ошибка: ${e.message || 'Попробуйте позже'}`, true);
+        setStatus(`Ошибка входа: ${e.message || 'Попробуйте позже'}`, true);
       }
     } finally {
       if (authBtn) {
@@ -3351,6 +3358,7 @@ function initQuiz(userId) {
     }
   };
 }
+
 
 
 
