@@ -822,110 +822,94 @@ window.forcePasswordReset = async function(userId, userEmail) {
   }
 };
 
-/* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ====== */
+/* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ (замена) ====== */
 onAuthStateChanged(auth, async (user) => {
   try {
-    // отписка от старого listener
+    // отписываемся от предыдущих слушателей
     if (userUnsubscribe) {
-      try { userUnsubscribe(); } catch (e) {}
+      try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
       userUnsubscribe = null;
     }
 
-    // ====== ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ ВОШЁЛ ======
+    // Если нет юзера — показываем экран авторизации и сбрасываем состояние
     if (!user) {
-      showAuthScreen();
-      resetQuizState();
-      clearAdminPanel();
+      authOverlay?.removeAttribute('inert');
+      if (authOverlay) authOverlay.style.display = 'flex';
+      if (waitOverlay) waitOverlay.style.display = 'none';
+      if (appDiv) appDiv.style.display = 'none';
+      if (userEmailSpan) userEmailSpan.innerText = '';
+      quizInitialized = false;
+      quizInstance = null;
+
+      const adminContainer = document.getElementById('adminPanelContainer');
+      if (adminContainer) adminContainer.innerHTML = '';
       return;
     }
 
-    // ====== ПОЛЬЗОВАТЕЛЬ ВОШЁЛ ======
-    hideAuthScreen();
+    // Пользователь вошёл — не грузим облако автоматически, только инициализируем по локалу
+    authOverlay?.setAttribute('inert', '');
+    if (authOverlay) authOverlay.style.display = 'none';
     if (userEmailSpan) userEmailSpan.innerText = user.email || '';
 
     await setupAdminPanel(user.email);
 
-    const userRef = doc(db, USERS_COLLECTION, user.uid);
-
-    // создать документ пользователя, если нет
-    const snap = await getDoc(userRef);
-    if (!snap.exists()) {
-      await setDoc(userRef, {
-        email: user.email || '',
-        allowed: false,
-        createdAt: serverTimestamp(),
-        passwordChanged: false,
-        lastLoginAt: null
-      });
+    // Создаём / убеждаемся в наличии документа user (как у тебя было)
+    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+    try {
+      const uDocSnap = await getDoc(uDocRef);
+      if (!uDocSnap.exists()) {
+        await setDoc(uDocRef, {
+          email: user.email || '',
+          allowed: false,
+          createdAt: serverTimestamp(),
+          originalPassword: null,
+          passwordChanged: false,
+          currentPassword: null,
+          lastLoginAt: null
+        });
+      }
+    } catch (err) {
+      console.error('Ошибка чтения/создания user doc:', err);
     }
 
-    // ====== СЛЕЖЕНИЕ ЗА allowed ======
-    userUnsubscribe = onSnapshot(userRef, (docSnap) => {
+    // Слушаем allowed — чтобы показать приложение или экран ожидания
+    userUnsubscribe = onSnapshot(uDocRef, async (docSnap) => {
       if (!docSnap.exists()) return;
 
-      const { allowed } = docSnap.data();
+      const data = docSnap.data();
+      const allowed = data.allowed === true;
 
-      if (allowed === true) {
-        showApp();
+      if (allowed) {
+        if (authOverlay) authOverlay.style.display = 'none';
+        if (waitOverlay) waitOverlay.style.display = 'none';
+        if (appDiv) appDiv.style.display = 'block';
+        setStatus('');
 
+        // Инициализируем тест — ВАЖНО: initQuiz внутри сам загрузит состояние из localStorage
         if (!quizInitialized) {
           try {
+            // сохраняем глобально userId, чтобы initQuiz мог сформировать STORAGE_KEY
+            window.currentUserId = user.uid;
             quizInstance = initQuiz(user.uid);
             quizInitialized = true;
-          } catch (e) {
-            console.error(e);
-            setStatus('Ошибка загрузки теста', true);
+          } catch (error) {
+            console.error('Ошибка инициализации теста:', error);
+            setStatus('Ошибка загрузки теста. Попробуйте перезагрузить страницу.', true);
           }
         }
+
       } else {
-        showWaitingScreen();
+        if (authOverlay) authOverlay.style.display = 'none';
+        if (waitOverlay) waitOverlay.style.display = 'flex';
+        if (appDiv) appDiv.style.display = 'none';
+        setStatus('Доступ закрыт администратором.');
       }
     });
 
-  } catch (err) {
-    console.error('Auth observer error:', err);
+  } catch (e) {
+    console.error('Ошибка в onAuthStateChanged:', e);
   }
 });
-
-
-/* ====== UI ФУНКЦИИ ====== */
-function showAuthScreen() {
-  authOverlay?.removeAttribute('inert');
-  authOverlay && (authOverlay.style.display = 'flex');
-  waitOverlay && (waitOverlay.style.display = 'none');
-  appDiv && (appDiv.style.display = 'none');
-  userEmailSpan && (userEmailSpan.innerText = '');
-  setTimeout(() => emailInput?.focus(), 50);
-}
-
-function hideAuthScreen() {
-  authOverlay?.setAttribute('inert', '');
-  authOverlay && (authOverlay.style.display = 'none');
-}
-
-function showWaitingScreen() {
-  authOverlay && (authOverlay.style.display = 'none');
-  waitOverlay && (waitOverlay.style.display = 'flex');
-  appDiv && (appDiv.style.display = 'none');
-  setStatus('Доступ закрыт администратором.');
-}
-
-function showApp() {
-  authOverlay && (authOverlay.style.display = 'none');
-  waitOverlay && (waitOverlay.style.display = 'none');
-  appDiv && (appDiv.style.display = 'block');
-  setStatus('');
-}
-
-function resetQuizState() {
-  quizInitialized = false;
-  quizInstance = null;
-}
-
-function clearAdminPanel() {
-  const admin = document.getElementById('adminPanelContainer');
-  if (admin) admin.innerHTML = '';
-}
 
 /* ====== СИСТЕМА ТЕСТА ====== */
 function initQuiz(userId) {
@@ -1054,76 +1038,77 @@ function initQuiz(userId) {
   }
 
   // Функция загрузки прогресса из облака
-  async function loadProgressFromCloud(reloadPage = false) {
-    if (!userId) {
-      alert('❌ Пользователь не авторизован');
-      return false;
-    }
-
-    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
-
-    try {
-      const snap = await getDoc(progressRef);
-      if (!snap.exists()) {
-        alert('ℹ️ В облаке нет сохранённого прогресса для этого аккаунта.');
-        return false;
-      }
-
-      const data = snap.data();
-      if (!data || !data.progress) {
-        alert('❌ В облаке нет данных прогресса.');
-        return false;
-      }
-
-      const cloudState = JSON.parse(data.progress);
-      const cloudTime = data.updatedAt && data.updatedAt.toMillis ? data.updatedAt.toMillis() : (data.lastUpdated || 0);
-      const localTime = state.lastSyncTimestamp || 0;
-
-      let msg;
-      if (cloudTime > localTime) {
-        msg = `Облачная версия новее (${new Date(cloudTime).toLocaleString()}).`;
-      } else if (cloudTime < localTime) {
-        msg = `Локальная версия новее (${new Date(localTime).toLocaleString()}).`;
-      } else {
-        msg = 'Версии идентичны.';
-      }
-
-      // Предложение: заменить локальный прогресс на облачный
-      const doReplace = confirm(`Загрузить прогресс из облака?\n\n${msg}\n\nЕсли подтвердите — локальный прогресс будет заменён облачным.`);
-      if (!doReplace) return false;
-
-      // При замене сохраняем облачный в localStorage и в состояние
-      // Сбрасываем флаг queueShuffled чтобы порядок корректно обработать при загрузке вопросов
-      cloudState.queueShuffled = false;
-      Object.assign(state, cloudState);
-
-      // Сохраняем локально
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      console.log('📥 Прогресс загружен из облака и сохранён локально');
-
-      if (reloadPage) {
-        // уведомление и перезагрузка
-        const notification = document.createElement('div');
-        notification.style.cssText = `
-          position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-          background: #2196F3; color: white; padding: 12px 20px; border-radius: 8px; z-index:9999;
-        `;
-        notification.innerText = '✅ Прогресс загружен. Перезагрузка страницы...';
-        document.body.appendChild(notification);
-        setTimeout(() => location.reload(), 1200);
-      } else {
-        // Обновляем очередь/вопросы в памяти
-        await loadQuestions();
-        showNotification('✅ Прогресс загружен из облака!', 'success');
-      }
-
-      return true;
-    } catch (err) {
-      console.error('Ошибка загрузки прогресса из облака:', err);
-      alert('❌ Ошибка загрузки прогресса: ' + (err.message || err));
-      return false;
-    }
+async function loadProgressFromCloud() {
+  if (!auth.currentUser) {
+    alert('❌ Войдите в аккаунт, чтобы загрузить прогресс из облака.');
+    return false;
   }
+  try {
+    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, auth.currentUser.uid);
+    const snap = await getDoc(progressRef);
+
+    if (!snap.exists()) {
+      alert('ℹ️ В облаке нет сохранённого прогресса для этого аккаунта.');
+      return false;
+    }
+
+    const data = snap.data();
+    if (!data || !data.progress) {
+      alert('❌ Данные прогресса в облаке повреждены или отсутствуют.');
+      return false;
+    }
+
+    // Сохраняем облачный прогресс в localStorage (перезапись)
+    const STORAGE_KEY = `bioState_${auth.currentUser.uid}`;
+    localStorage.setItem(STORAGE_KEY, data.progress);
+
+    showNotification('✅ Прогресс загружен из облака и сохранён локально. Страница будет обновлена.', 'success');
+
+    // Обновляем страницу, чтобы инициализация взяла новый localState
+    setTimeout(() => location.reload(), 900);
+    return true;
+  } catch (err) {
+    console.error('Ошибка загрузки из облака:', err);
+    showNotification('❌ Ошибка загрузки из облака: ' + (err.message || err), 'error');
+    return false;
+  }
+}
+
+/* ====== Сохранение прогресса в облако — ТОЛЬКО по кнопке ====== */
+async function saveProgressToCloud() {
+  if (!auth.currentUser) {
+    alert('❌ Войдите в аккаунт, чтобы сохранить прогресс в облако.');
+    return false;
+  }
+  try {
+    // Берём локальный прогресс (файл, привязанный к userId)
+    const STORAGE_KEY = `bioState_${auth.currentUser.uid}`;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      alert('ℹ️ Локального прогресса не найдено — сохранение отменено.');
+      return false;
+    }
+
+    const progress = JSON.parse(raw);
+    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, auth.currentUser.uid);
+
+    await setDoc(progressRef, {
+      progress: JSON.stringify(progress),
+      updatedAt: serverTimestamp(),
+      lastUpdated: Date.now(),
+      userId: auth.currentUser.uid,
+      email: auth.currentUser.email || ''
+    }, { merge: true });
+
+    showNotification('✅ Прогресс успешно сохранён в облако!', 'success');
+    console.log('💾 Сохранено в облако для', auth.currentUser.uid);
+    return true;
+  } catch (err) {
+    console.error('Ошибка сохранения в облако:', err);
+    showNotification('❌ Ошибка сохранения в облако: ' + (err.message || err), 'error');
+    return false;
+  }
+}
   
   // Функция для специального сохранения прогресса
   async function forceSaveProgress() {
@@ -1704,49 +1689,29 @@ function initQuiz(userId) {
   }
   
   // Функция сохранения прогресса в Firestore с retry
-  async function saveState(forceSave = false, retryCount = 0) {
+async function saveState(forceSave = false) {
+  try {
     const timestamp = Date.now();
-    state.lastSyncTimestamp = timestamp;
-
-    // Сохраняем локально в любом случае
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-
-    // Если нет userId — ничего не пишем в облако
-    if (!userId) {
-      console.log('⚠️ Пользователь не авторизован, сохранено только локально');
-      return false;
-    }
-
-    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
-
-    const updateData = {
-      progress: JSON.stringify(state),
-      updatedAt: serverTimestamp(),
-      lastUpdated: timestamp,
-      userId: userId,
-      email: auth.currentUser?.email || '',
-      ...(forceSave ? { forceSaved: true, forceSavedAt: serverTimestamp() } : {})
-    };
-
-    try {
-      // используем setDoc с merge: true — чтобы создать документ если отсутствует
-      await setDoc(progressRef, updateData, { merge: true });
-      console.log('💾 Прогресс сохранен в Firestore' + (forceSave ? ' (принудительно)' : ''));
+    // Если quizInstance и state доступны, возьмём state оттуда, иначе - обнулим
+    if (!quizInstance || !quizInstance.state) {
+      console.warn('saveState: quizInstance.state недоступен, сохраняем минимальный набор');
+      const minimal = { lastSyncTimestamp: timestamp };
+      const key = `bioState_${window.currentUserId || 'guest'}`;
+      localStorage.setItem(key, JSON.stringify(minimal));
       return true;
-    } catch (err) {
-      console.error('Ошибка сохранения прогресса в облако:', err);
-
-      // Retry для сетевых сбоев
-      if (retryCount < 3 && (err.code === 'unavailable' || err.code === 'network-request-failed')) {
-        const wait = 1000 * (retryCount + 1);
-        console.log(`🔄 Повтор сохранения через ${wait}ms (${retryCount+1}/3)`);
-        await new Promise(r => setTimeout(r, wait));
-        return saveState(forceSave, retryCount + 1);
-      }
-
-      throw err;
     }
+
+    const stateToSave = { ...quizInstance.state, lastSyncTimestamp: timestamp };
+    const STORAGE_KEY = `bioState_${window.currentUserId || 'guest'}`;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    quizInstance.state.lastSyncTimestamp = timestamp;
+    console.log('💾 Сохранено локально (saveState)');
+    return true;
+  } catch (err) {
+    console.error('Ошибка saveState (локально):', err);
+    throw err;
   }
+}
 
   // Shuffle функция
   function shuffleArray(arr) {
@@ -2515,6 +2480,7 @@ function initQuiz(userId) {
     }
   };
 }
+
 
 
 
