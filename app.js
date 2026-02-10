@@ -316,7 +316,7 @@ function createWhatsAppButton() {
   const phoneNumber = '+77718663556'; // ЗАМЕНИТЕ НА СВОЙ НОМЕР
   
   // Сообщение по умолчанию (можно изменить)
-  const defaultMessage = 'Здравствуйте! У меня вопрос по тесту по биологии.';
+  const defaultMessage = 'Сәлем, биология тест бойынша сұрақ бар';
   
   // Создаем URL для WhatsApp
   const whatsappUrl = `https://wa.me/77718663556?text=${encodeURIComponent(defaultMessage)}`;
@@ -2531,6 +2531,7 @@ function initQuiz(userId) {
     }
   };
 }
+
 
 
 
