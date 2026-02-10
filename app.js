@@ -1,14 +1,13 @@
+// app.js (ES module)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-analytics.js";
-import { deleteUser } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getAuth,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updatePassword,
-  sendPasswordResetEmail
+  updatePassword
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getFirestore,
@@ -21,9 +20,7 @@ import {
   collection,
   getDocs,
   arrayUnion,
-  writeBatch,
-  deleteDoc,
-  increment  
+  writeBatch
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
@@ -40,7 +37,6 @@ const firebaseConfig = {
 /* ====== КОЛЛЕКЦИИ FIREBASE ====== */
 const USERS_COLLECTION = "users";
 const USERS_PROGRESS_COLLECTION = "users_progress";
-const ADMIN_NOTIFICATIONS_COLLECTION = "admin_notifications";
 
 /* ====== КОНФИГУРАЦИЯ АДМИНИСТРАТОРА ====== */
 const ADMIN_EMAIL = "faceits1mple2000@gmail.com";
@@ -92,285 +88,77 @@ let passwordResetInProgress = false;
 let userUnsubscribe = null;
 let saveProgressBtn = null;
 let isInitializing = false;
-let notificationsUnsubscribe = null;
 
-/* ====== СИСТЕМА УВЕДОМЛЕНИЙ ДЛЯ АДМИНА ====== */
-async function sendAdminNotification(userEmail, userId) {
-  try {
-    const notificationsRef = collection(db, ADMIN_NOTIFICATIONS_COLLECTION);
-    await setDoc(doc(notificationsRef), {
-      type: "new_registration",
-      userEmail: userEmail,
-      userId: userId,
-      timestamp: serverTimestamp(),
-      status: "unread",
-      message: `Новый пользователь: ${userEmail} ожидает подтверждения`,
-      actionRequired: true
-    });
-    
-    console.log(`📧 Уведомление админу отправлено для ${userEmail}`);
-  } catch (error) {
-    console.error('Ошибка отправки уведомления:', error);
-  }
-}
-
-/* ====== РЕГИСТРАЦИЯ НОВОГО ПОЛЬЗОВАТЕЛЯ ====== */
-async function handleUserRegistration(email, password, userId) {
-  try {
-    console.log(`📝 Регистрация нового пользователя: ${email}`);
-    
-    // Сохраняем пользователя в Firestore
-    await setDoc(doc(db, USERS_COLLECTION, userId), {
-      email: email.toLowerCase(),
-      allowed: false, // Доступ закрыт по умолчанию
-      createdAt: serverTimestamp(),
-      originalPassword: password, // Пароль при регистрации
-      passwordChanged: false,
-      currentPassword: password, // Текущий пароль для админки
-      lastLoginAt: null,
-      status: "pending", // Статус заявки
-      notifiedAdmin: true,
-      authEnabled: true, // Доступ в Auth открыт
-      registrationIP: await getClientIP(),
-      userAgent: navigator.userAgent,
-      notificationSentAt: serverTimestamp(),
-      // Добавляем метаданные
-      appVersion: "1.0.0",
-      browser: navigator.userAgent,
-      platform: navigator.platform,
-      language: navigator.language
-    });
-    
-    // Создаем документ прогресса
-    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
-    await setDoc(progressRef, {
-      userId: userId,
-      email: email.toLowerCase(),
-      createdAt: serverTimestamp(),
-      lastUpdated: serverTimestamp(),
-      stats: {
-        correct: 0,
-        wrong: 0
-      }
-    });
-    
-    // Отправляем уведомление админу
-    await sendAdminNotification(email, userId);
-    
-    console.log(`✅ Пользователь ${email} зарегистрирован и ожидает подтверждения`);
-    
-    // Показываем подробное сообщение
-    const waitMessage = document.getElementById('waitMessage');
-    if (waitMessage) {
-      waitMessage.innerHTML = `
-        <div style="text-align: center;">
-          <h3 style="color: #4CAF50;">✅ Регистрация успешна!</h3>
-          <div style="background: #E8F5E9; padding: 15px; border-radius: 10px; margin: 15px 0;">
-            <p><strong>Ваш email:</strong> ${email}</p>
-            <p><strong>Ваш пароль:</strong> ${password}</p>
-          </div>
-          <div style="background: #FFF3E0; padding: 15px; border-radius: 10px; margin: 15px 0;">
-            <p>⚠️ <strong>ВАЖНО:</strong> Запомните ваш пароль!</p>
-            <p>Вы сможете войти с этим паролем после подтверждения администратора.</p>
-          </div>
-          <p>Ожидайте подтверждения администратора. Вы получите уведомление.</p>
-        </div>
-      `;
-    }
-    
-    if (waitOverlay) {
-      waitOverlay.style.display = 'flex';
-      authOverlay.style.display = 'none';
-    }
-    
-    return true;
-  } catch (error) {
-    console.error('Ошибка регистрации пользователя:', error);
-    
-    // Удаляем пользователя из Auth если регистрация в Firestore не удалась
-    try {
-      const user = auth.currentUser;
-      if (user) {
-        await deleteUser(user);
-      }
-    } catch (deleteError) {
-      console.error('Не удалось удалить пользователя из Auth:', deleteError);
-    }
-    
-    throw error;
-  }
-}
-
-/* ====== ПОЛУЧЕНИЕ IP АДРЕСА ====== */
-async function getClientIP() {
-  try {
-    const response = await fetch('https://api.ipify.org?format=json');
-    const data = await response.json();
-    return data.ip;
-  } catch (error) {
-    return 'unknown';
-  }
-}
-
-/* ====== ОБНОВЛЕННАЯ ФУНКЦИЯ АВТОРИЗАЦИИ ====== */
+/* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
     const email = (emailInput?.value || '').trim();
     const password = passInput?.value || '';
     
-    if (!email) {
-      setStatus('Введите email', true);
-      return;
-    }
-    
-    if (!password) {
-      setStatus('Введите пароль', true);
+    if (!email || !password) {
+      setStatus('Введите email и пароль', true);
       return;
     }
 
-    setStatus('Проверяем...');
+    setStatus('Пробуем войти...');
     
     try {
       authBtn.disabled = true;
-      authBtn.innerText = 'Проверка...';
+      authBtn.innerText = 'Вход...';
       
-      // ПРОБУЕМ ВОЙТИ С ВВЕДЕННЫМИ ДАННЫМИ
       await signInWithEmailAndPassword(auth, email, password);
+      setStatus('Вход выполнен');
       
-      // УСПЕШНЫЙ ВХОД
-      setStatus('✅ Вход выполнен');
-      
-      // Для администратора - пароль не меняется
-      if (email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
-        // Для обычных пользователей - сбрасываем пароль ПОСЛЕ успешного входа
-        setTimeout(async () => {
-          try {
-            const user = auth.currentUser;
-            if (user) {
-              await resetUserPassword(user);
-            }
-          } catch (e) {
-            console.error('Ошибка сброса пароля:', e);
+      // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
+      setTimeout(async () => {
+        try {
+          const user = auth.currentUser;
+          if (user && user.email !== ADMIN_EMAIL) {
+            await resetUserPassword(user);
           }
-        }, 1000);
-      }
+        } catch (e) {
+          console.error('Ошибка сброса пароля после входа:', e);
+        }
+      }, 1000);
       
       setTimeout(() => {
         if (authOverlay) authOverlay.style.display = 'none';
       }, 500);
       
     } catch(e) {
-      console.error('Ошибка входа:', e.code, e.message);
+      console.error('Ошибка входа:', e);
       
       if (e.code === 'auth/user-not-found') {
-        // ПОЛЬЗОВАТЕЛЯ НЕТ - РЕГИСТРИРУЕМ
-        setStatus('Регистрируем...');
-        
+        setStatus('Учётной записи не найдено — создаём...');
         try {
           authBtn.innerText = 'Регистрация...';
-          
-          // 1. РЕГИСТРАЦИЯ В FIREBASE AUTH (с паролем пользователя)
-          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-          const user = userCredential.user;
-          
-          console.log('✅ Firebase Auth регистрация успешна:', user.uid);
-          
-          // 2. СОЗДАНИЕ ДОКУМЕНТА В FIRESTORE
-          await setDoc(doc(db, USERS_COLLECTION, user.uid), {
+          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
             email: email,
-            allowed: false, // Доступ закрыт по умолчанию
+            allowed: false,
             createdAt: serverTimestamp(),
-            originalPassword: password, // Пароль который пользователь ввел
-            currentPassword: password, // Текущий пароль (для показа в админке)
+            originalPassword: password,
             passwordChanged: false,
-            lastLoginAt: null,
-            status: "pending",
-            notifiedAdmin: false,
-            registrationIP: await getClientIP(),
-            userAgent: navigator.userAgent
+            currentPassword: password, // Сохраняем пароль для первого входа
+            lastLoginAt: null
           });
+          setStatus('Заявка отправлена. Ожидайте подтверждения.');
           
-          // 3. ОТПРАВКА УВЕДОМЛЕНИЯ АДМИНУ
-          await sendAdminNotification(email, user.uid);
-          
-          // 4. СОЗДАНИЕ ДОКУМЕНТА ПРОГРЕССА
-          await setDoc(doc(db, USERS_PROGRESS_COLLECTION, user.uid), {
-            userId: user.uid,
-            email: email,
-            createdAt: serverTimestamp(),
-            lastUpdated: serverTimestamp(),
-            progress: JSON.stringify({
-              queueType: "main",
-              index: 0,
-              stats: { correct: 0, wrong: 0 },
-              errors: []
-            })
-          });
-          
-          console.log(`✅ Регистрация завершена для ${email}`);
-          
-          // 5. ПОКАЗЫВАЕМ СООБЩЕНИЕ
-          const waitMessage = document.getElementById('waitMessage');
-          if (waitMessage) {
-            waitMessage.innerHTML = `
-              <div style="text-align: center; padding: 20px;">
-                <h3 style="color: #4CAF50; margin-bottom: 20px;">✅ Регистрация успешна!</h3>
-                
-                <div style="background: #E8F5E9; padding: 15px; border-radius: 10px; margin: 15px 0;">
-                  <p><strong>Ваш email:</strong> ${email}</p>
-                  <p><strong>Ваш пароль:</strong> ${password}</p>
-                </div>
-                
-                <div style="background: #FFF3E0; padding: 15px; border-radius: 10px; margin: 15px 0;">
-                  <p style="color: #FF9800; font-weight: bold;">⚠️ ЗАПОМНИТЕ ВАШ ПАРОЛЬ!</p>
-                  <p>Вы сможете войти с этим паролем после подтверждения администратора.</p>
-                </div>
-                
-                <p>Ваша заявка отправлена администратору. Ожидайте подтверждения.</p>
-                <p style="color: #666; font-size: 14px; margin-top: 20px;">
-                  После подтверждения вы получите уведомление.
-                </p>
-              </div>
-            `;
-          }
-          
-          // 6. ПЕРЕХОД НА ЭКРАН ОЖИДАНИЯ
           if (waitOverlay) {
             waitOverlay.style.display = 'flex';
             authOverlay.style.display = 'none';
           }
           
         } catch(err2) {
-          console.error('Ошибка регистрации:', err2.code, err2.message);
-          
-          // Если регистрация не удалась - удаляем пользователя из Auth
-          try {
-            if (auth.currentUser) {
-              await deleteUser(auth.currentUser);
-            }
-          } catch (deleteError) {
-            console.error('Ошибка удаления пользователя:', deleteError);
-          }
-          
-          if (err2.code === 'auth/email-already-in-use') {
-            setStatus('Этот email уже зарегистрирован. Войдите или восстановите пароль', true);
-          } else if (err2.code === 'auth/weak-password') {
-            setStatus('Пароль слишком слабый. Используйте не менее 6 символов', true);
-          } else if (err2.code === 'auth/invalid-email') {
-            setStatus('Некорректный email адрес', true);
-          } else {
-            setStatus(`Ошибка регистрации: ${err2.message || 'Неизвестная ошибка'}`, true);
-          }
+          console.error('Ошибка регистрации:', err2);
+          setStatus(err2.message || 'Ошибка регистрации', true);
         }
-        
       } else if (e.code === 'auth/wrong-password') {
         setStatus('Неверный пароль', true);
-      } else if (e.code === 'auth/invalid-credential') {
-        setStatus('Неверный email или пароль', true);
       } else if (e.code === 'auth/too-many-requests') {
-        setStatus('Слишком много попыток. Попробуйте позже', true);
+        setStatus('Слишком много попыток. Попробуйте позже.', true);
       } else {
-        setStatus(`Ошибка: ${e.message || 'Попробуйте позже'}`, true);
+        setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
       }
     } finally {
       if (authBtn) {
@@ -379,47 +167,6 @@ if (authBtn) {
       }
     }
   });
-}
-
-/* ====== КНОПКА ВОССТАНОВЛЕНИЯ ПАРОЛЯ ====== */
-function addForgotPasswordButton() {
-  const forgotPasswordBtn = document.createElement('button');
-  forgotPasswordBtn.id = 'forgotPasswordBtn';
-  forgotPasswordBtn.className = 'small-ghost';
-  forgotPasswordBtn.innerText = 'Забыли пароль?';
-  forgotPasswordBtn.style.marginTop = '10px';
-  forgotPasswordBtn.style.background = 'transparent';
-  forgotPasswordBtn.style.color = '#2196F3';
-  forgotPasswordBtn.style.border = 'none';
-  forgotPasswordBtn.style.cursor = 'pointer';
-  forgotPasswordBtn.style.textDecoration = 'underline';
-  forgotPasswordBtn.style.fontSize = '14px';
-  
-  forgotPasswordBtn.onclick = async () => {
-    const email = prompt('Введите ваш email для восстановления пароля:');
-    if (!email) return;
-    
-    try {
-      await sendPasswordResetEmail(auth, email);
-      alert(`✅ Письмо для восстановления пароля отправлено на ${email}\n\nПроверьте вашу почту и следуйте инструкциям.`);
-    } catch (error) {
-      console.error('Ошибка восстановления пароля:', error);
-      if (error.code === 'auth/user-not-found') {
-        alert('❌ Пользователь с таким email не найден');
-      } else {
-        alert('❌ Ошибка: ' + error.message);
-      }
-    }
-  };
-  
-  // Добавляем кнопку в форму авторизации
-  const authCard = document.querySelector('.authCard');
-  if (authCard) {
-    const existingBtn = document.getElementById('forgotPasswordBtn');
-    if (!existingBtn) {
-      authCard.appendChild(forgotPasswordBtn);
-    }
-  }
 }
 
 /* ====== ВЫХОД ====== */
@@ -438,7 +185,7 @@ if (signOutFromWait) signOutFromWait.onclick = async () => {
 };
 
 if (helpBtn) helpBtn.onclick = () => { 
-  alert('Если у вас возникли проблемы с доступом, обратитесь к администратору.'); 
+  alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); 
 };
 
 /* ====== ГЕНЕРАЦИЯ ПАРОЛЯ ====== */
@@ -456,60 +203,103 @@ async function resetUserPassword(user) {
   if (passwordResetInProgress) return;
   
   // Админ не меняет пароль
-  if (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-    console.log('👑 Администратор - пароль не меняется');
+  if (user.email === ADMIN_EMAIL) {
     return;
   }
   
   passwordResetInProgress = true;
+  const uDocRef = doc(db, USERS_COLLECTION, user.uid);
   
   try {
+    const userDoc = await getDoc(uDocRef);
+    if (!userDoc.exists()) {
+      passwordResetInProgress = false;
+      return;
+    }
+    
     // Генерируем НОВЫЙ пароль для СЛЕДУЮЩЕГО входа
     const newPassword = generateNewPassword();
     
-    console.log(`🔄 Сброс пароля для: ${user.email}`);
-    console.log(`🔑 Новый пароль: ${newPassword}`);
+    console.log(`%c🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА`, "color: #4CAF50; font-weight: bold; font-size: 16px;");
+    console.log(`%c📧 Email: ${user.email}`, "color: #2196F3; font-size: 14px;");
+    console.log(`%c🔑 Новый пароль для следующего входа: ${newPassword}`, 
+                "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;");
     
     // Обновляем пароль в Firebase Auth (для следующего входа)
-    await updatePassword(user, newPassword);
-    console.log('✅ Пароль обновлен в Firebase Auth');
+    try {
+      await updatePassword(user, newPassword);
+      console.log('✅ Пароль обновлен в Firebase Auth для следующего входа');
+    } catch (authError) {
+      console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
+      // Продолжаем - пароль сохранится в Firestore для админки
+    }
     
-    // Сохраняем новый пароль в Firestore (для показа в админке)
-    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+    // Сохраняем новый пароль в Firestore (появится в админке)
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
-      lastLoginAt: serverTimestamp(),
-      totalLogins: increment(1) // Используем инкремент
+      lastLoginAt: serverTimestamp()
     });
     
-    console.log('✅ Пароль сохранен в Firestore');
-    
-    // Показываем уведомление пользователю (опционально)
-    showUserNotification(`🔐 Ваш пароль был обновлен. Для следующего входа используйте новый пароль: ${newPassword}`);
+    console.log('✅ Пароль сохранен в Firestore (виден в админке)');
     
   } catch (error) {
     console.error('Ошибка сброса пароля:', error);
-    
-    // Если ошибка - пробуем просто обновить Firestore
-    try {
-      const newPassword = generateNewPassword();
-      const uDocRef = doc(db, USERS_COLLECTION, user.uid);
-      await updateDoc(uDocRef, {
-        currentPassword: newPassword,
-        passwordChanged: true,
-        lastPasswordChange: serverTimestamp(),
-        lastLoginAt: serverTimestamp()
-      });
-      console.log('⚠️ Пароль обновлен только в Firestore');
-    } catch (firestoreError) {
-      console.error('Ошибка обновления Firestore:', firestoreError);
-    }
   } finally {
     setTimeout(() => {
       passwordResetInProgress = false;
     }, 3000);
+  }
+}
+
+/* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
+async function setupAdminPanel(userEmail) {
+  try {
+    if (userEmail !== ADMIN_EMAIL) {
+      const adminContainer = document.getElementById('adminPanelContainer');
+      if (adminContainer) adminContainer.style.display = 'none';
+      return;
+    }
+    
+    let adminContainer = document.getElementById('adminPanelContainer');
+    if (!adminContainer) {
+      adminContainer = document.createElement('div');
+      adminContainer.id = 'adminPanelContainer';
+      adminContainer.style.cssText = `
+        position: fixed;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+      `;
+      document.body.appendChild(adminContainer);
+    }
+    
+    adminContainer.innerHTML = '';
+    adminContainer.style.display = 'block';
+    
+    const adminBtn = document.createElement('button');
+    adminBtn.innerHTML = '👑 Админ';
+    adminBtn.style.cssText = `
+      background: #FF9800;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      font-size: 14px;
+    `;
+    
+    adminBtn.onclick = async () => {
+      await showAdminPanel();
+    };
+    
+    adminContainer.appendChild(adminBtn);
+    
+  } catch (error) {
+    console.error('Ошибка настройки админ панели:', error);
   }
 }
 
@@ -518,23 +308,30 @@ function createWhatsAppButton() {
   // Создаем кнопку
   const whatsappButton = document.createElement('a');
   whatsappButton.className = 'whatsapp-button pulse';
-  whatsappButton.innerHTML = '💬';
+  whatsappButton.innerHTML = '💬'; // Или можно использовать иконку: '✆'
   whatsappButton.title = 'Связаться через WhatsApp';
   
-  // Ваш номер телефона
-  const phoneNumber = '+77718663556';
+  // Ваш номер телефона (замените на свой)
+  // Формат: +79001234567 (без пробелов, скобок и дефисов)
+  const phoneNumber = '+77718663556'; // ЗАМЕНИТЕ НА СВОЙ НОМЕР
+  
+  // Сообщение по умолчанию (можно изменить)
   const defaultMessage = 'Сәлем, биология тест бойынша сұрақ бар';
-  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(defaultMessage)}`;
+  
+  // Создаем URL для WhatsApp
+  const whatsappUrl = `https://wa.me/77718663556?text=${encodeURIComponent(defaultMessage)}`;
   
   whatsappButton.href = whatsappUrl;
   whatsappButton.target = '_blank';
   whatsappButton.rel = 'noopener noreferrer';
   
+  // Добавляем кнопку на страницу
   document.body.appendChild(whatsappButton);
   
-  // Подсказка при первом посещении
+  // Дополнительно: можно добавить подсветку при первом посещении
   const whatsappShown = localStorage.getItem('whatsappShown');
   if (!whatsappShown) {
+    // Показываем подсказку при первом посещении
     setTimeout(() => {
       const tooltip = document.createElement('div');
       tooltip.style.cssText = `
@@ -556,6 +353,7 @@ function createWhatsAppButton() {
       
       document.body.appendChild(tooltip);
       
+      // Убираем подсказку через 5 секунд
       setTimeout(() => {
         const tooltipEl = document.getElementById('whatsapp-tooltip');
         if (tooltipEl) {
@@ -576,131 +374,22 @@ function createWhatsAppButton() {
   console.log('✅ Кнопка WhatsApp добавлена');
 }
 
-// Добавляем кнопку WhatsApp
+// Добавляем кнопку WhatsApp при загрузке страницы
 document.addEventListener('DOMContentLoaded', function() {
+  // Небольшая задержка, чтобы страница успела загрузиться
   setTimeout(createWhatsAppButton, 1000);
-  setTimeout(addForgotPasswordButton, 1500);
 });
 
 // Также добавляем кнопку при изменении состояния аутентификации
 onAuthStateChanged(auth, (user) => {
+  // Проверяем, существует ли уже кнопка
   if (!document.querySelector('.whatsapp-button')) {
     setTimeout(createWhatsAppButton, 500);
   }
-  if (!document.getElementById('forgotPasswordBtn')) {
-    setTimeout(addForgotPasswordButton, 500);
-  }
 });
 
-/* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
-async function setupAdminPanel(userEmail) {
-  try {
-    // Проверяем, является ли пользователь админом
-    if (userEmail !== ADMIN_EMAIL) {
-      const adminContainer = document.getElementById('adminPanelContainer');
-      if (adminContainer) adminContainer.style.display = 'none';
-      return;
-    }
-
-        // Только админ может видеть панель
-    console.log(`👑 Администратор ${userEmail} авторизован`);
-
-    
-    let adminContainer = document.getElementById('adminPanelContainer');
-    if (!adminContainer) {
-      adminContainer = document.createElement('div');
-      adminContainer.id = 'adminPanelContainer';
-      adminContainer.style.cssText = `
-        position: fixed;
-        top: 10px;
-        right: 10px;
-        z-index: 1000;
-        display: flex;
-        gap: 10px;
-      `;
-      document.body.appendChild(adminContainer);
-    }
-    
-    adminContainer.innerHTML = '';
-    adminContainer.style.display = 'flex';
-    
-    // Кнопка уведомлений
-    const notificationsBtn = document.createElement('button');
-    notificationsBtn.id = 'adminNotificationsBtn';
-    notificationsBtn.innerHTML = '🔔 <span id="notificationCount" style="background: #f44336; color: white; border-radius: 50%; padding: 2px 6px; font-size: 12px; display: none;">0</span>';
-    notificationsBtn.title = 'Уведомления';
-    notificationsBtn.style.cssText = `
-      background: #FF9800;
-      color: white;
-      border: none;
-      padding: 10px 15px;
-      border-radius: 5px;
-      cursor: pointer;
-      font-weight: bold;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-      font-size: 14px;
-      position: relative;
-    `;
-    
-    notificationsBtn.onclick = async () => {
-      await showAdminPanel('notifications');
-    };
-    
-    // Кнопка админа
-    const adminBtn = document.createElement('button');
-    adminBtn.innerHTML = '👑 Админ';
-    adminBtn.style.cssText = `
-      background: #4CAF50;
-      color: white;
-      border: none;
-      padding: 10px 20px;
-      border-radius: 5px;
-      cursor: pointer;
-      font-weight: bold;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-      font-size: 14px;
-    `;
-    
-    adminBtn.onclick = async () => {
-      await showAdminPanel('users');
-    };
-    
-    adminContainer.appendChild(notificationsBtn);
-    adminContainer.appendChild(adminBtn);
-    
-    // Слушаем уведомления в реальном времени
-    if (notificationsUnsubscribe) {
-      notificationsUnsubscribe();
-    }
-    
-    notificationsUnsubscribe = onSnapshot(
-      collection(db, ADMIN_NOTIFICATIONS_COLLECTION),
-      (snapshot) => {
-        const unreadCount = snapshot.docs.filter(doc => 
-          doc.data().status === 'unread'
-        ).length;
-        
-        const countSpan = document.getElementById('notificationCount');
-        if (countSpan) {
-          if (unreadCount > 0) {
-            countSpan.innerText = unreadCount > 99 ? '99+' : unreadCount;
-            countSpan.style.display = 'inline-block';
-            notificationsBtn.style.background = '#f44336';
-          } else {
-            countSpan.style.display = 'none';
-            notificationsBtn.style.background = '#FF9800';
-          }
-        }
-      }
-    );
-    
-  } catch (error) {
-    console.error('Ошибка настройки админ панели:', error);
-  }
-}
-
 /* ====== ФУНКЦИЯ ПОКАЗА АДМИН ПАНЕЛИ ====== */
-async function showAdminPanel(defaultTab = 'users') {
+async function showAdminPanel() {
   try {
     const currentUser = auth.currentUser;
     if (!currentUser) {
@@ -708,7 +397,6 @@ async function showAdminPanel(defaultTab = 'users') {
       return;
     }
     
-    // Строгая проверка на админа
     if (currentUser.email !== ADMIN_EMAIL) {
       alert('❌ Недостаточно прав. Только администратор может открыть эту панель.');
       return;
@@ -716,49 +404,50 @@ async function showAdminPanel(defaultTab = 'users') {
     
     console.log(`👑 Администратор ${currentUser.email} открывает панель управления`);
     
-    let adminHTML = '<div class="admin-modal-content">';
-    adminHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">';
-    adminHTML += '<h3>👑 Панель администратора</h3>';
-    adminHTML += '<div>';
-    adminHTML += '<button onclick="refreshAdminPanel()" style="background: #2196F3; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">🔄 Обновить</button>';
-    adminHTML += '</div>';
-    adminHTML += '</div>';
-    adminHTML += '<button class="close-modal">✕</button>';
+    let usersHTML = '<div class="admin-modal-content">';
+    usersHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">';
+    usersHTML += '<h3>👥 Управление пользователями</h3>';
+    usersHTML += '<div>';
+    usersHTML += '<button onclick="refreshAdminPanel()" style="background: #2196F3; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin-right: 10px;">🔄 Обновить</button>';
+    usersHTML += '</div>';
+    usersHTML += '</div>';
+    usersHTML += '<button class="close-modal">✕</button>';
+
+    usersHTML += `
+  <div style="margin-bottom: 20px; padding: 15px; background: #f0f8ff; border-radius: 8px; border: 2px solid #2196F3;">
+    <h4 style="margin-top: 0; color: #2196F3;">🚀 Массовые операции с доступом</h4>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+      <button onclick="bulkAccessControl('grant_all')" 
+              style="background: #4CAF50; color: white; padding: 10px 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+        ✅ Открыть доступ ВСЕМ
+      </button>
+      <button onclick="bulkAccessControl('revoke_all')" 
+              style="background: #f44336; color: white; padding: 10px 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
+        ❌ Закрыть доступ ВСЕМ
+      </button>
+    </div>
+    <p style="margin-top: 10px; color: #666; font-size: 12px;">
+      ⚠️ Пароль меняется при каждом входе пользователя
+    </p>
+  </div>
+`;    
     
-    // Вкладки
-    adminHTML += `
-      <div style="margin-bottom: 20px; display: flex; border-bottom: 2px solid #ddd;">
-        <button id="adminTabUsers" onclick="switchAdminTab('users')" 
-                style="background: #4CAF50; color: white; padding: 12px 24px; border: none; border-radius: 5px 5px 0 0; cursor: pointer; font-weight: bold; margin-right: 5px;">
-          👥 Пользователи
-        </button>
-        <button id="adminTabNotifications" onclick="switchAdminTab('notifications')" 
-                style="background: #FF9800; color: white; padding: 12px 24px; border: none; border-radius: 5px 5px 0 0; cursor: pointer; margin-right: 5px; position: relative;">
-          🔔 Уведомления
-          <span id="modalNotificationBadge" style="position: absolute; top: -5px; right: -5px; background: #f44336; color: white; border-radius: 50%; width: 20px; height: 20px; display: none; align-items: center; justify-content: center; font-size: 10px;">0</span>
-        </button>
-        <button id="adminTabAccess" onclick="switchAdminTab('access')" 
-                style="background: #9C27B0; color: white; padding: 12px 24px; border: none; border-radius: 5px 5px 0 0; cursor: pointer;">
-          🔐 Управление доступом
-        </button>
-      </div>
-    `;
+    usersHTML += '<div id="adminLoading" style="text-align: center; padding: 40px;">';
+    usersHTML += '<div style="display: inline-block; padding: 20px; background: #f5f5f5; border-radius: 10px;">';
+    usersHTML += '<div class="spinner"></div>';
+    usersHTML += '<p style="margin-top: 10px; color: #666;">Загрузка пользователей...</p>';
+    usersHTML += '</div>';
+    usersHTML += '</div>';
     
-    adminHTML += '<div id="adminTabContent" style="border: 2px solid #4CAF50; border-radius: 0 5px 5px 5px; padding: 20px; min-height: 400px; max-height: 70vh; overflow-y: auto;">';
-    adminHTML += '<div id="adminLoading" style="text-align: center; padding: 40px;">';
-    adminHTML += '<div class="spinner"></div>';
-    adminHTML += '<p>Загрузка...</p>';
-    adminHTML += '</div>';
-    adminHTML += '</div>';
-    
-    adminHTML += '</div>';
+    usersHTML += '<div id="usersList" style="display: none;"></div>';
+    usersHTML += '</div>';
     
     const modal = document.createElement('div');
     modal.className = 'admin-modal';
-    modal.innerHTML = adminHTML;
+    modal.innerHTML = usersHTML;
+    
     document.body.appendChild(modal);
     
-    // Обработчики закрытия
     modal.querySelector('.close-modal').onclick = () => {
       document.body.removeChild(modal);
     };
@@ -769,11 +458,176 @@ async function showAdminPanel(defaultTab = 'users') {
       }
     };
     
-    // Загружаем уведомления для бейджа
-    await updateModalNotificationBadge();
+    loadUsersList();
     
-    // Загружаем вкладку по умолчанию
-    window.switchAdminTab(defaultTab);
+    async function loadUsersList() {
+      try {
+        const usersListDiv = document.getElementById('usersList');
+        const loadingDiv = document.getElementById('adminLoading');
+        
+        if (!usersListDiv || !loadingDiv) return;
+        
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        const users = [];
+        
+        for (const docSnap of usersSnapshot.docs) {
+          const data = docSnap.data();
+          const userId = docSnap.id;
+          if (!data.email) continue;
+          
+          users.push({
+            id: userId,
+            data: data
+          });
+        }
+        
+        users.sort((a, b) => {
+          if (a.data.email === ADMIN_EMAIL || a.data.isAdmin === true) return -1;
+          if (b.data.email === ADMIN_EMAIL || b.data.isAdmin === true) return 1;
+          
+          if (a.data.allowed && !b.data.allowed) return -1;
+          if (!a.data.allowed && b.data.allowed) return 1;
+          
+          const aTime = a.data.lastLoginAt?.toMillis?.() || 0;
+          const bTime = b.data.lastLoginAt?.toMillis?.() || 0;
+          return bTime - aTime;
+        });
+        
+        let usersListHTML = '';
+        
+        users.forEach(user => {
+          const data = user.data;
+          const userId = user.id;
+          const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
+          const hasAccess = data.allowed === true;
+          const isOnline = data.lastLoginAt && 
+            (Date.now() - (data.lastLoginAt.toMillis?.() || 0)) < 300000;
+          
+          let itemStyle = '';
+          if (isUserAdmin) {
+            itemStyle = 'background: #FFF8E1; border-left: 5px solid #FF9800;';
+          } else if (!hasAccess) {
+            itemStyle = 'background: #f5f5f5; border-left: 5px solid #9E9E9E;';
+          } else {
+            itemStyle = 'background: #E8F5E9; border-left: 5px solid #4CAF50;';
+          }
+          
+          usersListHTML += `
+            <div class="admin-user-item" style="${itemStyle} padding: 15px; border-radius: 5px; margin-bottom: 15px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                    <strong style="font-size: 16px;">${data.email}</strong>
+                    ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold; background: #FFECB3; padding: 2px 8px; border-radius: 10px; font-size: 12px;">👑 АДМИН</span>' : ''}
+                    ${isOnline ? '<span style="color: #4CAF50; font-weight: bold; background: #E8F5E9; padding: 2px 8px; border-radius: 10px; font-size: 12px;">🟢 Онлайн</span>' : ''}
+                    <span class="admin-status ${hasAccess ? 'status-allowed' : 'status-pending'}" 
+                          style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; 
+                                 background: ${hasAccess ? '#4CAF50' : '#FF9800'}; color: white; cursor: pointer;"
+                          onclick="toggleUserAccess('${userId}', '${data.email}', ${hasAccess})">
+                      ${hasAccess ? '✅ Доступ открыт' : '❌ Доступ закрыт'}
+                    </span>
+                  </div>
+                  
+                  <div style="margin-bottom: 10px; font-size: 14px; color: #666;">
+                    ${data.currentPassword 
+                      ? `<div style="background: ${isUserAdmin ? '#FFECB3' : '#e3f2fd'}; padding: 10px; border-radius: 6px; border: 2px solid ${isUserAdmin ? '#FF9800' : '#2196F3'};">
+                          <div style="font-size: 11px; color: #666; margin-bottom: 4px;">🔑 Текущий пароль (будет обновлен при следующем входе):</div>
+                          <code style="font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold; color: #d32f2f;">${data.currentPassword}</code>
+                         </div>` 
+                      : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span>'
+                    }
+                  </div>
+                  
+                  <div style="display: flex; gap: 20px; margin-bottom: 15px; font-size: 13px; color: #777;">
+                    ${data.lastLoginAt 
+                      ? `<div>🕐 Последний вход: ${new Date(data.lastLoginAt.toMillis()).toLocaleString()}</div>` 
+                      : '<div>🕐 Никогда не входил</div>'
+                    }
+                    ${data.lastPasswordChange 
+                      ? `<div>🔄 Пароль обновлен: ${new Date(data.lastPasswordChange.toMillis()).toLocaleString()}</div>` 
+                      : ''
+                    }
+                  </div>
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 5px; min-width: 200px;">
+                  <button class="force-reset-btn" onclick="forcePasswordReset('${userId}', '${data.email}')" 
+                          style="width: 100%; text-align: left; background: #FF9800; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
+                    🔄 Сбросить пароль сейчас
+                  </button>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+        
+        const totalUsers = users.length;
+        const usersWithAccess = users.filter(u => u.data.allowed).length;
+        const onlineUsers = users.filter(u => 
+          u.data.lastLoginAt && (Date.now() - (u.data.lastLoginAt.toMillis?.() || 0)) < 300000
+        ).length;
+        
+        usersListHTML = `
+          <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2196F3;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
+              <div>
+                <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${totalUsers}</div>
+                <div style="font-size: 12px; color: #666;">Всего пользователей</div>
+              </div>
+              <div>
+                <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${usersWithAccess}</div>
+                <div style="font-size: 12px; color: #666;">С доступом</div>
+              </div>
+              <div>
+                <div style="font-size: 24px; font-weight: bold; color: #FF9800;">${onlineUsers}</div>
+                <div style="font-size: 12px; color: #666;">Онлайн</div>
+              </div>
+            </div>
+            <div style="margin-top: 15px; font-size: 14px; color: #666;">
+              💡 <strong>Система паролей:</strong> При входе пользователя пароль автоматически меняется.<br>
+              Текущий пароль отображается здесь. Для входа пользователь использует пароль из этого поля.
+            </div>
+          </div>
+          ${usersListHTML}
+        `;
+        
+        usersListDiv.innerHTML = usersListHTML;
+        loadingDiv.style.display = 'none';
+        usersListDiv.style.display = 'block';
+        
+      } catch (error) {
+        console.error('Ошибка загрузки пользователей:', error);
+        const usersListDiv = document.getElementById('usersList');
+        const loadingDiv = document.getElementById('adminLoading');
+        
+        if (loadingDiv) loadingDiv.style.display = 'none';
+        if (usersListDiv) {
+          usersListDiv.innerHTML = `
+            <div style="color: #f44336; padding: 40px; text-align: center;">
+              <strong>Ошибка загрузки пользователей:</strong><br>
+              ${error.message}<br>
+              <small>Проверьте права доступа в правилах Firestore</small>
+              <div style="margin-top: 20px;">
+                <button onclick="loadUsersList()" style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+                  🔄 Повторить
+                </button>
+              </div>
+            </div>
+          `;
+          usersListDiv.style.display = 'block';
+        }
+      }
+    }
+    
+    window.refreshAdminPanel = function() {
+      const usersListDiv = document.getElementById('usersList');
+      const loadingDiv = document.getElementById('adminLoading');
+      
+      if (loadingDiv) loadingDiv.style.display = 'block';
+      if (usersListDiv) usersListDiv.style.display = 'none';
+      
+      loadUsersList();
+    };
     
   } catch (error) {
     console.error('Ошибка открытия админ панели:', error);
@@ -781,412 +635,7 @@ async function showAdminPanel(defaultTab = 'users') {
   }
 }
 
-/* ====== ОБНОВЛЕНИЕ БЕЙДЖА УВЕДОМЛЕНИЙ В МОДАЛКЕ ====== */
-async function updateModalNotificationBadge() {
-  try {
-    const snapshot = await getDocs(collection(db, ADMIN_NOTIFICATIONS_COLLECTION));
-    const unreadCount = snapshot.docs.filter(doc => 
-      doc.data().status === 'unread'
-    ).length;
-    
-    const badge = document.getElementById('modalNotificationBadge');
-    if (badge) {
-      if (unreadCount > 0) {
-        badge.innerText = unreadCount > 99 ? '99+' : unreadCount;
-        badge.style.display = 'flex';
-      } else {
-        badge.style.display = 'none';
-      }
-    }
-  } catch (error) {
-    console.error('Ошибка обновления бейджа:', error);
-  }
-}
-
-/* ====== ПЕРЕКЛЮЧЕНИЕ ВКЛАДОК ====== */
-window.switchAdminTab = async function(tabName) {
-  // Обновляем активные кнопки
-  ['users', 'notifications', 'access'].forEach(t => {
-    const btn = document.getElementById(`adminTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
-    if (btn) {
-      btn.style.background = tabName === t ? 
-        (t === 'users' ? '#4CAF50' : t === 'notifications' ? '#FF9800' : '#9C27B0') : 
-        '#757575';
-    }
-  });
-  
-  const contentDiv = document.getElementById('adminTabContent');
-  if (!contentDiv) return;
-  
-  contentDiv.innerHTML = '<div id="adminLoading" style="text-align: center; padding: 40px;"><div class="spinner"></div><p>Загрузка...</p></div>';
-  
-  switch(tabName) {
-    case 'users':
-      await loadUsersList();
-      break;
-    case 'notifications':
-      await loadNotifications();
-      break;
-    case 'access':
-      await loadAccessControl();
-      break;
-  }
-};
-
-/* ====== ЗАГРУЗКА СПИСКА ПОЛЬЗОВАТЕЛЕЙ ====== */
-async function loadUsersList() {
-  try {
-    const contentDiv = document.getElementById('adminTabContent');
-    if (!contentDiv) return;
-    
-    const usersSnapshot = await getDocs(collection(db, 'users'));
-    const users = [];
-    
-    for (const docSnap of usersSnapshot.docs) {
-      const data = docSnap.data();
-      const userId = docSnap.id;
-      if (!data.email) continue;
-      
-      users.push({
-        id: userId,
-        data: data
-      });
-    }
-    
-    users.sort((a, b) => {
-      if (a.data.email === ADMIN_EMAIL || a.data.isAdmin === true) return -1;
-      if (b.data.email === ADMIN_EMAIL || b.data.isAdmin === true) return 1;
-      
-      if (a.data.allowed && !b.data.allowed) return -1;
-      if (!a.data.allowed && b.data.allowed) return 1;
-      
-      const aTime = a.data.lastLoginAt?.toMillis?.() || 0;
-      const bTime = b.data.lastLoginAt?.toMillis?.() || 0;
-      return bTime - aTime;
-    });
-    
-    let usersHTML = '';
-    
-    users.forEach(user => {
-      const data = user.data;
-      const userId = user.id;
-      const isUserAdmin = data.email === ADMIN_EMAIL || data.isAdmin === true;
-      const hasAccess = data.allowed === true;
-      const isOnline = data.lastLoginAt && 
-        (Date.now() - (data.lastLoginAt.toMillis?.() || 0)) < 300000;
-      
-      let itemStyle = '';
-      if (isUserAdmin) {
-        itemStyle = 'background: #FFF8E1; border-left: 5px solid #FF9800;';
-      } else if (!hasAccess) {
-        itemStyle = 'background: #f5f5f5; border-left: 5px solid #9E9E9E;';
-      } else {
-        itemStyle = 'background: #E8F5E9; border-left: 5px solid #4CAF50;';
-      }
-      
-      usersHTML += `
-        <div class="admin-user-item" style="${itemStyle} padding: 15px; border-radius: 5px; margin-bottom: 15px;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap;">
-            <div style="flex: 1; min-width: 300px;">
-              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
-                <strong style="font-size: 16px;">${data.email}</strong>
-                ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold; background: #FFECB3; padding: 2px 8px; border-radius: 10px; font-size: 12px;">👑 АДМИН</span>' : ''}
-                ${isOnline ? '<span style="color: #4CAF50; font-weight: bold; background: #E8F5E9; padding: 2px 8px; border-radius: 10px; font-size: 12px;">🟢 Онлайн</span>' : ''}
-                <span class="admin-status ${hasAccess ? 'status-allowed' : 'status-pending'}" 
-                      style="display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; 
-                             background: ${hasAccess ? '#4CAF50' : '#FF9800'}; color: white; cursor: pointer;"
-                      onclick="toggleUserAccess('${userId}', '${data.email}', ${hasAccess})">
-                  ${hasAccess ? '✅ Доступ открыт' : '❌ Доступ закрыт'}
-                </span>
-              </div>
-              
-              <div style="margin-bottom: 10px; font-size: 14px; color: #666;">
-                ${data.currentPassword 
-                  ? `<div style="background: ${isUserAdmin ? '#FFECB3' : '#e3f2fd'}; padding: 10px; border-radius: 6px; border: 2px solid ${isUserAdmin ? '#FF9800' : '#2196F3'};">
-                      <div style="font-size: 11px; color: #666; margin-bottom: 4px;">🔑 Текущий пароль (будет обновлен при следующем входе):</div>
-                      <code style="font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold; color: #d32f2f;">${data.currentPassword}</code>
-                     </div>` 
-                  : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span>'
-                }
-              </div>
-              
-              <div style="display: flex; gap: 20px; margin-bottom: 15px; font-size: 13px; color: #777; flex-wrap: wrap;">
-                ${data.createdAt 
-                  ? `<div>📅 Регистрация: ${new Date(data.createdAt.toMillis()).toLocaleString()}</div>` 
-                  : ''
-                }
-                ${data.lastLoginAt 
-                  ? `<div>🕐 Последний вход: ${new Date(data.lastLoginAt.toMillis()).toLocaleString()}</div>` 
-                  : '<div>🕐 Никогда не входил</div>'
-                }
-                ${data.totalLogins 
-                  ? `<div>📊 Всего входов: ${data.totalLogins}</div>` 
-                  : ''
-                }
-                ${data.registrationIP 
-                  ? `<div>🌐 IP: ${data.registrationIP}</div>` 
-                  : ''
-                }
-              </div>
-            </div>
-            
-            <div style="display: flex; flex-direction: column; gap: 5px; min-width: 200px;">
-              <button class="force-reset-btn" onclick="forcePasswordReset('${userId}', '${data.email}')" 
-                      style="width: 100%; text-align: left; background: #FF9800; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; margin-bottom: 5px;">
-                🔄 Сбросить пароль сейчас
-              </button>
-              <button onclick="deleteUserAccount('${userId}', '${data.email}')" 
-                      style="width: 100%; text-align: left; background: #f44336; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;">
-                🗑️ Удалить аккаунт
-              </button>
-            </div>
-          </div>
-        </div>
-      `;
-    });
-    
-    const totalUsers = users.length;
-    const usersWithAccess = users.filter(u => u.data.allowed).length;
-    const onlineUsers = users.filter(u => 
-      u.data.lastLoginAt && (Date.now() - (u.data.lastLoginAt.toMillis?.() || 0)) < 300000
-    ).length;
-    const pendingUsers = users.filter(u => !u.data.allowed && u.data.email !== ADMIN_EMAIL).length;
-    
-    usersHTML = `
-      <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2196F3;">
-        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; text-align: center;">
-          <div>
-            <div style="font-size: 24px; font-weight: bold; color: #2196F3;">${totalUsers}</div>
-            <div style="font-size: 12px; color: #666;">Всего пользователей</div>
-          </div>
-          <div>
-            <div style="font-size: 24px; font-weight: bold; color: #4CAF50;">${usersWithAccess}</div>
-            <div style="font-size: 12px; color: #666;">С доступом</div>
-          </div>
-          <div>
-            <div style="font-size: 24px; font-weight: bold; color: #FF9800;">${onlineUsers}</div>
-            <div style="font-size: 12px; color: #666;">Онлайн</div>
-          </div>
-          <div>
-            <div style="font-size: 24px; font-weight: bold; color: #f44336;">${pendingUsers}</div>
-            <div style="font-size: 12px; color: #666;">Ожидают доступа</div>
-          </div>
-        </div>
-        <div style="margin-top: 15px; font-size: 14px; color: #666;">
-          💡 <strong>Система паролей:</strong> При входе пользователя пароль автоматически меняется.<br>
-          Текущий пароль отображается здесь. Для входа пользователь использует пароль из этого поля.
-        </div>
-      </div>
-      
-      <div style="margin-bottom: 15px;">
-        <button onclick="grantAccessToAllPending()" 
-                style="background: #4CAF50; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-right: 10px;">
-          ✅ Открыть доступ всем ожидающим
-        </button>
-        <button onclick="revokeAccessFromAll()" 
-                style="background: #f44336; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-          ❌ Закрыть доступ всем
-        </button>
-      </div>
-      
-      ${usersHTML}
-    `;
-    
-    contentDiv.innerHTML = usersHTML;
-    
-  } catch (error) {
-    console.error('Ошибка загрузки пользователей:', error);
-    const contentDiv = document.getElementById('adminTabContent');
-    if (contentDiv) {
-      contentDiv.innerHTML = `
-        <div style="color: #f44336; padding: 40px; text-align: center;">
-          <strong>Ошибка загрузки пользователей:</strong><br>
-          ${error.message}<br>
-          <small>Проверьте права доступа в правилах Firestore</small>
-          <div style="margin-top: 20px;">
-            <button onclick="loadUsersList()" style="background: #2196F3; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
-              🔄 Повторить
-            </button>
-          </div>
-        </div>
-      `;
-    }
-  }
-}
-
-/* ====== ЗАГРУЗКА УВЕДОМЛЕНИЙ ====== */
-window.loadNotifications = async function() {
-  try {
-    const contentDiv = document.getElementById('adminTabContent');
-    if (!contentDiv) return;
-    
-    const notificationsRef = collection(db, ADMIN_NOTIFICATIONS_COLLECTION);
-    const snapshot = await getDocs(notificationsRef);
-    const notifications = [];
-    
-    snapshot.forEach(docSnap => {
-      notifications.push({
-        id: docSnap.id,
-        ...docSnap.data()
-      });
-    });
-    
-    // Сортируем по дате (новые сверху)
-    notifications.sort((a, b) => {
-      const aTime = a.timestamp?.toMillis?.() || 0;
-      const bTime = b.timestamp?.toMillis?.() || 0;
-      return bTime - aTime;
-    });
-    
-    let html = '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">';
-    html += '<h4>📋 Уведомления администратора</h4>';
-    html += '<div>';
-    html += '<button onclick="markAllNotificationsAsRead()" style="background: #4CAF50; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-right: 10px;">✅ Отметить все как прочитанные</button>';
-    html += '<button onclick="clearAllNotifications()" style="background: #f44336; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">🗑️ Очистить все</button>';
-    html += '</div>';
-    html += '</div>';
-    
-    if (notifications.length === 0) {
-      html += '<p style="color: #666; text-align: center; padding: 40px;">Нет уведомлений</p>';
-    } else {
-      html += '<div style="max-height: 400px; overflow-y: auto;">';
-      
-      notifications.forEach(notif => {
-        const isUnread = notif.status === 'unread';
-        const time = notif.timestamp?.toDate().toLocaleString() || 'Только что';
-        
-        html += `
-          <div style="background: ${isUnread ? '#FFF3E0' : '#f5f5f5'}; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid ${isUnread ? '#FF9800' : '#4CAF50'};">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-              <div style="flex: 1;">
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 5px;">
-                  ${notif.type === 'new_registration' ? '📝' : '🔔'}
-                  <strong>${notif.message || 'Новое уведомление'}</strong>
-                  ${isUnread ? '<span style="background: #FF9800; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: bold;">НОВОЕ</span>' : ''}
-                </div>
-                <div style="color: #666; font-size: 12px; margin-bottom: 10px;">
-                  📧 ${notif.userEmail || 'Неизвестно'} • 
-                  🕐 ${time}
-                  ${notif.userId ? ` • ID: ${notif.userId.substring(0, 8)}...` : ''}
-                </div>
-                ${notif.type === 'new_registration' ? `
-                  <div style="margin-top: 10px;">
-                    <button onclick="quickApproveUser('${notif.userId}', '${notif.userEmail}')" 
-                            style="background: #4CAF50; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; margin-right: 5px;">
-                      ✅ Быстро открыть доступ
-                    </button>
-                    <button onclick="viewUserDetails('${notif.userId}')" 
-                            style="background: #2196F3; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px;">
-                      👁️ Посмотреть детали
-                    </button>
-                  </div>
-                ` : ''}
-              </div>
-              <div>
-                ${isUnread ? 
-                  `<button onclick="markNotificationAsRead('${notif.id}')" 
-                          style="background: #2196F3; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; margin-right: 5px;">
-                    ✅ Прочитать
-                  </button>` : 
-                  `<span style="color: #4CAF50; font-size: 12px;">✅ Прочитано</span>`
-                }
-                <button onclick="deleteNotification('${notif.id}')" 
-                        style="background: #f44336; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; font-size: 12px; margin-left: 5px;">
-                  🗑️
-                </button>
-              </div>
-            </div>
-          </div>
-        `;
-      });
-      
-      html += '</div>';
-    }
-    
-    contentDiv.innerHTML = html;
-    
-  } catch (error) {
-    console.error('Ошибка загрузки уведомлений:', error);
-    const contentDiv = document.getElementById('adminTabContent');
-    if (contentDiv) {
-      contentDiv.innerHTML = `<p style="color: #f44336;">Ошибка: ${error.message}</p>`;
-    }
-  }
-};
-
-/* ====== ЗАГРУЗКА УПРАВЛЕНИЯ ДОСТУПОМ ====== */
-window.loadAccessControl = async function() {
-  const contentDiv = document.getElementById('adminTabContent');
-  if (!contentDiv) return;
-  
-  const html = `
-    <h4 style="margin-top: 0; color: #9C27B0;">🔐 Управление доступом к системе</h4>
-    
-    <div style="background: #E3F2FD; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2196F3;">
-      <h5 style="margin-top: 0; color: #2196F3;">📋 Быстрые действия</h5>
-      
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-        <div style="background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd;">
-          <h6 style="margin-top: 0;">👥 Управление пользователями</h6>
-          <p style="font-size: 12px; color: #666;">Массовые операции с доступом</p>
-          <button onclick="grantAccessToAllPending()" style="background: #4CAF50; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; width: 100%; margin-bottom: 8px;">
-            ✅ Открыть доступ всем ожидающим
-          </button>
-          <button onclick="revokeAccessFromAll()" style="background: #f44336; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; width: 100%;">
-            ❌ Закрыть доступ всем
-          </button>
-        </div>
-        
-        <div style="background: white; padding: 15px; border-radius: 5px; border: 1px solid #ddd;">
-          <h6 style="margin-top: 0;">🔄 Управление паролями</h6>
-          <p style="font-size: 12px; color: #666;">Сброс паролей для пользователей</p>
-          <button onclick="resetPasswordsForAll()" style="background: #FF9800; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; width: 100%; margin-bottom: 8px;">
-            🔄 Сбросить пароли всем
-          </button>
-          <button onclick="showResetPasswordDialog()" style="background: #9C27B0; color: white; border: none; padding: 10px; border-radius: 4px; cursor: pointer; width: 100%;">
-            ✏️ Сбросить пароль конкретному
-          </button>
-        </div>
-      </div>
-    </div>
-    
-    <div style="background: #FFF8E1; padding: 20px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #FF9800;">
-      <h5 style="margin-top: 0; color: #FF9800;">ℹ️ Как работает система доступа</h5>
-      <ul style="color: #666; font-size: 14px; line-height: 1.6;">
-        <li><strong>Двойная проверка:</strong> Пользователь получает доступ только если поле <code>allowed = true</code> в Firestore</li>
-        <li><strong>Безопасность паролей:</strong> При каждом входе пароль автоматически меняется</li>
-        <li><strong>Админ-панель:</strong> Все пароли отображаются здесь для предоставления пользователям</li>
-        <li><strong>Уведомления:</strong> Новые регистрации приходят в раздел "Уведомления"</li>
-        <li><strong>Статусы:</strong> 
-          <span style="background: #4CAF50; color: white; padding: 2px 6px; border-radius: 3px;">✅ Доступ открыт</span> 
-          <span style="background: #FF9800; color: white; padding: 2px 6px; border-radius: 3px; margin-left: 5px;">❌ Доступ закрыт</span>
-        </li>
-      </ul>
-    </div>
-    
-    <div style="background: #F3E5F5; padding: 20px; border-radius: 8px; border: 2px solid #9C27B0;">
-      <h5 style="margin-top: 0; color: #9C27B0;">⚡ Быстрые ссылки</h5>
-      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button onclick="window.switchAdminTab('users')" style="background: #4CAF50; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
-          👥 Список пользователей
-        </button>
-        <button onclick="window.switchAdminTab('notifications')" style="background: #FF9800; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
-          🔔 Уведомления (${document.getElementById('modalNotificationBadge')?.innerText || '0'})
-        </button>
-        <button onclick="exportUsersData()" style="background: #2196F3; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
-          📊 Экспорт данных
-        </button>
-        <button onclick="showSystemStats()" style="background: #607D8B; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer;">
-          📈 Статистика
-        </button>
-      </div>
-    </div>
-  `;
-  
-  contentDiv.innerHTML = html;
-};
-
-/* ====== ФУНКЦИИ УПРАВЛЕНИЯ ДОСТУПОМ ====== */
+/* ====== ФУНКЦИЯ ПЕРЕКЛЮЧЕНИЯ ДОСТУПА ====== */
 window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
   const newAccess = !currentAccess;
   
@@ -1222,343 +671,90 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
   }
 };
 
-window.grantAccessToAllPending = async function() {
+/* ====== ФУНКЦИЯ МАССОВОГО УПРАВЛЕНИЯ ДОСТУПОМ ====== */
+window.bulkAccessControl = async function(action) {
   try {
     const usersSnapshot = await getDocs(collection(db, 'users'));
-    const pendingUsers = [];
+    const users = [];
     
     usersSnapshot.forEach(docSnap => {
       const data = docSnap.data();
-      if (data.email && data.email !== ADMIN_EMAIL && !data.allowed) {
-        pendingUsers.push({
+      if (data.email && data.email !== ADMIN_EMAIL) {
+        users.push({
           id: docSnap.id,
-          email: data.email
+          email: data.email,
+          allowed: data.allowed || false
         });
       }
     });
     
-    if (pendingUsers.length === 0) {
-      alert('✅ Нет пользователей, ожидающих доступа');
-      return;
-    }
+    let confirmMsg = '';
+    let newAccess = true;
     
-    if (!confirm(`Открыть доступ ${pendingUsers.length} пользователям?\n\n${pendingUsers.map(u => u.email).join('\n')}`)) {
-      return;
-    }
-    
-    const modal = document.createElement('div');
-    modal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10001;
-    `;
-    
-    modal.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 10px; text-align: center; min-width: 300px;">
-        <div class="spinner" style="margin: 0 auto 15px;"></div>
-        <p style="font-size: 16px; font-weight: bold;">Открываем доступ...</p>
-        <p id="progressText" style="color: #666; margin-top: 10px;">0/${pendingUsers.length}</p>
-        <div style="height: 10px; background: #eee; border-radius: 5px; margin-top: 10px; overflow: hidden;">
-          <div id="progressBar" style="height: 100%; width: 0%; background: #4CAF50; transition: width 0.3s;"></div>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    let completed = 0;
-    for (const user of pendingUsers) {
-      try {
-        await updateDoc(doc(db, 'users', user.id), {
-          allowed: true,
-          accessGrantedAt: serverTimestamp(),
-          grantedBy: auth.currentUser?.email || 'admin'
-        });
-        
-        completed++;
-        const percent = Math.round((completed / pendingUsers.length) * 100);
-        
-        document.getElementById('progressText').innerText = 
-          `${completed}/${pendingUsers.length} - ${user.email}`;
-        document.getElementById('progressBar').style.width = `${percent}%`;
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (error) {
-        console.error(`Ошибка для ${user.email}:`, error);
-      }
-    }
-    
-    setTimeout(() => {
-      document.body.removeChild(modal);
-      alert(`✅ Доступ открыт для ${completed} пользователей`);
-      window.refreshAdminPanel();
-    }, 1000);
-    
-  } catch (error) {
-    console.error('Ошибка массового открытия доступа:', error);
-    alert(`❌ Ошибка: ${error.message}`);
-  }
-};
-
-window.revokeAccessFromAll = async function() {
-  try {
-    const usersSnapshot = await getDocs(collection(db, 'users'));
-    const usersToRevoke = [];
-    
-    usersSnapshot.forEach(docSnap => {
-      const data = docSnap.data();
-      if (data.email && data.email !== ADMIN_EMAIL && data.allowed) {
-        usersToRevoke.push({
-          id: docSnap.id,
-          email: data.email
-        });
-      }
-    });
-    
-    if (usersToRevoke.length === 0) {
-      alert('✅ Нет пользователей с открытым доступом');
-      return;
-    }
-    
-    if (!confirm(`⚠️ ВНИМАНИЕ!\n\nВы собираетесь закрыть доступ ${usersToRevoke.length} пользователям!\n\nЭто действие нельзя отменить. Продолжить?`)) {
-      return;
-    }
-    
-    const modal = document.createElement('div');
-    modal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10001;
-    `;
-    
-    modal.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 10px; text-align: center; min-width: 300px;">
-        <div class="spinner" style="margin: 0 auto 15px;"></div>
-        <p style="font-size: 16px; font-weight: bold; color: #f44336;">Закрываем доступ...</p>
-        <p id="progressText" style="color: #666; margin-top: 10px;">0/${usersToRevoke.length}</p>
-        <div style="height: 10px; background: #eee; border-radius: 5px; margin-top: 10px; overflow: hidden;">
-          <div id="progressBar" style="height: 100%; width: 0%; background: #f44336; transition: width 0.3s;"></div>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    let completed = 0;
-    for (const user of usersToRevoke) {
-      try {
-        await updateDoc(doc(db, 'users', user.id), {
-          allowed: false,
-          accessRevokedAt: serverTimestamp(),
-          revokedBy: auth.currentUser?.email || 'admin'
-        });
-        
-        completed++;
-        const percent = Math.round((completed / usersToRevoke.length) * 100);
-        
-        document.getElementById('progressText').innerText = 
-          `${completed}/${usersToRevoke.length} - ${user.email}`;
-        document.getElementById('progressBar').style.width = `${percent}%`;
-        
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (error) {
-        console.error(`Ошибка для ${user.email}:`, error);
-      }
-    }
-    
-    setTimeout(() => {
-      document.body.removeChild(modal);
-      alert(`✅ Доступ закрыт для ${completed} пользователей`);
-      window.refreshAdminPanel();
-    }, 1000);
-    
-  } catch (error) {
-    console.error('Ошибка массового закрытия доступа:', error);
-    alert(`❌ Ошибка: ${error.message}`);
-  }
-};
-
-/* ====== ФУНКЦИИ УПРАВЛЕНИЯ УВЕДОМЛЕНИЯМИ ====== */
-window.markNotificationAsRead = async function(notificationId) {
-  try {
-    await updateDoc(doc(db, ADMIN_NOTIFICATIONS_COLLECTION, notificationId), {
-      status: 'read',
-      readAt: serverTimestamp()
-    });
-    
-    console.log('✅ Уведомление отмечено как прочитанное');
-    await updateModalNotificationBadge();
-    window.loadNotifications();
-    
-  } catch (error) {
-    console.error('Ошибка отметки уведомления:', error);
-    alert('Ошибка: ' + error.message);
-  }
-};
-
-window.markAllNotificationsAsRead = async function() {
-  try {
-    const snapshot = await getDocs(collection(db, ADMIN_NOTIFICATIONS_COLLECTION));
-    const unreadNotifications = snapshot.docs.filter(doc => 
-      doc.data().status === 'unread'
-    ).length;
-    
-    if (unreadNotifications.length === 0) {
-      alert('✅ Нет непрочитанных уведомлений');
-      return;
-    }
-    
-    const batch = writeBatch(db);
-    unreadNotifications.forEach(doc => {
-      const ref = doc.ref;
-      batch.update(ref, {
-        status: 'read',
-        readAt: serverTimestamp()
-      });
-    });
-    
-    await batch.commit();
-    
-    alert(`✅ ${unreadNotifications.length} уведомлений отмечены как прочитанные`);
-    await updateModalNotificationBadge();
-    window.loadNotifications();
-    
-  } catch (error) {
-    console.error('Ошибка отметки всех уведомлений:', error);
-    alert('Ошибка: ' + error.message);
-  }
-};
-
-window.clearAllNotifications = async function() {
-  if (!confirm('Удалить все уведомления?\n\nЭто действие нельзя отменить.')) {
-    return;
-  }
-  
-  try {
-    const snapshot = await getDocs(collection(db, ADMIN_NOTIFICATIONS_COLLECTION));
-    const batch = writeBatch(db);
-    
-    snapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-    
-    await batch.commit();
-    
-    alert('✅ Все уведомления удалены');
-    await updateModalNotificationBadge();
-    window.loadNotifications();
-    
-  } catch (error) {
-    console.error('Ошибка удаления уведомлений:', error);
-    alert('Ошибка: ' + error.message);
-  }
-};
-
-window.deleteNotification = async function(notificationId) {
-  if (!confirm('Удалить это уведомление?')) {
-    return;
-  }
-  
-  try {
-    await deleteDoc(doc(db, ADMIN_NOTIFICATIONS_COLLECTION, notificationId));
-    
-    console.log('✅ Уведомление удалено');
-    await updateModalNotificationBadge();
-    window.loadNotifications();
-    
-  } catch (error) {
-    console.error('Ошибка удаления уведомления:', error);
-    alert('Ошибка: ' + error.message);
-  }
-};
-
-/* ====== ФУНКЦИИ БЫСТРОГО УПРАВЛЕНИЯ ====== */
-window.quickApproveUser = async function(userId, userEmail) {
-  if (!confirm(`Быстро открыть доступ для ${userEmail}?`)) return;
-  
-  try {
-    const userRef = doc(db, 'users', userId);
-    
-    // Генерируем новый пароль
-    const newPassword = generateNewPassword();
-    
-    await updateDoc(userRef, {
-      allowed: true,
-      currentPassword: newPassword,
-      passwordChanged: true,
-      accessGrantedAt: serverTimestamp(),
-      grantedBy: auth.currentUser?.email || 'admin',
-      quickApproved: true
-    });
-    
-    // Помечаем уведомление как прочитанное
-    const notificationsRef = collection(db, ADMIN_NOTIFICATIONS_COLLECTION);
-    const snapshot = await getDocs(notificationsRef);
-    
-    for (const docSnap of snapshot.docs) {
-      const data = docSnap.data();
-      if (data.userId === userId && data.type === 'new_registration') {
-        await updateDoc(docSnap.ref, {
-          status: 'read',
-          readAt: serverTimestamp(),
-          actionTaken: 'approved'
-        });
+    switch(action) {
+      case 'grant_all':
+        confirmMsg = `Вы уверены, что хотите открыть доступ ВСЕМ ${users.length} пользователям?`;
+        newAccess = true;
         break;
+      case 'revoke_all':
+        confirmMsg = `Вы уверены, что хотите закрыть доступ ВСЕМ ${users.length} пользователям?\n\nВсе пользователи не смогут войти в систему!`;
+        newAccess = false;
+        break;
+      default:
+        return;
+    }
+    
+    if (!confirm(confirmMsg)) return;
+    
+    const modal = document.createElement('div');
+    modal.innerHTML = `
+      <div class="admin-modal" style="display: flex;">
+        <div class="admin-modal-content" style="max-width: 500px;">
+          <h3>${newAccess ? '📈 Открытие доступа' : '📉 Закрытие доступа'}</h3>
+          <p id="bulkProgress">Начинаем обработку...</p>
+          <div id="progressBar" style="height: 10px; background: #eee; border-radius: 5px; margin: 10px 0; overflow: hidden;">
+            <div id="progressFill" style="height: 100%; width: 0%; background: #4CAF50; transition: width 0.3s;"></div>
+          </div>
+          <div id="statusText" style="color: #666; font-size: 12px;"></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    
+    let completed = 0;
+    const total = users.length;
+    
+    for (const user of users) {
+      try {
+        await updateDoc(doc(db, 'users', user.id), {
+          allowed: newAccess
+        });
+        
+        completed++;
+        const percent = Math.round((completed / total) * 100);
+        
+        document.getElementById('bulkProgress').innerText = 
+          `${newAccess ? 'Открываем доступ' : 'Закрываем доступ'}: ${completed} из ${total}`;
+        document.getElementById('progressFill').style.width = `${percent}%`;
+        document.getElementById('statusText').innerText = 
+          `Обработан: ${user.email}`;
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+      } catch (userError) {
+        console.error(`Ошибка для пользователя ${user.email}:`, userError);
       }
     }
     
-    alert(`✅ Доступ открыт для ${userEmail}\n\nНовый пароль: ${newPassword}\n\nСообщите этот пароль пользователю!`);
-    
-    await updateModalNotificationBadge();
-    window.switchAdminTab('users');
-    
-  } catch (error) {
-    console.error('Ошибка быстрого одобрения:', error);
-    alert('Ошибка: ' + error.message);
-  }
-};
-
-window.viewUserDetails = async function(userId) {
-  try {
-    const userDoc = await getDoc(doc(db, 'users', userId));
-    
-    if (!userDoc.exists()) {
-      alert('❌ Пользователь не найден');
-      return;
-    }
-    
-    const data = userDoc.data();
-    
-    const details = `
-      📧 Email: ${data.email}
-      👤 ID: ${userId}
-      📅 Регистрация: ${data.createdAt?.toDate().toLocaleString() || 'Неизвестно'}
-      🔓 Доступ: ${data.allowed ? '✅ Открыт' : '❌ Закрыт'}
-      🔑 Пароль: ${data.currentPassword || 'Не установлен'}
-      🕐 Последний вход: ${data.lastLoginAt?.toDate().toLocaleString() || 'Никогда'}
-      🌐 IP: ${data.registrationIP || 'Неизвестно'}
-      📊 Входов: ${data.totalLogins || 0}
-    `;
-    
-    alert(details);
+    setTimeout(() => {
+      document.body.removeChild(modal);
+      alert(`✅ Массовое обновление завершено!\n\nОбработано: ${completed} из ${total} пользователей\nДоступ: ${newAccess ? 'открыт' : 'закрыт'}`);
+      window.refreshAdminPanel();
+    }, 1000);
     
   } catch (error) {
-    console.error('Ошибка просмотра деталей:', error);
-    alert('Ошибка: ' + error.message);
+    console.error('Ошибка массового управления доступом:', error);
+    alert(`❌ Ошибка массового управления: ${error.message}`);
   }
 };
 
@@ -1576,18 +772,39 @@ window.forcePasswordReset = async function(userId, userEmail) {
     
     console.log(`🔧 Админ: принудительный сброс пароля для ${userEmail}: ${newPassword}`);
     
+    // Получаем пользователя для обновления в Auth
     const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    
+    if (!userDoc.exists()) {
+      alert('❌ Пользователь не найден');
+      return;
+    }
+    
+    // Получаем пользователя Firebase
+    const authUser = auth.currentUser;
+    
+    // Если пытаемся сбросить пароль для текущего пользователя
+    if (authUser && authUser.uid === userId) {
+      try {
+        // Обновляем пароль в Auth
+        await updatePassword(authUser, newPassword);
+        console.log('✅ Пароль обновлен в Firebase Auth');
+      } catch (authError) {
+        console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
+        alert('⚠️ Пароль обновлен в базе, но не в системе аутентификации. Пользователь сможет увидеть пароль в админке.');
+      }
+    }
     
     // Сохраняем в Firestore
     await updateDoc(userRef, {
       currentPassword: newPassword,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
-      passwordResetBy: auth.currentUser?.email || 'admin',
-      passwordResetAt: serverTimestamp()
+      lastLoginAt: serverTimestamp()
     });
     
-    alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nСообщите этот пароль пользователю!`);
+    alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nПароль отображается в панели администратора.`);
     
     console.log(`%c🔧 АДМИН: Принудительный сброс пароля`, 
                 "color: #FF9800; font-weight: bold; font-size: 16px;");
@@ -1603,94 +820,6 @@ window.forcePasswordReset = async function(userId, userEmail) {
     console.error('Ошибка принудительного сброса:', error);
     alert('Ошибка сброса пароля: ' + error.message);
   }
-};
-
-/* ====== ФУНКЦИЯ УДАЛЕНИЯ АККАУНТА ====== */
-window.deleteUserAccount = async function(userId, userEmail) {
-  if (!confirm(`⚠️ ВНИМАНИЕ!\n\nВы собираетесь удалить аккаунт пользователя ${userEmail}!\n\nЭто действие:\n• Удалит все данные пользователя\n• Удалит прогресс теста\n• Необратимо!\n\nПродолжить?`)) {
-    return;
-  }
-  
-  try {
-    const modal = document.createElement('div');
-    modal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10001;
-    `;
-    
-    modal.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 10px; text-align: center; min-width: 300px;">
-        <div class="spinner" style="margin: 0 auto 15px;"></div>
-        <p style="font-size: 16px; font-weight: bold; color: #f44336;">Удаляем аккаунт...</p>
-        <p id="deleteStatus" style="color: #666; margin-top: 10px;">Начинаем удаление</p>
-      </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    // Удаляем из Firestore
-    const batch = writeBatch(db);
-    
-    // Удаляем пользователя
-    const userRef = doc(db, USERS_COLLECTION, userId);
-    batch.delete(userRef);
-    
-    // Удаляем прогресс
-    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
-    batch.delete(progressRef);
-    
-    // Помечаем уведомления как обработанные
-    const notificationsRef = collection(db, ADMIN_NOTIFICATIONS_COLLECTION);
-    const snapshot = await getDocs(notificationsRef);
-    
-    snapshot.docs.forEach(docSnap => {
-      const data = docSnap.data();
-      if (data.userId === userId) {
-        batch.update(docSnap.ref, {
-          status: 'deleted',
-          userDeleted: true,
-          deletedAt: serverTimestamp()
-        });
-      }
-    });
-    
-    await batch.commit();
-    
-    document.getElementById('deleteStatus').innerText = '✅ Аккаунт удален!';
-    
-    setTimeout(() => {
-      document.body.removeChild(modal);
-      alert(`✅ Аккаунт ${userEmail} полностью удален из системы`);
-      window.refreshAdminPanel();
-    }, 1500);
-    
-  } catch (error) {
-    console.error('Ошибка удаления аккаунта:', error);
-    alert('Ошибка удаления: ' + error.message);
-    
-    const modal = document.querySelector('div[style*="background: rgba(0,0,0,0.7)"]');
-    if (modal) {
-      document.body.removeChild(modal);
-    }
-  }
-};
-
-/* ====== ФУНКЦИЯ ОБНОВЛЕНИЯ АДМИН ПАНЕЛИ ====== */
-window.refreshAdminPanel = function() {
-  const activeTab = document.querySelector('#adminTabContent') ? 
-    (document.querySelector('#adminTabUsers')?.style.background === '#4CAF50' ? 'users' :
-     document.querySelector('#adminTabNotifications')?.style.background === '#FF9800' ? 'notifications' :
-     document.querySelector('#adminTabAccess')?.style.background === '#9C27B0' ? 'access' : 'users') : 'users';
-  
-  window.switchAdminTab(activeTab);
 };
 
 /* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ====== */
@@ -1718,12 +847,6 @@ onAuthStateChanged(auth, async (user) => {
       
       const adminContainer = document.getElementById('adminPanelContainer');
       if (adminContainer) adminContainer.innerHTML = '';
-      
-      if (notificationsUnsubscribe) {
-        notificationsUnsubscribe();
-        notificationsUnsubscribe = null;
-      }
-      
       return;
     }
 
@@ -1741,7 +864,6 @@ onAuthStateChanged(auth, async (user) => {
     try {
       const uDocSnap = await getDoc(uDocRef);
       if (!uDocSnap.exists()) {
-        // Это должно произойти только если пользователь зарегистрирован в Auth, но не в нашей системе
         await setDoc(uDocRef, {
           email: user.email || '',
           allowed: false,
@@ -1749,13 +871,8 @@ onAuthStateChanged(auth, async (user) => {
           originalPassword: null,
           passwordChanged: false,
           currentPassword: null,
-          lastLoginAt: null,
-          status: "pending",
-          authEnabled: true
+          lastLoginAt: null
         });
-        
-        // Отправляем уведомление
-        await sendAdminNotification(user.email, user.uid);
       }
     } catch (err) {
       console.error('Ошибка чтения/создания user doc:', err);
@@ -1843,7 +960,7 @@ function initQuiz(userId) {
     exitErrorsBtn.style.marginLeft = "10px";
     exitErrorsBtn.style.display = "none";
     exitErrorsBtn.onclick = () => {
-      state.queueType = "errors";
+      state.queueType = "main";
       state.index = state.mainIndex || 0;
       saveLocalState();
       render();
@@ -2320,7 +1437,7 @@ function initQuiz(userId) {
           
           if (answersCountValid) {
             newHistory[idx] = {
-              selected: saved.originalSelected,
+              originalSelected: saved.originalSelected,
               checked: true,
               counted: saved.counted,
               wasCorrect: saved.wasCorrect,
@@ -3414,10 +2531,6 @@ function initQuiz(userId) {
     }
   };
 }
-
-
-
-
 
 
 
