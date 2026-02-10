@@ -1,4 +1,3 @@
-// app.js (ES module)
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-analytics.js";
 import {
@@ -7,7 +6,8 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updatePassword
+  updatePassword,
+  sendPasswordResetEmail
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getFirestore,
@@ -21,7 +21,7 @@ import {
   getDocs,
   arrayUnion,
   writeBatch,
-  deleteField
+  deleteDoc
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
@@ -156,14 +156,19 @@ async function getClientIP() {
   }
 }
 
-/* ====== АВТОРИЗАЦИЯ ====== */
+/* ====== ОБНОВЛЕННАЯ ФУНКЦИЯ АВТОРИЗАЦИИ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
     const email = (emailInput?.value || '').trim();
     const password = passInput?.value || '';
     
-    if (!email || !password) {
-      setStatus('Введите email и пароль', true);
+    if (!email) {
+      setStatus('Введите email', true);
+      return;
+    }
+    
+    if (!password) {
+      setStatus('Введите пароль', true);
       return;
     }
 
@@ -204,10 +209,24 @@ if (authBtn) {
           // Регистрируем в Firebase Auth
           const cred = await createUserWithEmailAndPassword(auth, email, password);
           
-          // Регистрируем в системе
+          // Регистрируем в нашей системе
           await handleUserRegistration(email, password, cred.user.uid);
           
+          // Показываем сообщение об успешной регистрации
           setStatus('✅ Регистрация успешна! Ожидайте подтверждения администратора.');
+          
+          // Обновляем сообщение на экране ожидания
+          const waitMessage = document.getElementById('waitMessage');
+          if (waitMessage) {
+            waitMessage.innerHTML = `
+              ✅ Регистрация успешна!<br><br>
+              Ваш email: <strong>${email}</strong><br>
+              Ваш пароль: <strong>${password}</strong><br><br>
+              <span style="color: #ff9800; font-weight: bold;">⚠️ ЗАПОМНИТЕ ВАШ ПАРОЛЬ!</span><br><br>
+              Ожидайте подтверждения администратора.<br>
+              После подтверждения вы сможете войти с этим паролем.
+            `;
+          }
           
           if (waitOverlay) {
             waitOverlay.style.display = 'flex';
@@ -216,7 +235,15 @@ if (authBtn) {
           
         } catch(err2) {
           console.error('Ошибка регистрации:', err2);
-          setStatus(err2.message || 'Ошибка регистрации', true);
+          if (err2.code === 'auth/email-already-in-use') {
+            setStatus('Этот email уже зарегистрирован. Войдите или восстановите пароль.', true);
+          } else if (err2.code === 'auth/weak-password') {
+            setStatus('Пароль слишком слабый. Используйте не менее 6 символов.', true);
+          } else if (err2.code === 'auth/invalid-email') {
+            setStatus('Некорректный email адрес', true);
+          } else {
+            setStatus(err2.message || 'Ошибка регистрации', true);
+          }
         }
       } else if (e.code === 'auth/wrong-password') {
         setStatus('Неверный пароль', true);
@@ -236,6 +263,47 @@ if (authBtn) {
   });
 }
 
+/* ====== КНОПКА ВОССТАНОВЛЕНИЯ ПАРОЛЯ ====== */
+function addForgotPasswordButton() {
+  const forgotPasswordBtn = document.createElement('button');
+  forgotPasswordBtn.id = 'forgotPasswordBtn';
+  forgotPasswordBtn.className = 'small-ghost';
+  forgotPasswordBtn.innerText = 'Забыли пароль?';
+  forgotPasswordBtn.style.marginTop = '10px';
+  forgotPasswordBtn.style.background = 'transparent';
+  forgotPasswordBtn.style.color = '#2196F3';
+  forgotPasswordBtn.style.border = 'none';
+  forgotPasswordBtn.style.cursor = 'pointer';
+  forgotPasswordBtn.style.textDecoration = 'underline';
+  forgotPasswordBtn.style.fontSize = '14px';
+  
+  forgotPasswordBtn.onclick = async () => {
+    const email = prompt('Введите ваш email для восстановления пароля:');
+    if (!email) return;
+    
+    try {
+      await sendPasswordResetEmail(auth, email);
+      alert(`✅ Письмо для восстановления пароля отправлено на ${email}\n\nПроверьте вашу почту и следуйте инструкциям.`);
+    } catch (error) {
+      console.error('Ошибка восстановления пароля:', error);
+      if (error.code === 'auth/user-not-found') {
+        alert('❌ Пользователь с таким email не найден');
+      } else {
+        alert('❌ Ошибка: ' + error.message);
+      }
+    }
+  };
+  
+  // Добавляем кнопку в форму авторизации
+  const authCard = document.querySelector('.authCard');
+  if (authCard) {
+    const existingBtn = document.getElementById('forgotPasswordBtn');
+    if (!existingBtn) {
+      authCard.appendChild(forgotPasswordBtn);
+    }
+  }
+}
+
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
   await signOut(auth);
@@ -252,7 +320,7 @@ if (signOutFromWait) signOutFromWait.onclick = async () => {
 };
 
 if (helpBtn) helpBtn.onclick = () => { 
-  alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); 
+  alert('Если у вас возникли проблемы с доступом, обратитесь к администратору.'); 
 };
 
 /* ====== ГЕНЕРАЦИЯ ПАРОЛЯ ====== */
@@ -332,7 +400,7 @@ function createWhatsAppButton() {
   // Ваш номер телефона
   const phoneNumber = '+77718663556';
   const defaultMessage = 'Сәлем, биология тест бойынша сұрақ бар';
-  const whatsappUrl = `https://wa.me/77718663556?text=${encodeURIComponent(defaultMessage)}`;
+  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(defaultMessage)}`;
   
   whatsappButton.href = whatsappUrl;
   whatsappButton.target = '_blank';
@@ -387,12 +455,16 @@ function createWhatsAppButton() {
 // Добавляем кнопку WhatsApp
 document.addEventListener('DOMContentLoaded', function() {
   setTimeout(createWhatsAppButton, 1000);
+  setTimeout(addForgotPasswordButton, 1500);
 });
 
 // Также добавляем кнопку при изменении состояния аутентификации
 onAuthStateChanged(auth, (user) => {
   if (!document.querySelector('.whatsapp-button')) {
     setTimeout(createWhatsAppButton, 500);
+  }
+  if (!document.getElementById('forgotPasswordBtn')) {
+    setTimeout(addForgotPasswordButton, 500);
   }
 });
 
@@ -684,8 +756,8 @@ async function loadUsersList() {
       
       usersHTML += `
         <div class="admin-user-item" style="${itemStyle} padding: 15px; border-radius: 5px; margin-bottom: 15px;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div style="flex: 1;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 300px;">
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
                 <strong style="font-size: 16px;">${data.email}</strong>
                 ${isUserAdmin ? '<span style="color: #FF9800; font-weight: bold; background: #FFECB3; padding: 2px 8px; border-radius: 10px; font-size: 12px;">👑 АДМИН</span>' : ''}
@@ -702,7 +774,7 @@ async function loadUsersList() {
                 ${data.currentPassword 
                   ? `<div style="background: ${isUserAdmin ? '#FFECB3' : '#e3f2fd'}; padding: 10px; border-radius: 6px; border: 2px solid ${isUserAdmin ? '#FF9800' : '#2196F3'};">
                       <div style="font-size: 11px; color: #666; margin-bottom: 4px;">🔑 Текущий пароль (будет обновлен при следующем входе):</div>
-                      <code style="font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold; color: #d32f2f;">${data.currentPassword}</code>
+                      <code style="font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold; color: #d32f2f;">${data.currentPassword}</code>
                      </div>` 
                   : '<span style="color: #f00;">⚠️ Пароль не сгенерирован</span>'
                 }
@@ -1213,7 +1285,7 @@ window.markAllNotificationsAsRead = async function() {
     const snapshot = await getDocs(collection(db, ADMIN_NOTIFICATIONS_COLLECTION));
     const unreadNotifications = snapshot.docs.filter(doc => 
       doc.data().status === 'unread'
-    );
+    ).length;
     
     if (unreadNotifications.length === 0) {
       alert('✅ Нет непрочитанных уведомлений');
@@ -1618,7 +1690,7 @@ function initQuiz(userId) {
     answersByQuestionId: {},
     queueShuffled: false,
     completedQuestions: [],
-    ...parsedState
+    ...parsedState // Расширяем сохранённым состоянием
   };
 
   let questions = [];
@@ -1641,7 +1713,7 @@ function initQuiz(userId) {
     exitErrorsBtn.style.marginLeft = "10px";
     exitErrorsBtn.style.display = "none";
     exitErrorsBtn.onclick = () => {
-      state.queueType = "main";
+      state.queueType = "errors";
       state.index = state.mainIndex || 0;
       saveLocalState();
       render();
@@ -2118,7 +2190,7 @@ function initQuiz(userId) {
           
           if (answersCountValid) {
             newHistory[idx] = {
-              originalSelected: saved.originalSelected,
+              selected: saved.originalSelected,
               checked: true,
               counted: saved.counted,
               wasCorrect: saved.wasCorrect,
@@ -3212,6 +3284,7 @@ function initQuiz(userId) {
     }
   };
 }
+
 
 
 
