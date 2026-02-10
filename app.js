@@ -303,6 +303,24 @@ async function setupAdminPanel(userEmail) {
   }
 }
 
+// Кнопка "Сохранить прогресс" (сохранение в облако по нажатию)
+if (saveProgressBtn) {
+  saveProgressBtn.onclick = async () => {
+    saveProgressBtn.disabled = true;
+    await saveState(); // сохраняем локально прежде чем грузить в облако на случай свежих изменений
+    await saveProgressToCloud();
+    saveProgressBtn.disabled = false;
+  };
+}
+
+// Кнопка "Загрузить из облака"
+if (loadFromCloudBtn) {
+  loadFromCloudBtn.onclick = async () => {
+    if (!confirm('⚠️ Загрузить прогресс из облака? Локальный прогресс будет заменён.')) return;
+    await loadProgressFromCloud();
+  };
+}
+
 /* ====== КНОПКА WHATSAPP ====== */
 function createWhatsAppButton() {
   // Создаем кнопку
@@ -2480,6 +2498,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
