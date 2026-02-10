@@ -22,7 +22,8 @@ import {
   getDocs,
   arrayUnion,
   writeBatch,
-  deleteDoc
+  deleteDoc,
+  increment  
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
@@ -217,110 +218,159 @@ if (authBtn) {
     const email = (emailInput?.value || '').trim();
     const password = passInput?.value || '';
     
-    if (!email || !email.includes('@')) {
-      setStatus('Введите корректный email', true);
+    if (!email) {
+      setStatus('Введите email', true);
       return;
     }
     
-    if (!password || password.length < 6) {
-      setStatus('Пароль должен содержать не менее 6 символов', true);
+    if (!password) {
+      setStatus('Введите пароль', true);
       return;
     }
 
-    setStatus('Проверяем доступ...');
-    authBtn.disabled = true;
-    authBtn.innerText = 'Проверка...';
+    setStatus('Проверяем...');
     
     try {
-      console.log(`Попытка входа для: ${email}`);
+      authBtn.disabled = true;
+      authBtn.innerText = 'Проверка...';
       
-      // Пробуем войти с введенными данными
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      // ПРОБУЕМ ВОЙТИ С ВВЕДЕННЫМИ ДАННЫМИ
+      await signInWithEmailAndPassword(auth, email, password);
       
-      console.log('✅ Вход успешен:', user.uid);
+      // УСПЕШНЫЙ ВХОД
       setStatus('✅ Вход выполнен');
       
-      // Для администратора - не меняем пароль
-      if (user.email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
-        // Для обычных пользователей сбрасываем пароль для следующего входа
+      // Для администратора - пароль не меняется
+      if (email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+        // Для обычных пользователей - сбрасываем пароль ПОСЛЕ успешного входа
         setTimeout(async () => {
           try {
-            await resetUserPassword(user);
+            const user = auth.currentUser;
+            if (user) {
+              await resetUserPassword(user);
+            }
           } catch (e) {
             console.error('Ошибка сброса пароля:', e);
           }
         }, 1000);
       }
       
-      // Скрываем overlay
       setTimeout(() => {
         if (authOverlay) authOverlay.style.display = 'none';
       }, 500);
       
     } catch(e) {
-      console.error('Код ошибки:', e.code, 'Сообщение:', e.message);
+      console.error('Ошибка входа:', e.code, e.message);
       
       if (e.code === 'auth/user-not-found') {
-        setStatus('Создаем новую учетную запись...');
+        // ПОЛЬЗОВАТЕЛЯ НЕТ - РЕГИСТРИРУЕМ
+        setStatus('Регистрируем...');
         
         try {
           authBtn.innerText = 'Регистрация...';
           
-          console.log(`Регистрируем нового пользователя: ${email}`);
-          
-          // Регистрируем в Firebase Auth
+          // 1. РЕГИСТРАЦИЯ В FIREBASE AUTH (с паролем пользователя)
           const userCredential = await createUserWithEmailAndPassword(auth, email, password);
           const user = userCredential.user;
           
           console.log('✅ Firebase Auth регистрация успешна:', user.uid);
           
-          // Регистрируем в нашей системе (Firestore)
-          await handleUserRegistration(email, password, user.uid);
+          // 2. СОЗДАНИЕ ДОКУМЕНТА В FIRESTORE
+          await setDoc(doc(db, USERS_COLLECTION, user.uid), {
+            email: email,
+            allowed: false, // Доступ закрыт по умолчанию
+            createdAt: serverTimestamp(),
+            originalPassword: password, // Пароль который пользователь ввел
+            currentPassword: password, // Текущий пароль (для показа в админке)
+            passwordChanged: false,
+            lastLoginAt: null,
+            status: "pending",
+            notifiedAdmin: false,
+            registrationIP: await getClientIP(),
+            userAgent: navigator.userAgent
+          });
           
-          // Теперь пробуем войти с новыми данными
-          await signInWithEmailAndPassword(auth, email, password);
+          // 3. ОТПРАВКА УВЕДОМЛЕНИЯ АДМИНУ
+          await sendAdminNotification(email, user.uid);
           
-          setStatus('✅ Регистрация и вход успешны!');
+          // 4. СОЗДАНИЕ ДОКУМЕНТА ПРОГРЕССА
+          await setDoc(doc(db, USERS_PROGRESS_COLLECTION, user.uid), {
+            userId: user.uid,
+            email: email,
+            createdAt: serverTimestamp(),
+            lastUpdated: serverTimestamp(),
+            progress: JSON.stringify({
+              queueType: "main",
+              index: 0,
+              stats: { correct: 0, wrong: 0 },
+              errors: []
+            })
+          });
           
-          // Скрываем overlay
-          setTimeout(() => {
-            if (authOverlay) authOverlay.style.display = 'none';
-          }, 500);
+          console.log(`✅ Регистрация завершена для ${email}`);
+          
+          // 5. ПОКАЗЫВАЕМ СООБЩЕНИЕ
+          const waitMessage = document.getElementById('waitMessage');
+          if (waitMessage) {
+            waitMessage.innerHTML = `
+              <div style="text-align: center; padding: 20px;">
+                <h3 style="color: #4CAF50; margin-bottom: 20px;">✅ Регистрация успешна!</h3>
+                
+                <div style="background: #E8F5E9; padding: 15px; border-radius: 10px; margin: 15px 0;">
+                  <p><strong>Ваш email:</strong> ${email}</p>
+                  <p><strong>Ваш пароль:</strong> ${password}</p>
+                </div>
+                
+                <div style="background: #FFF3E0; padding: 15px; border-radius: 10px; margin: 15px 0;">
+                  <p style="color: #FF9800; font-weight: bold;">⚠️ ЗАПОМНИТЕ ВАШ ПАРОЛЬ!</p>
+                  <p>Вы сможете войти с этим паролем после подтверждения администратора.</p>
+                </div>
+                
+                <p>Ваша заявка отправлена администратору. Ожидайте подтверждения.</p>
+                <p style="color: #666; font-size: 14px; margin-top: 20px;">
+                  После подтверждения вы получите уведомление.
+                </p>
+              </div>
+            `;
+          }
+          
+          // 6. ПЕРЕХОД НА ЭКРАН ОЖИДАНИЯ
+          if (waitOverlay) {
+            waitOverlay.style.display = 'flex';
+            authOverlay.style.display = 'none';
+          }
           
         } catch(err2) {
           console.error('Ошибка регистрации:', err2.code, err2.message);
           
-          // Выходим на случай если регистрация частично удалась
+          // Если регистрация не удалась - удаляем пользователя из Auth
           try {
-            await signOut(auth);
-          } catch (signOutErr) {
-            console.error('Ошибка выхода:', signOutErr);
+            if (auth.currentUser) {
+              await deleteUser(auth.currentUser);
+            }
+          } catch (deleteError) {
+            console.error('Ошибка удаления пользователя:', deleteError);
           }
           
           if (err2.code === 'auth/email-already-in-use') {
-            setStatus('Этот email уже зарегистрирован. Попробуйте войти', true);
+            setStatus('Этот email уже зарегистрирован. Войдите или восстановите пароль', true);
           } else if (err2.code === 'auth/weak-password') {
-            setStatus('Пароль должен содержать не менее 6 символов', true);
+            setStatus('Пароль слишком слабый. Используйте не менее 6 символов', true);
           } else if (err2.code === 'auth/invalid-email') {
             setStatus('Некорректный email адрес', true);
-          } else if (err2.code === 'auth/operation-not-allowed') {
-            setStatus('Регистрация по email/паролю отключена. Обратитесь к администратору.', true);
           } else {
-            setStatus(`Ошибка: ${err2.message || 'Неизвестная ошибка'}`, true);
+            setStatus(`Ошибка регистрации: ${err2.message || 'Неизвестная ошибка'}`, true);
           }
         }
         
       } else if (e.code === 'auth/wrong-password') {
-        setStatus('Неверный пароль. Попробуйте еще раз', true);
+        setStatus('Неверный пароль', true);
       } else if (e.code === 'auth/invalid-credential') {
-        setStatus('Неверные данные для входа. Проверьте email и пароль', true);
+        setStatus('Неверный email или пароль', true);
       } else if (e.code === 'auth/too-many-requests') {
         setStatus('Слишком много попыток. Попробуйте позже', true);
-      } else if (e.code === 'auth/user-disabled') {
-        setStatus('Аккаунт отключен администратором', true);
       } else {
-        setStatus(`Ошибка входа: ${e.message || 'Попробуйте позже'}`, true);
+        setStatus(`Ошибка: ${e.message || 'Попробуйте позже'}`, true);
       }
     } finally {
       if (authBtn) {
@@ -406,50 +456,56 @@ async function resetUserPassword(user) {
   if (passwordResetInProgress) return;
   
   // Админ не меняет пароль
-  if (user.email === ADMIN_EMAIL) {
+  if (user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+    console.log('👑 Администратор - пароль не меняется');
     return;
   }
   
   passwordResetInProgress = true;
-  const uDocRef = doc(db, USERS_COLLECTION, user.uid);
   
   try {
-    const userDoc = await getDoc(uDocRef);
-    if (!userDoc.exists()) {
-      passwordResetInProgress = false;
-      return;
-    }
-    
     // Генерируем НОВЫЙ пароль для СЛЕДУЮЩЕГО входа
     const newPassword = generateNewPassword();
     
-    console.log(`%c🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА`, "color: #4CAF50; font-weight: bold; font-size: 16px;");
-    console.log(`%c📧 Email: ${user.email}`, "color: #2196F3; font-size: 14px;");
-    console.log(`%c🔑 Новый пароль для следующего входа: ${newPassword}`, 
-                "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;");
+    console.log(`🔄 Сброс пароля для: ${user.email}`);
+    console.log(`🔑 Новый пароль: ${newPassword}`);
     
     // Обновляем пароль в Firebase Auth (для следующего входа)
-    try {
-      await updatePassword(user, newPassword);
-      console.log('✅ Пароль обновлен в Firebase Auth для следующего входа');
-    } catch (authError) {
-      console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
-      // Продолжаем - пароль сохранится в Firestore для админки
-    }
+    await updatePassword(user, newPassword);
+    console.log('✅ Пароль обновлен в Firebase Auth');
     
-    // Сохраняем новый пароль в Firestore (появится в админке)
+    // Сохраняем новый пароль в Firestore (для показа в админке)
+    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
       lastLoginAt: serverTimestamp(),
-      totalLogins: (userDoc.data().totalLogins || 0) + 1
+      totalLogins: increment(1) // Используем инкремент
     });
     
-    console.log('✅ Пароль сохранен в Firestore (виден в админке)');
+    console.log('✅ Пароль сохранен в Firestore');
+    
+    // Показываем уведомление пользователю (опционально)
+    showUserNotification(`🔐 Ваш пароль был обновлен. Для следующего входа используйте новый пароль: ${newPassword}`);
     
   } catch (error) {
     console.error('Ошибка сброса пароля:', error);
+    
+    // Если ошибка - пробуем просто обновить Firestore
+    try {
+      const newPassword = generateNewPassword();
+      const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+      await updateDoc(uDocRef, {
+        currentPassword: newPassword,
+        passwordChanged: true,
+        lastPasswordChange: serverTimestamp(),
+        lastLoginAt: serverTimestamp()
+      });
+      console.log('⚠️ Пароль обновлен только в Firestore');
+    } catch (firestoreError) {
+      console.error('Ошибка обновления Firestore:', firestoreError);
+    }
   } finally {
     setTimeout(() => {
       passwordResetInProgress = false;
@@ -3358,6 +3414,7 @@ function initQuiz(userId) {
     }
   };
 }
+
 
 
 
