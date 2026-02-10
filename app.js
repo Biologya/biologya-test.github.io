@@ -313,13 +313,13 @@ function createWhatsAppButton() {
   
   // Ваш номер телефона (замените на свой)
   // Формат: +79001234567 (без пробелов, скобок и дефисов)
-  const phoneNumber = '+79001234567'; // ЗАМЕНИТЕ НА СВОЙ НОМЕР
+  const phoneNumber = '+77718663556'; // ЗАМЕНИТЕ НА СВОЙ НОМЕР
   
   // Сообщение по умолчанию (можно изменить)
   const defaultMessage = 'Здравствуйте! У меня вопрос по тесту по биологии.';
   
   // Создаем URL для WhatsApp
-  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(defaultMessage)}`;
+  const whatsappUrl = `https://wa.me/77718663556?text=${encodeURIComponent(defaultMessage)}`;
   
   whatsappButton.href = whatsappUrl;
   whatsappButton.target = '_blank';
@@ -2531,6 +2531,7 @@ function initQuiz(userId) {
     }
   };
 }
+
 
 
 
