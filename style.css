@@ -129,6 +129,77 @@ body.dark {
 
 #resetBtn:hover { background: #ff1a1a; }
 
+/* Стили для кнопки WhatsApp */
+.whatsapp-button {
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
+  z-index: 1000;
+  width: 60px;
+  height: 60px;
+  background-color: #25D366;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+  color: white;
+  font-size: 28px;
+  text-decoration: none;
+}
+
+.whatsapp-button:hover {
+  background-color: #128C7E;
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(37, 211, 102, 0.4);
+}
+
+.whatsapp-button:active {
+  transform: scale(0.95);
+}
+
+/* Анимация пульсации */
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 15px rgba(37, 211, 102, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(37, 211, 102, 0);
+  }
+}
+
+.whatsapp-button.pulse {
+  animation: pulse 2s infinite;
+}
+
+/* Для мобильных устройств */
+@media (max-width: 768px) {
+  .whatsapp-button {
+    bottom: 70px;
+    right: 15px;
+    width: 55px;
+    height: 55px;
+    font-size: 24px;
+  }
+}
+
+/* Для очень маленьких экранов */
+@media (max-width: 480px) {
+  .whatsapp-button {
+    bottom: 60px;
+    right: 10px;
+    width: 50px;
+    height: 50px;
+    font-size: 22px;
+  }
+}
+
 /* ====== Основной контент ====== */
 .app {
   margin-left: 70px;
@@ -330,6 +401,7 @@ button.secondary { background: #81c784; }
   .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
 }
+
 
 
 
