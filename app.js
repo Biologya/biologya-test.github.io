@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
 import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-analytics.js";
+import { deleteUser } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getAuth,
   createUserWithEmailAndPassword,
@@ -119,7 +120,7 @@ async function handleUserRegistration(email, password, userId) {
     
     // Сохраняем пользователя в Firestore
     await setDoc(doc(db, USERS_COLLECTION, userId), {
-      email: email,
+      email: email.toLowerCase(),
       allowed: false, // Доступ закрыт по умолчанию
       createdAt: serverTimestamp(),
       originalPassword: password, // Пароль при регистрации
@@ -131,16 +132,70 @@ async function handleUserRegistration(email, password, userId) {
       authEnabled: true, // Доступ в Auth открыт
       registrationIP: await getClientIP(),
       userAgent: navigator.userAgent,
-      notificationSentAt: serverTimestamp()
+      notificationSentAt: serverTimestamp(),
+      // Добавляем метаданные
+      appVersion: "1.0.0",
+      browser: navigator.userAgent,
+      platform: navigator.platform,
+      language: navigator.language
+    });
+    
+    // Создаем документ прогресса
+    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
+    await setDoc(progressRef, {
+      userId: userId,
+      email: email.toLowerCase(),
+      createdAt: serverTimestamp(),
+      lastUpdated: serverTimestamp(),
+      stats: {
+        correct: 0,
+        wrong: 0
+      }
     });
     
     // Отправляем уведомление админу
     await sendAdminNotification(email, userId);
     
     console.log(`✅ Пользователь ${email} зарегистрирован и ожидает подтверждения`);
+    
+    // Показываем подробное сообщение
+    const waitMessage = document.getElementById('waitMessage');
+    if (waitMessage) {
+      waitMessage.innerHTML = `
+        <div style="text-align: center;">
+          <h3 style="color: #4CAF50;">✅ Регистрация успешна!</h3>
+          <div style="background: #E8F5E9; padding: 15px; border-radius: 10px; margin: 15px 0;">
+            <p><strong>Ваш email:</strong> ${email}</p>
+            <p><strong>Ваш пароль:</strong> ${password}</p>
+          </div>
+          <div style="background: #FFF3E0; padding: 15px; border-radius: 10px; margin: 15px 0;">
+            <p>⚠️ <strong>ВАЖНО:</strong> Запомните ваш пароль!</p>
+            <p>Вы сможете войти с этим паролем после подтверждения администратора.</p>
+          </div>
+          <p>Ожидайте подтверждения администратора. Вы получите уведомление.</p>
+        </div>
+      `;
+    }
+    
+    if (waitOverlay) {
+      waitOverlay.style.display = 'flex';
+      authOverlay.style.display = 'none';
+    }
+    
     return true;
   } catch (error) {
     console.error('Ошибка регистрации пользователя:', error);
+    
+    // Удаляем пользователя из Auth если регистрация в Firestore не удалась
+    try {
+      const user = auth.currentUser;
+      if (user) {
+        await deleteUser(user);
+      }
+    } catch (deleteError) {
+      console.error('Не удалось удалить пользователя из Auth:', deleteError);
+    }
+    
     throw error;
   }
 }
@@ -159,100 +214,106 @@ async function getClientIP() {
 /* ====== ОБНОВЛЕННАЯ ФУНКЦИЯ АВТОРИЗАЦИИ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
-    const email = (emailInput?.value || '').trim();
+    const email = (emailInput?.value || '').trim().toLowerCase();
     const password = passInput?.value || '';
     
-    if (!email) {
-      setStatus('Введите email', true);
+    if (!email || !email.includes('@')) {
+      setStatus('Введите корректный email', true);
       return;
     }
     
-    if (!password) {
-      setStatus('Введите пароль', true);
+    if (!password || password.length < 6) {
+      setStatus('Пароль должен содержать не менее 6 символов', true);
       return;
     }
 
-    setStatus('Пробуем войти...');
+    setStatus('Проверяем доступ...');
     
     try {
       authBtn.disabled = true;
-      authBtn.innerText = 'Вход...';
+      authBtn.innerText = 'Проверка...';
       
-      // Пробуем войти
+      // Пробуем войти с введенными данными
       await signInWithEmailAndPassword(auth, email, password);
-      setStatus('Вход выполнен');
       
-      // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
+      // Успешный вход
+      setStatus('✅ Вход выполнен');
+      
+      // Сбрасываем пароль для следующего входа (кроме админа)
       setTimeout(async () => {
         try {
           const user = auth.currentUser;
-          if (user && user.email !== ADMIN_EMAIL) {
+          if (user && user.email !== ADMIN_EMAIL.toLowerCase()) {
             await resetUserPassword(user);
           }
         } catch (e) {
-          console.error('Ошибка сброса пароля после входа:', e);
+          console.error('Ошибка сброса пароля:', e);
         }
       }, 1000);
       
+      // Скрываем overlay
       setTimeout(() => {
         if (authOverlay) authOverlay.style.display = 'none';
       }, 500);
       
     } catch(e) {
-      console.error('Ошибка входа:', e);
+      console.error('Код ошибки:', e.code, 'Сообщение:', e.message);
       
       if (e.code === 'auth/user-not-found') {
-        setStatus('Учётной записи не найдено — создаём...');
+        setStatus('Создаем новую учетную запись...');
+        
         try {
           authBtn.innerText = 'Регистрация...';
           
           // Регистрируем в Firebase Auth
-          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+          const user = userCredential.user;
+          
+          console.log('✅ Firebase Auth регистрация успешна:', user.uid);
           
           // Регистрируем в нашей системе
-          await handleUserRegistration(email, password, cred.user.uid);
+          await handleUserRegistration(email, password, user.uid);
           
-          // Показываем сообщение об успешной регистрации
-          setStatus('✅ Регистрация успешна! Ожидайте подтверждения администратора.');
+          // Выходим, чтобы пользователь вошел с новыми данными
+          await signOut(auth);
           
-          // Обновляем сообщение на экране ожидания
-          const waitMessage = document.getElementById('waitMessage');
-          if (waitMessage) {
-            waitMessage.innerHTML = `
-              ✅ Регистрация успешна!<br><br>
-              Ваш email: <strong>${email}</strong><br>
-              Ваш пароль: <strong>${password}</strong><br><br>
-              <span style="color: #ff9800; font-weight: bold;">⚠️ ЗАПОМНИТЕ ВАШ ПАРОЛЬ!</span><br><br>
-              Ожидайте подтверждения администратора.<br>
-              После подтверждения вы сможете войти с этим паролем.
-            `;
-          }
+          // Показываем сообщение
+          setStatus('✅ Регистрация успешна! Теперь войдите с вашими данными');
           
-          if (waitOverlay) {
-            waitOverlay.style.display = 'flex';
-            authOverlay.style.display = 'none';
-          }
+          // Очищаем поле пароля
+          if (passInput) passInput.value = '';
+          
+          // Фокус на пароль для входа
+          setTimeout(() => {
+            if (passInput) passInput.focus();
+          }, 100);
           
         } catch(err2) {
           console.error('Ошибка регистрации:', err2);
+          
           if (err2.code === 'auth/email-already-in-use') {
-            setStatus('Этот email уже зарегистрирован. Войдите или восстановите пароль.', true);
+            setStatus('Этот email уже зарегистрирован. Используйте другой или войдите', true);
           } else if (err2.code === 'auth/weak-password') {
-            setStatus('Пароль слишком слабый. Используйте не менее 6 символов.', true);
+            setStatus('Пароль слишком слабый. Используйте не менее 6 символов', true);
           } else if (err2.code === 'auth/invalid-email') {
             setStatus('Некорректный email адрес', true);
+          } else if (err2.code === 'auth/operation-not-allowed') {
+            setStatus('Регистрация по email/паролю отключена', true);
           } else {
-            setStatus(err2.message || 'Ошибка регистрации', true);
+            setStatus(`Ошибка регистрации: ${err2.message || 'Неизвестная ошибка'}`, true);
           }
         }
+        
       } else if (e.code === 'auth/wrong-password') {
-        setStatus('Неверный пароль', true);
+        setStatus('Неверный пароль. Попробуйте еще раз или восстановите пароль', true);
+      } else if (e.code === 'auth/invalid-credential') {
+        setStatus('Неверные данные для входа. Проверьте email и пароль', true);
       } else if (e.code === 'auth/too-many-requests') {
-        setStatus('Слишком много попыток. Попробуйте позже.', true);
+        setStatus('Слишком много попыток. Попробуйте позже', true);
       } else if (e.code === 'auth/user-disabled') {
         setStatus('Аккаунт отключен администратором', true);
       } else {
-        setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
+        setStatus(`Ошибка: ${e.message || 'Попробуйте позже'}`, true);
       }
     } finally {
       if (authBtn) {
@@ -471,11 +532,16 @@ onAuthStateChanged(auth, (user) => {
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function setupAdminPanel(userEmail) {
   try {
+    // Проверяем, является ли пользователь админом
     if (userEmail !== ADMIN_EMAIL) {
       const adminContainer = document.getElementById('adminPanelContainer');
       if (adminContainer) adminContainer.style.display = 'none';
       return;
     }
+
+        // Только админ может видеть панель
+    console.log(`👑 Администратор ${userEmail} авторизован`);
+
     
     let adminContainer = document.getElementById('adminPanelContainer');
     if (!adminContainer) {
@@ -579,6 +645,7 @@ async function showAdminPanel(defaultTab = 'users') {
       return;
     }
     
+    // Строгая проверка на админа
     if (currentUser.email !== ADMIN_EMAIL) {
       alert('❌ Недостаточно прав. Только администратор может открыть эту панель.');
       return;
@@ -3284,6 +3351,7 @@ function initQuiz(userId) {
     }
   };
 }
+
 
 
 
