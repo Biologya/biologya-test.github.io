@@ -169,6 +169,14 @@ if (authBtn) {
   });
 }
 
+const loadFromCloudBtn = document.getElementById('loadFromCloudBtn');
+
+if (loadFromCloudBtn) {
+  loadFromCloudBtn.onclick = () => {
+    loadProgressFromCloud();
+  };
+}
+
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
   await signOut(auth);
@@ -2487,6 +2495,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
