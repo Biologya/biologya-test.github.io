@@ -824,93 +824,108 @@ window.forcePasswordReset = async function(userId, userEmail) {
 
 /* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ====== */
 onAuthStateChanged(auth, async (user) => {
-  if (isInitializing) return;
-  isInitializing = true;
-  
   try {
+    // отписка от старого listener
     if (userUnsubscribe) {
-      try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
+      try { userUnsubscribe(); } catch (e) {}
       userUnsubscribe = null;
     }
 
+    // ====== ЕСЛИ ПОЛЬЗОВАТЕЛЬ НЕ ВОШЁЛ ======
     if (!user) {
-      if (authOverlay) {
-        authOverlay.removeAttribute('inert');
-        authOverlay.style.display = 'flex';
-        setTimeout(() => emailInput?.focus(), 50);
-      }
-      if (waitOverlay) waitOverlay.style.display = 'none';
-      if (appDiv) appDiv.style.display = 'none';
-      if (userEmailSpan) userEmailSpan.innerText = '';
-      quizInitialized = false;
-      quizInstance = null;
-      
-      const adminContainer = document.getElementById('adminPanelContainer');
-      if (adminContainer) adminContainer.innerHTML = '';
+      showAuthScreen();
+      resetQuizState();
+      clearAdminPanel();
       return;
     }
 
-    if (authOverlay) {
-      authOverlay.setAttribute('inert', '');
-      authOverlay.style.display = 'none';
-    }
-    
+    // ====== ПОЛЬЗОВАТЕЛЬ ВОШЁЛ ======
+    hideAuthScreen();
     if (userEmailSpan) userEmailSpan.innerText = user.email || '';
-    
+
     await setupAdminPanel(user.email);
 
-    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+    const userRef = doc(db, USERS_COLLECTION, user.uid);
 
-    try {
-      const uDocSnap = await getDoc(uDocRef);
-      if (!uDocSnap.exists()) {
-        await setDoc(uDocRef, {
-          email: user.email || '',
-          allowed: false,
-          createdAt: serverTimestamp(),
-          originalPassword: null,
-          passwordChanged: false,
-          currentPassword: null,
-          lastLoginAt: null
-        });
-      }
-    } catch (err) {
-      console.error('Ошибка чтения/создания user doc:', err);
+    // создать документ пользователя, если нет
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) {
+      await setDoc(userRef, {
+        email: user.email || '',
+        allowed: false,
+        createdAt: serverTimestamp(),
+        passwordChanged: false,
+        lastLoginAt: null
+      });
     }
 
-    userUnsubscribe = onSnapshot(uDocRef, async (docSnap) => {
+    // ====== СЛЕЖЕНИЕ ЗА allowed ======
+    userUnsubscribe = onSnapshot(userRef, (docSnap) => {
       if (!docSnap.exists()) return;
 
-      const data = docSnap.data();
-      const allowed = data.allowed === true;
+      const { allowed } = docSnap.data();
 
-      if (allowed) {
-        if (authOverlay) authOverlay.style.display = 'none';
-        if (waitOverlay) waitOverlay.style.display = 'none';
-        if (appDiv) appDiv.style.display = 'block';
-        setStatus('');
+      if (allowed === true) {
+        showApp();
 
         if (!quizInitialized) {
           try {
             quizInstance = initQuiz(user.uid);
             quizInitialized = true;
-          } catch (error) {
-            console.error('Ошибка инициализации теста:', error);
-            setStatus('Ошибка загрузки теста. Попробуйте перезагрузить страницу.', true);
+          } catch (e) {
+            console.error(e);
+            setStatus('Ошибка загрузки теста', true);
           }
         }
-
       } else {
-        if (authOverlay) authOverlay.style.display = 'none';
-        if (waitOverlay) waitOverlay.style.display = 'flex';
-        if (appDiv) appDiv.style.display = 'none';
-        setStatus('Доступ закрыт администратором.');
+        showWaitingScreen();
       }
     });
-  } finally {
-    isInitializing = false;
+
+  } catch (err) {
+    console.error('Auth observer error:', err);
   }
 });
+
+
+/* ====== UI ФУНКЦИИ ====== */
+function showAuthScreen() {
+  authOverlay?.removeAttribute('inert');
+  authOverlay && (authOverlay.style.display = 'flex');
+  waitOverlay && (waitOverlay.style.display = 'none');
+  appDiv && (appDiv.style.display = 'none');
+  userEmailSpan && (userEmailSpan.innerText = '');
+  setTimeout(() => emailInput?.focus(), 50);
+}
+
+function hideAuthScreen() {
+  authOverlay?.setAttribute('inert', '');
+  authOverlay && (authOverlay.style.display = 'none');
+}
+
+function showWaitingScreen() {
+  authOverlay && (authOverlay.style.display = 'none');
+  waitOverlay && (waitOverlay.style.display = 'flex');
+  appDiv && (appDiv.style.display = 'none');
+  setStatus('Доступ закрыт администратором.');
+}
+
+function showApp() {
+  authOverlay && (authOverlay.style.display = 'none');
+  waitOverlay && (waitOverlay.style.display = 'none');
+  appDiv && (appDiv.style.display = 'block');
+  setStatus('');
+}
+
+function resetQuizState() {
+  quizInitialized = false;
+  quizInstance = null;
+}
+
+function clearAdminPanel() {
+  const admin = document.getElementById('adminPanelContainer');
+  if (admin) admin.innerHTML = '';
+}
 
 /* ====== СИСТЕМА ТЕСТА ====== */
 function initQuiz(userId) {
@@ -1038,569 +1053,154 @@ function initQuiz(userId) {
     return hash.toString(16);
   }
 
-// Функция загрузки прогресса из облака
-async function loadProgressFromCloud(reloadPage = false) {
-  if (!userId) {
-    alert('❌ Пользователь не авторизован');
-    return;
-  }
+  // Функция загрузки прогресса из облака
+  async function loadProgressFromCloud(reloadPage = false) {
+    if (!userId) {
+      alert('❌ Пользователь не авторизован');
+      return false;
+    }
 
-  const originalText = loadFromCloudBtn.innerText;
-  loadFromCloudBtn.innerText = "☁️ Загружаем...";
-  loadFromCloudBtn.disabled = true;
-
-  try {
     const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
-    const snap = await getDoc(progressRef);
-    
-    if (!snap.exists()) {
-      alert('❌ В облаке нет сохранённого прогресса');
-      loadFromCloudBtn.innerText = originalText;
-      loadFromCloudBtn.disabled = false;
-      return;
-    }
 
-    const data = snap.data();
-    if (!data.progress || data.progress.trim() === '') {
-      alert('❌ В облаке нет данных прогресса');
-      loadFromCloudBtn.innerText = originalText;
-      loadFromCloudBtn.disabled = false;
-      return;
-    }
-
-    const cloudState = JSON.parse(data.progress);
-    const cloudTime = data.updatedAt?.toMillis() || 0;
-    const localTime = state.lastSyncTimestamp || 0;
-
-    // ВАЖНО: Проверяем структуру загруженного состояния
-    if (!cloudState || typeof cloudState !== 'object') {
-      throw new Error('Невалидные данные прогресса в облаке');
-    }
-
-    // Проверяем ключевые поля
-    if (!cloudState.history) cloudState.history = {};
-    if (!cloudState.stats) cloudState.stats = { correct: 0, wrong: 0 };
-    if (!cloudState.errors) cloudState.errors = [];
-    if (!cloudState.errorAttempts) cloudState.errorAttempts = {};
-
-    let message = '';
-    if (cloudTime > localTime) {
-      message = `Облачная версия новее (${new Date(cloudTime).toLocaleString()})`;
-    } else if (cloudTime < localTime) {
-      message = `Локальная версия новее (${new Date(localTime).toLocaleString()})`;
-    } else {
-      message = 'Версии идентичны';
-    }
-
-    const shouldLoad = await new Promise((resolve) => {
-      const modal = document.createElement('div');
-      modal.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0,0,0,0.7);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10002;
-      `;
-      
-      modal.innerHTML = `
-        <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
-          <h3 style="margin-top: 0; color: #2196F3;">📥 Загрузка из облака</h3>
-          <p>${message}</p>
-          
-          <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0; font-size: 14px;">
-            <div><strong>Облако:</strong> ${new Date(cloudTime).toLocaleString()}</div>
-            <div><strong>Локально:</strong> ${new Date(localTime).toLocaleString()}</div>
-            <div><strong>Вопросов в истории:</strong> ${Object.keys(cloudState.history || {}).length}</div>
-            <div><strong>Статистика:</strong> ✅ ${cloudState.stats?.correct || 0} ❌ ${cloudState.stats?.wrong || 0}</div>
-          </div>
-          
-          <p style="color: #666; font-size: 14px;">Текущий локальный прогресс будет заменён на облачный.</p>
-          
-          <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="confirmLoad" 
-                    style="flex: 1; background: #4CAF50; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-              ✅ Загрузить из облака
-            </button>
-            <button id="cancelLoad" 
-                    style="flex: 1; background: #f44336; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer;">
-              ❌ Отмена
-            </button>
-          </div>
-        </div>
-      `;
-      
-      document.body.appendChild(modal);
-      
-      document.getElementById('confirmLoad').onclick = () => {
-        document.body.removeChild(modal);
-        resolve(true);
-      };
-      
-      document.getElementById('cancelLoad').onclick = () => {
-        document.body.removeChild(modal);
-        resolve(false);
-      };
-    });
-
-    if (!shouldLoad) {
-      loadFromCloudBtn.innerText = originalText;
-      loadFromCloudBtn.disabled = false;
-      return;
-    }
-
-    // Показываем индикатор загрузки
-    const loadingIndicator = document.createElement('div');
-    loadingIndicator.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10003;
-    `;
-    
-    loadingIndicator.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 10px; text-align: center;">
-        <div class="spinner" style="margin: 0 auto 15px;"></div>
-        <p style="font-size: 16px; font-weight: bold; color: #2196F3;">Загружаем прогресс из облака...</p>
-        <p id="progressMessage" style="color: #666; margin-top: 10px;">Подготавливаем данные</p>
-      </div>
-    `;
-    
-    document.body.appendChild(loadingIndicator);
-    
-    // Обновляем сообщение о прогрессе
-    const updateProgress = (message) => {
-      const msgEl = document.getElementById('progressMessage');
-      if (msgEl) msgEl.innerText = message;
-    };
-
-    // Шаг 1: Сохраняем облачное состояние
-    updateProgress('Сохраняем состояние из облака...');
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Сбрасываем флаг перемешивания для правильной обработки при следующей загрузке
-    cloudState.queueShuffled = false;
-    
-    // Сохраняем в localStorage с привязкой к пользователю
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudState));
-    updateProgress('Состояние сохранено локально');
-    
-    // Шаг 2: Обновляем состояние приложения
-    updateProgress('Обновляем состояние приложения...');
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Обновляем состояние
-    Object.assign(state, cloudState);
-    state.queueShuffled = false; // Сбрасываем флаг для правильного перемешивания
-    
-    // Шаг 3: Перезагружаем вопросы
-    updateProgress('Перезагружаем вопросы...');
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    await loadQuestions();
-    
-    // Шаг 4: Обновляем UI
-    updateProgress('Обновляем интерфейс...');
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    render();
-    
-    // Завершаем загрузку
-    updateProgress('✅ Загрузка завершена!');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Убираем индикатор
-    document.body.removeChild(loadingIndicator);
-    
-    // Показываем уведомление
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #4CAF50;
-      color: white;
-      padding: 15px 30px;
-      border-radius: 8px;
-      z-index: 9999;
-      font-weight: bold;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      text-align: center;
-      animation: slideDown 0.3s ease-out;
-    `;
-    
-    notification.innerText = `✅ Прогресс загружен из облака!\n${Object.keys(state.history).length} вопросов, ✅ ${state.stats.correct} ❌ ${state.stats.wrong}`;
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.style.opacity = '0';
-        notification.style.transition = 'opacity 0.5s';
-        setTimeout(() => {
-          if (notification.parentNode) {
-            document.body.removeChild(notification);
-          }
-        }, 500);
+    try {
+      const snap = await getDoc(progressRef);
+      if (!snap.exists()) {
+        alert('ℹ️ В облаке нет сохранённого прогресса для этого аккаунта.');
+        return false;
       }
-    }, 3000);
-    
-  } catch (error) {
-    console.error('❌ Ошибка загрузки из облака:', error);
-    
-    // Убираем индикатор если он есть
-    const loadingIndicator = document.querySelector('div[style*="rgba(0,0,0,0.7)"]');
-    if (loadingIndicator && loadingIndicator.parentNode) {
-      document.body.removeChild(loadingIndicator);
+
+      const data = snap.data();
+      if (!data || !data.progress) {
+        alert('❌ В облаке нет данных прогресса.');
+        return false;
+      }
+
+      const cloudState = JSON.parse(data.progress);
+      const cloudTime = data.updatedAt && data.updatedAt.toMillis ? data.updatedAt.toMillis() : (data.lastUpdated || 0);
+      const localTime = state.lastSyncTimestamp || 0;
+
+      let msg;
+      if (cloudTime > localTime) {
+        msg = `Облачная версия новее (${new Date(cloudTime).toLocaleString()}).`;
+      } else if (cloudTime < localTime) {
+        msg = `Локальная версия новее (${new Date(localTime).toLocaleString()}).`;
+      } else {
+        msg = 'Версии идентичны.';
+      }
+
+      // Предложение: заменить локальный прогресс на облачный
+      const doReplace = confirm(`Загрузить прогресс из облака?\n\n${msg}\n\nЕсли подтвердите — локальный прогресс будет заменён облачным.`);
+      if (!doReplace) return false;
+
+      // При замене сохраняем облачный в localStorage и в состояние
+      // Сбрасываем флаг queueShuffled чтобы порядок корректно обработать при загрузке вопросов
+      cloudState.queueShuffled = false;
+      Object.assign(state, cloudState);
+
+      // Сохраняем локально
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      console.log('📥 Прогресс загружен из облака и сохранён локально');
+
+      if (reloadPage) {
+        // уведомление и перезагрузка
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+          position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+          background: #2196F3; color: white; padding: 12px 20px; border-radius: 8px; z-index:9999;
+        `;
+        notification.innerText = '✅ Прогресс загружен. Перезагрузка страницы...';
+        document.body.appendChild(notification);
+        setTimeout(() => location.reload(), 1200);
+      } else {
+        // Обновляем очередь/вопросы в памяти
+        await loadQuestions();
+        showNotification('✅ Прогресс загружен из облака!', 'success');
+      }
+
+      return true;
+    } catch (err) {
+      console.error('Ошибка загрузки прогресса из облака:', err);
+      alert('❌ Ошибка загрузки прогресса: ' + (err.message || err));
+      return false;
     }
-    
-    // Показываем ошибку
-    const errorModal = document.createElement('div');
-    errorModal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10004;
-    `;
-    
-    errorModal.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
-        <h3 style="margin-top: 0; color: #f44336;">❌ Ошибка загрузки</h3>
-        <p>Не удалось загрузить прогресс из облака:</p>
-        <div style="background: #ffebee; padding: 15px; border-radius: 5px; margin: 15px 0; color: #c62828;">
-          ${error.message}
-        </div>
-        <p style="color: #666; font-size: 14px;">Попробуйте сохранить текущий прогресс в облако, а затем загрузить его заново.</p>
-        <button onclick="this.parentNode.parentNode.remove()" 
-                style="width: 100%; background: #2196F3; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px;">
-          Закрыть
-        </button>
-      </div>
-    `;
-    
-    document.body.appendChild(errorModal);
-    
-  } finally {
-    loadFromCloudBtn.innerText = originalText;
-    loadFromCloudBtn.disabled = false;
   }
-}
   
-// Функция загрузки прогресса из облака
-async function loadProgressFromCloud(reloadPage = false) {
-  if (!userId) {
-    alert('❌ Пользователь не авторизован');
-    return;
-  }
-
-  const originalText = loadFromCloudBtn.innerText;
-  loadFromCloudBtn.innerText = "☁️ Загружаем...";
-  loadFromCloudBtn.disabled = true;
-
-  try {
-    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
-    const snap = await getDoc(progressRef);
+  // Функция для специального сохранения прогресса
+  async function forceSaveProgress() {
+    const originalText = saveProgressBtn.innerText;
+    saveProgressBtn.innerText = "💾 Сохраняем...";
+    saveProgressBtn.disabled = true;
     
-    if (!snap.exists()) {
-      alert('❌ В облаке нет сохранённого прогресса');
-      loadFromCloudBtn.innerText = originalText;
-      loadFromCloudBtn.disabled = false;
-      return;
-    }
-
-    const data = snap.data();
-    if (!data.progress || data.progress.trim() === '') {
-      alert('❌ В облаке нет данных прогресса');
-      loadFromCloudBtn.innerText = originalText;
-      loadFromCloudBtn.disabled = false;
-      return;
-    }
-
-    const cloudState = JSON.parse(data.progress);
-    const cloudTime = data.updatedAt?.toMillis() || 0;
-    const localTime = state.lastSyncTimestamp || 0;
-
-    // ВАЖНО: Проверяем структуру загруженного состояния
-    if (!cloudState || typeof cloudState !== 'object') {
-      throw new Error('Невалидные данные прогресса в облаке');
-    }
-
-    // Проверяем ключевые поля
-    if (!cloudState.history) cloudState.history = {};
-    if (!cloudState.stats) cloudState.stats = { correct: 0, wrong: 0 };
-    if (!cloudState.errors) cloudState.errors = [];
-    if (!cloudState.errorAttempts) cloudState.errorAttempts = {};
-
-    let message = '';
-    if (cloudTime > localTime) {
-      message = `Облачная версия новее (${new Date(cloudTime).toLocaleString()})`;
-    } else if (cloudTime < localTime) {
-      message = `Локальная версия новее (${new Date(localTime).toLocaleString()})`;
-    } else {
-      message = 'Версии идентичны';
-    }
-
-    const shouldLoad = await new Promise((resolve) => {
-      const modal = document.createElement('div');
-      modal.style.cssText = `
+    try {
+      await saveState(true);
+      saveProgressBtn.innerText = "✅ Сохранено!";
+      
+      const notification = document.createElement('div');
+      notification.style.cssText = `
         position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0,0,0,0.7);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10002;
+        top: 20px;
+        right: 20px;
+        background: #4CAF50;
+        color: white;
+        padding: 15px 25px;
+        border-radius: 8px;
+        z-index: 9999;
+        font-weight: bold;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       `;
+      notification.innerText = '✅ Прогресс успешно сохранен в облако!';
+      document.body.appendChild(notification);
       
-      modal.innerHTML = `
-        <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
-          <h3 style="margin-top: 0; color: #2196F3;">📥 Загрузка из облака</h3>
-          <p>${message}</p>
-          
-          <div style="background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0; font-size: 14px;">
-            <div><strong>Облако:</strong> ${new Date(cloudTime).toLocaleString()}</div>
-            <div><strong>Локально:</strong> ${new Date(localTime).toLocaleString()}</div>
-            <div><strong>Вопросов в истории:</strong> ${Object.keys(cloudState.history || {}).length}</div>
-            <div><strong>Статистика:</strong> ✅ ${cloudState.stats?.correct || 0} ❌ ${cloudState.stats?.wrong || 0}</div>
-          </div>
-          
-          <p style="color: #666; font-size: 14px;">Текущий локальный прогресс будет заменён на облачный.</p>
-          
-          <div style="display: flex; gap: 10px; margin-top: 20px;">
-            <button id="confirmLoad" 
-                    style="flex: 1; background: #4CAF50; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">
-              ✅ Загрузить из облака
-            </button>
-            <button id="cancelLoad" 
-                    style="flex: 1; background: #f44336; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer;">
-              ❌ Отмена
-            </button>
-          </div>
-        </div>
+      setTimeout(() => {
+        if (notification.parentNode) {
+          notification.style.opacity = '0';
+          notification.style.transition = 'opacity 0.5s';
+          setTimeout(() => {
+            if (notification.parentNode) {
+              document.body.removeChild(notification);
+            }
+          }, 500);
+        }
+      }, 3000);
+      
+    } catch (error) {
+      console.error('Ошибка принудительного сохранения:', error);
+      saveProgressBtn.innerText = "❌ Ошибка!";
+      
+      const errorNotification = document.createElement('div');
+      errorNotification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: #f44336;
+        color: white;
+        padding: 15px 25px;
+        border-radius: 8px;
+        z-index: 9999;
+        font-weight: bold;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       `;
+      errorNotification.innerText = '❌ Ошибка сохранения прогресса';
+      document.body.appendChild(errorNotification);
       
-      document.body.appendChild(modal);
-      
-      document.getElementById('confirmLoad').onclick = () => {
-        document.body.removeChild(modal);
-        resolve(true);
-      };
-      
-      document.getElementById('cancelLoad').onclick = () => {
-        document.body.removeChild(modal);
-        resolve(false);
-      };
-    });
-
-    if (!shouldLoad) {
-      loadFromCloudBtn.innerText = originalText;
-      loadFromCloudBtn.disabled = false;
-      return;
+      setTimeout(() => {
+        if (errorNotification.parentNode) {
+          errorNotification.style.opacity = '0';
+          errorNotification.style.transition = 'opacity 0.5s';
+          setTimeout(() => {
+            if (errorNotification.parentNode) {
+              document.body.removeChild(errorNotification);
+            }
+          }, 500);
+        }
+      }, 3000);
+    } finally {
+      setTimeout(() => {
+        saveProgressBtn.innerText = originalText;
+        saveProgressBtn.disabled = false;
+      }, 2000);
     }
-
-    // Показываем индикатор загрузки
-    const loadingIndicator = document.createElement('div');
-    loadingIndicator.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10003;
-    `;
-    
-    loadingIndicator.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 10px; text-align: center;">
-        <div class="spinner" style="margin: 0 auto 15px;"></div>
-        <p style="font-size: 16px; font-weight: bold; color: #2196F3;">Загружаем прогресс из облака...</p>
-        <p id="progressMessage" style="color: #666; margin-top: 10px;">Подготавливаем данные</p>
-      </div>
-    `;
-    
-    document.body.appendChild(loadingIndicator);
-    
-    // Обновляем сообщение о прогрессе
-    const updateProgress = (message) => {
-      const msgEl = document.getElementById('progressMessage');
-      if (msgEl) msgEl.innerText = message;
-    };
-
-    // Шаг 1: Сохраняем облачное состояние
-    updateProgress('Сохраняем состояние из облака...');
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Сбрасываем флаг перемешивания для правильной обработки при следующей загрузке
-    cloudState.queueShuffled = false;
-    
-    // Сохраняем в localStorage с привязкой к пользователю
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudState));
-    updateProgress('Состояние сохранено локально');
-    
-    // Шаг 2: Обновляем состояние приложения
-    updateProgress('Обновляем состояние приложения...');
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Обновляем состояние
-    Object.assign(state, cloudState);
-    state.queueShuffled = false; // Сбрасываем флаг для правильного перемешивания
-    
-    // Шаг 3: Перезагружаем вопросы
-    updateProgress('Перезагружаем вопросы...');
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    await loadQuestions();
-    
-    // Шаг 4: Обновляем UI
-    updateProgress('Обновляем интерфейс...');
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    render();
-    
-    // Завершаем загрузку
-    updateProgress('✅ Загрузка завершена!');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Убираем индикатор
-    document.body.removeChild(loadingIndicator);
-    
-    // Показываем уведомление
-    const notification = document.createElement('div');
-    notification.style.cssText = `
-      position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #4CAF50;
-      color: white;
-      padding: 15px 30px;
-      border-radius: 8px;
-      z-index: 9999;
-      font-weight: bold;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      text-align: center;
-      animation: slideDown 0.3s ease-out;
-    `;
-    
-    notification.innerText = `✅ Прогресс загружен из облака!\n${Object.keys(state.history).length} вопросов, ✅ ${state.stats.correct} ❌ ${state.stats.wrong}`;
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-      if (notification.parentNode) {
-        notification.style.opacity = '0';
-        notification.style.transition = 'opacity 0.5s';
-        setTimeout(() => {
-          if (notification.parentNode) {
-            document.body.removeChild(notification);
-          }
-        }, 500);
-      }
-    }, 3000);
-    
-  } catch (error) {
-    console.error('❌ Ошибка загрузки из облака:', error);
-    
-    // Убираем индикатор если он есть
-    const loadingIndicator = document.querySelector('div[style*="rgba(0,0,0,0.7)"]');
-    if (loadingIndicator && loadingIndicator.parentNode) {
-      document.body.removeChild(loadingIndicator);
-    }
-    
-    // Показываем ошибку
-    const errorModal = document.createElement('div');
-    errorModal.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 10004;
-    `;
-    
-    errorModal.innerHTML = `
-      <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
-        <h3 style="margin-top: 0; color: #f44336;">❌ Ошибка загрузки</h3>
-        <p>Не удалось загрузить прогресс из облака:</p>
-        <div style="background: #ffebee; padding: 15px; border-radius: 5px; margin: 15px 0; color: #c62828;">
-          ${error.message}
-        </div>
-        <p style="color: #666; font-size: 14px;">Попробуйте сохранить текущий прогресс в облако, а затем загрузить его заново.</p>
-        <button onclick="this.parentNode.parentNode.remove()" 
-                style="width: 100%; background: #2196F3; color: white; padding: 12px; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px;">
-          Закрыть
-        </button>
-      </div>
-    `;
-    
-    document.body.appendChild(errorModal);
-    
-  } finally {
-    loadFromCloudBtn.innerText = originalText;
-    loadFromCloudBtn.disabled = false;
   }
-}
-
-  // Добавляем CSS анимацию для уведомлений
-if (!document.getElementById('notification-animations')) {
-  const style = document.createElement('style');
-  style.id = 'notification-animations';
-  style.textContent = `
-    @keyframes slideDown {
-      from {
-        transform: translateX(-50%) translateY(-100%);
-        opacity: 0;
-      }
-      to {
-        transform: translateX(-50%) translateY(0);
-        opacity: 1;
-      }
-    }
-    
-    @keyframes slideInRight {
-      from {
-        transform: translateX(100%);
-        opacity: 0;
-      }
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
-    }
-    
-    @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.05); }
-      100% { transform: scale(1); }
-    }
-  `;
-  document.head.appendChild(style);
-}
 
   // Функция проверки обновлений вопросов
   async function checkForQuestionsUpdate(manualCheck = false) {
@@ -2107,38 +1707,45 @@ if (!document.getElementById('notification-animations')) {
   async function saveState(forceSave = false, retryCount = 0) {
     const timestamp = Date.now();
     state.lastSyncTimestamp = timestamp;
-    
-    // Сохраняем в localStorage с привязкой к пользователю
+
+    // Сохраняем локально в любом случае
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    
-    if (userId) {
-      const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
-      const updateData = {
-        progress: JSON.stringify(state),
-        updatedAt: serverTimestamp(),
-        lastUpdated: timestamp,
-        userId: userId,
-        email: auth.currentUser?.email || '',
-        ...(forceSave && { forceSaved: true, forceSavedAt: serverTimestamp() })
-      };
-      
-      try {
-        await updateDoc(progressRef, updateData);
-        console.log('💾 Прогресс сохранен в Firestore' + (forceSave ? ' (принудительно)' : ''));
-        return true;
-      } catch (err) {
-        console.error('Ошибка сохранения прогресса:', err);
-        
-        if (retryCount < 3 && (err.code === 'unavailable' || err.code === 'network-request-failed')) {
-          console.log(`🔄 Повторная попытка сохранения (${retryCount + 1}/3)...`);
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-          return saveState(forceSave, retryCount + 1);
-        }
-        
-        throw err;
-      }
+
+    // Если нет userId — ничего не пишем в облако
+    if (!userId) {
+      console.log('⚠️ Пользователь не авторизован, сохранено только локально');
+      return false;
     }
-    return false;
+
+    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
+
+    const updateData = {
+      progress: JSON.stringify(state),
+      updatedAt: serverTimestamp(),
+      lastUpdated: timestamp,
+      userId: userId,
+      email: auth.currentUser?.email || '',
+      ...(forceSave ? { forceSaved: true, forceSavedAt: serverTimestamp() } : {})
+    };
+
+    try {
+      // используем setDoc с merge: true — чтобы создать документ если отсутствует
+      await setDoc(progressRef, updateData, { merge: true });
+      console.log('💾 Прогресс сохранен в Firestore' + (forceSave ? ' (принудительно)' : ''));
+      return true;
+    } catch (err) {
+      console.error('Ошибка сохранения прогресса в облако:', err);
+
+      // Retry для сетевых сбоев
+      if (retryCount < 3 && (err.code === 'unavailable' || err.code === 'network-request-failed')) {
+        const wait = 1000 * (retryCount + 1);
+        console.log(`🔄 Повтор сохранения через ${wait}ms (${retryCount+1}/3)`);
+        await new Promise(r => setTimeout(r, wait));
+        return saveState(forceSave, retryCount + 1);
+      }
+
+      throw err;
+    }
   }
 
   // Shuffle функция
@@ -2908,7 +2515,6 @@ if (!document.getElementById('notification-animations')) {
     }
   };
 }
-
 
 
 
