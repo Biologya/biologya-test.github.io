@@ -303,6 +303,91 @@ async function setupAdminPanel(userEmail) {
   }
 }
 
+/* ====== КНОПКА WHATSAPP ====== */
+function createWhatsAppButton() {
+  // Создаем кнопку
+  const whatsappButton = document.createElement('a');
+  whatsappButton.className = 'whatsapp-button pulse';
+  whatsappButton.innerHTML = '💬'; // Или можно использовать иконку: '✆'
+  whatsappButton.title = 'Связаться через WhatsApp';
+  
+  // Ваш номер телефона (замените на свой)
+  // Формат: +79001234567 (без пробелов, скобок и дефисов)
+  const phoneNumber = '+79001234567'; // ЗАМЕНИТЕ НА СВОЙ НОМЕР
+  
+  // Сообщение по умолчанию (можно изменить)
+  const defaultMessage = 'Здравствуйте! У меня вопрос по тесту по биологии.';
+  
+  // Создаем URL для WhatsApp
+  const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(defaultMessage)}`;
+  
+  whatsappButton.href = whatsappUrl;
+  whatsappButton.target = '_blank';
+  whatsappButton.rel = 'noopener noreferrer';
+  
+  // Добавляем кнопку на страницу
+  document.body.appendChild(whatsappButton);
+  
+  // Дополнительно: можно добавить подсветку при первом посещении
+  const whatsappShown = localStorage.getItem('whatsappShown');
+  if (!whatsappShown) {
+    // Показываем подсказку при первом посещении
+    setTimeout(() => {
+      const tooltip = document.createElement('div');
+      tooltip.style.cssText = `
+        position: fixed;
+        bottom: 150px;
+        right: 20px;
+        background: #333;
+        color: white;
+        padding: 10px 15px;
+        border-radius: 8px;
+        z-index: 1001;
+        font-size: 14px;
+        max-width: 200px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        animation: fadeIn 0.5s;
+      `;
+      tooltip.innerHTML = 'Есть вопросы?<br>Напишите мне в WhatsApp!';
+      tooltip.id = 'whatsapp-tooltip';
+      
+      document.body.appendChild(tooltip);
+      
+      // Убираем подсказку через 5 секунд
+      setTimeout(() => {
+        const tooltipEl = document.getElementById('whatsapp-tooltip');
+        if (tooltipEl) {
+          tooltipEl.style.opacity = '0';
+          tooltipEl.style.transition = 'opacity 0.5s';
+          setTimeout(() => {
+            if (tooltipEl.parentNode) {
+              tooltipEl.parentNode.removeChild(tooltipEl);
+            }
+          }, 500);
+        }
+      }, 5000);
+      
+      localStorage.setItem('whatsappShown', 'true');
+    }, 3000);
+  }
+  
+  console.log('✅ Кнопка WhatsApp добавлена');
+}
+
+// Добавляем кнопку WhatsApp при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+  // Небольшая задержка, чтобы страница успела загрузиться
+  setTimeout(createWhatsAppButton, 1000);
+});
+
+// Также добавляем кнопку при изменении состояния аутентификации
+onAuthStateChanged(auth, (user) => {
+  // Проверяем, существует ли уже кнопка
+  if (!document.querySelector('.whatsapp-button')) {
+    setTimeout(createWhatsAppButton, 500);
+  }
+});
+
 /* ====== ФУНКЦИЯ ПОКАЗА АДМИН ПАНЕЛИ ====== */
 async function showAdminPanel() {
   try {
@@ -2446,5 +2531,6 @@ function initQuiz(userId) {
     }
   };
 }
+
 
 
