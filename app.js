@@ -303,16 +303,6 @@ async function setupAdminPanel(userEmail) {
   }
 }
 
-// Кнопка "Сохранить прогресс" (сохранение в облако по нажатию)
-if (saveProgressBtn) {
-  saveProgressBtn.onclick = async () => {
-    saveProgressBtn.disabled = true;
-    await saveState(); // сохраняем локально прежде чем грузить в облако на случай свежих изменений
-    await saveProgressToCloud();
-    saveProgressBtn.disabled = false;
-  };
-}
-
 // Кнопка "Загрузить из облака"
 if (loadFromCloudBtn) {
   loadFromCloudBtn.onclick = async () => {
@@ -1057,12 +1047,14 @@ function initQuiz(userId) {
 
   // Функция загрузки прогресса из облака
 async function loadProgressFromCloud() {
-  if (!auth.currentUser) {
+  if (!auth || !auth.currentUser) {
     alert('❌ Войдите в аккаунт, чтобы загрузить прогресс из облака.');
     return false;
   }
+
   try {
-    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, auth.currentUser.uid);
+    const uid = auth.currentUser.uid;
+    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, uid);
     const snap = await getDoc(progressRef);
 
     if (!snap.exists()) {
@@ -1071,139 +1063,136 @@ async function loadProgressFromCloud() {
     }
 
     const data = snap.data();
-    if (!data || !data.progress) {
-      alert('❌ Данные прогресса в облаке повреждены или отсутствуют.');
+    if (!data || (data.progress === undefined || data.progress === null)) {
+      alert('❌ Данные прогресса в облаке отсутствуют или повреждены.');
       return false;
     }
 
-    // Сохраняем облачный прогресс в localStorage (перезапись)
-    const STORAGE_KEY = `bioState_${auth.currentUser.uid}`;
-    localStorage.setItem(STORAGE_KEY, data.progress);
+    // `data.progress` может быть объектом или строкой (старые версии)
+    let progressRaw;
+    if (typeof data.progress === 'string') {
+      // Если в облаке хранится строка JSON
+      progressRaw = data.progress;
+    } else {
+      // Если в облаке хранится объект — сохраним его в localStorage как строку
+      progressRaw = JSON.stringify(data.progress);
+    }
+
+    const STORAGE_KEY = `bioState_${uid}`;
+    localStorage.setItem(STORAGE_KEY, progressRaw);
 
     showNotification('✅ Прогресс загружен из облака и сохранён локально. Страница будет обновлена.', 'success');
 
-    // Обновляем страницу, чтобы инициализация взяла новый localState
+    // Обновляем страницу, чтобы initQuiz заново прочитал localStorage
     setTimeout(() => location.reload(), 900);
     return true;
+
   } catch (err) {
     console.error('Ошибка загрузки из облака:', err);
-    showNotification('❌ Ошибка загрузки из облака: ' + (err.message || err), 'error');
+    if (err && err.code === 'permission-denied') {
+      showNotification('❌ Ошибка: доступ запрещён (permission-denied). Проверьте правила Firestore.', 'error');
+    } else {
+      showNotification('❌ Ошибка загрузки из облака: ' + (err.message || err), 'error');
+    }
     return false;
   }
 }
-
 /* ====== Сохранение прогресса в облако — ТОЛЬКО по кнопке ====== */
 async function saveProgressToCloud() {
-  if (!auth.currentUser) {
+  if (!auth || !auth.currentUser) {
     alert('❌ Войдите в аккаунт, чтобы сохранить прогресс в облако.');
     return false;
   }
+
   try {
-    // Берём локальный прогресс (файл, привязанный к userId)
-    const STORAGE_KEY = `bioState_${auth.currentUser.uid}`;
+    const uid = auth.currentUser.uid;
+    const STORAGE_KEY = `bioState_${uid}`;
     const raw = localStorage.getItem(STORAGE_KEY);
+
     if (!raw) {
-      alert('ℹ️ Локального прогресса не найдено — сохранение отменено.');
+      // Если локального прогресса нет — ничего не сохраняем
+      alert('ℹ️ Локального прогресса не найдено — сначала пройдите тест или сохраните локально.');
       return false;
     }
 
-    const progress = JSON.parse(raw);
-    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, auth.currentUser.uid);
+    let progressObj;
+    try {
+      progressObj = JSON.parse(raw);
+    } catch (e) {
+      console.warn('Невалидный JSON в localStorage, сохраним как строку', e);
+      progressObj = { rawData: raw };
+    }
 
+    const progressRef = doc(db, USERS_PROGRESS_COLLECTION, uid);
+
+    // Сохраняем объект прогресса (без двойного JSON.stringify), добавляем updatedAt
     await setDoc(progressRef, {
-      progress: JSON.stringify(progress),
+      progress: progressObj,
       updatedAt: serverTimestamp(),
       lastUpdated: Date.now(),
-      userId: auth.currentUser.uid,
+      userId: uid,
       email: auth.currentUser.email || ''
     }, { merge: true });
 
-    showNotification('✅ Прогресс успешно сохранён в облако!', 'success');
-    console.log('💾 Сохранено в облако для', auth.currentUser.uid);
+    console.log('💾 Прогресс успешно записан в Firestore для', uid);
     return true;
+
   } catch (err) {
-    console.error('Ошибка сохранения в облако:', err);
-    showNotification('❌ Ошибка сохранения в облако: ' + (err.message || err), 'error');
+    console.error('Ошибка сохранения прогресса в облако:', err);
+
+    // Показываем подсказку при ошибке прав доступа или сети
+    if (err && err.code === 'permission-denied') {
+      showNotification('❌ Ошибка: доступ запрещён. Проверьте правила Firestore.', 'error');
+    } else {
+      showNotification('❌ Ошибка при сохранении в облако: ' + (err.message || err), 'error');
+    }
     return false;
   }
 }
   
   // Функция для специального сохранения прогресса
-  async function forceSaveProgress() {
-    const originalText = saveProgressBtn.innerText;
+async function forceSaveProgress() {
+  if (!saveProgressBtn) {
+    console.warn('Кнопка saveProgressBtn не найдена');
+  }
+
+  const originalText = saveProgressBtn ? saveProgressBtn.innerText : 'Сохранить';
+  if (saveProgressBtn) {
     saveProgressBtn.innerText = "💾 Сохраняем...";
     saveProgressBtn.disabled = true;
-    
-    try {
-      await saveState(true);
-      saveProgressBtn.innerText = "✅ Сохранено!";
-      
-      const notification = document.createElement('div');
-      notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #4CAF50;
-        color: white;
-        padding: 15px 25px;
-        border-radius: 8px;
-        z-index: 9999;
-        font-weight: bold;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      `;
-      notification.innerText = '✅ Прогресс успешно сохранен в облако!';
-      document.body.appendChild(notification);
-      
-      setTimeout(() => {
-        if (notification.parentNode) {
-          notification.style.opacity = '0';
-          notification.style.transition = 'opacity 0.5s';
-          setTimeout(() => {
-            if (notification.parentNode) {
-              document.body.removeChild(notification);
-            }
-          }, 500);
-        }
-      }, 3000);
-      
-    } catch (error) {
-      console.error('Ошибка принудительного сохранения:', error);
-      saveProgressBtn.innerText = "❌ Ошибка!";
-      
-      const errorNotification = document.createElement('div');
-      errorNotification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: #f44336;
-        color: white;
-        padding: 15px 25px;
-        border-radius: 8px;
-        z-index: 9999;
-        font-weight: bold;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-      `;
-      errorNotification.innerText = '❌ Ошибка сохранения прогресса';
-      document.body.appendChild(errorNotification);
-      
-      setTimeout(() => {
-        if (errorNotification.parentNode) {
-          errorNotification.style.opacity = '0';
-          errorNotification.style.transition = 'opacity 0.5s';
-          setTimeout(() => {
-            if (errorNotification.parentNode) {
-              document.body.removeChild(errorNotification);
-            }
-          }, 500);
-        }
-      }, 3000);
-    } finally {
-      setTimeout(() => {
+  }
+
+  try {
+    // 1) сохраняем локально (обновляем localStorage)
+    await saveState(true); // у тебя saveState сохраняет локально
+
+    // 2) пробуем сохранить в облако (если юзер авторизован)
+    const cloudOk = await saveProgressToCloud();
+
+    if (cloudOk) {
+      if (saveProgressBtn) saveProgressBtn.innerText = "✅ Сохранено!";
+      showNotification('✅ Прогресс сохранён локально и в облако!', 'success');
+    } else {
+      if (saveProgressBtn) saveProgressBtn.innerText = "⚠️ Сохранено локально";
+      showNotification('⚠️ Прогресс сохранён локально, не удалось сохранить в облако.', 'warning');
+    }
+
+    return cloudOk;
+  } catch (error) {
+    console.error('Ошибка принудительного сохранения:', error);
+    if (saveProgressBtn) saveProgressBtn.innerText = "❌ Ошибка!";
+    showNotification('❌ Ошибка сохранения: ' + (error.message || error), 'error');
+    return false;
+  } finally {
+    // восстанавливаем текст кнопки через небольшой таймаут
+    setTimeout(() => {
+      if (saveProgressBtn) {
         saveProgressBtn.innerText = originalText;
         saveProgressBtn.disabled = false;
-      }, 2000);
-    }
+      }
+    }, 1500);
   }
+}
 
   // Функция проверки обновлений вопросов
   async function checkForQuestionsUpdate(manualCheck = false) {
@@ -2498,6 +2487,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
