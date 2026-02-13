@@ -7,7 +7,9 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updatePassword
+  updatePassword,
+  reauthenticateWithCredential,  
+  EmailAuthProvider               
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getFirestore,
@@ -2478,6 +2480,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
