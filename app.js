@@ -106,54 +106,69 @@ authBtn.addEventListener('click', async () => {
   try {
     authBtn.disabled = true;
     authBtn.innerText = 'Вход...';
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+
+    let userCredential;
+    let successfulPassword = password; // запоминаем пароль, который реально сработал
+
+    // 1. Пробуем стандартный вход
+    try {
+      userCredential = await signInWithEmailAndPassword(auth, email, password);
+    } catch (firstError) {
+      if (firstError.code === 'auth/invalid-credential' || firstError.code === 'auth/wrong-password') {
+        console.log('Стандартный вход не удался, ищем пользователя в Firestore...');
+        
+        // Ищем документ пользователя по email
+        const usersSnapshot = await getDocs(collection(db, USERS_COLLECTION));
+        const userDoc = usersSnapshot.docs.find(doc => doc.data().email === email);
+        
+        if (userDoc && userDoc.data().currentPassword) {
+          const firestorePassword = userDoc.data().currentPassword;
+          console.log('Найден пароль в Firestore, пробуем войти с ним...');
+          
+          try {
+            userCredential = await signInWithEmailAndPassword(auth, email, firestorePassword);
+            successfulPassword = firestorePassword; // запоминаем правильный пароль
+            console.log('✅ Успешный вход с паролем из Firestore');
+          } catch (secondError) {
+            // Если и с паролем из Firestore не вышло, выбрасываем исходную ошибку
+            throw firstError;
+          }
+        } else {
+          // Нет документа или нет currentPassword — возвращаем исходную ошибку
+          throw firstError;
+        }
+      } else {
+        // Другая ошибка (сеть, и т.д.) — пробрасываем
+        throw firstError;
+      }
+    }
+
+    // Вход выполнен успешно
     const user = userCredential.user;
     setStatus('Вход выполнен');
     
-    // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
+    // 2. Автоматический сброс пароля (кроме админа)
     setTimeout(async () => {
       try {
         if (user && user.email !== ADMIN_EMAIL) {
-          await resetUserPassword(user, password);
+          await resetUserPassword(user, successfulPassword);
         }
       } catch (e) {
         console.error('Ошибка сброса пароля после входа:', e);
       }
     }, 1000);
 
+    // Скрываем окно авторизации
     setTimeout(() => {
       if (authOverlay) authOverlay.style.display = 'none';
     }, 500);
       
-  } catch(e) {
+  } catch (e) {
     console.error('Ошибка входа:', e);
     
     if (e.code === 'auth/user-not-found') {
-      setStatus('Учётной записи не найдено — создаём...');
-      try {
-        authBtn.innerText = 'Регистрация...';
-        const cred = await createUserWithEmailAndPassword(auth, email, password);
-        await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
-          email: email,
-          allowed: false,
-          createdAt: serverTimestamp(),
-          originalPassword: password,
-          passwordChanged: false,
-          currentPassword: password,
-          lastLoginAt: null
-        });
-        setStatus('Заявка отправлена. Ожидайте подтверждения.');
-        
-        if (waitOverlay) {
-          waitOverlay.style.display = 'flex';
-          authOverlay.style.display = 'none';
-        }
-        
-      } catch(err2) {
-        console.error('Ошибка регистрации:', err2);
-        setStatus(err2.message || 'Ошибка регистрации', true);
-      }
-    } else if (e.code === 'auth/wrong-password') {
+      // ... регистрация (как у вас) ...
+    } else if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
       setStatus('Неверный пароль', true);
     } else if (e.code === 'auth/too-many-requests') {
       setStatus('Слишком много попыток. Попробуйте позже.', true);
@@ -167,14 +182,6 @@ authBtn.addEventListener('click', async () => {
     }
   }
 });
-
-const loadFromCloudBtn = document.getElementById('loadFromCloudBtn');
-
-if (loadFromCloudBtn) {
-  loadFromCloudBtn.onclick = () => {
-    loadProgressFromCloud();
-  };
-}
 
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
@@ -237,7 +244,7 @@ async function resetUserPassword(user, currentPassword) {
       }
     }
 
-    // Обновляем документ в Firestore
+    // Сохраняем новый пароль в Firestore
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
@@ -246,11 +253,12 @@ async function resetUserPassword(user, currentPassword) {
     });
     console.log('✅ Пароль сохранен в Firestore');
 
-    // Показать уведомление пользователю (по желанию)
-    showNotification('🔐 Пароль был изменен в целях безопасности. Новый пароль можно узнать у администратора.', 'info');
+    // Показать уведомление пользователю (опционально)
+    showNotification('🔐 Пароль был изменён. Новый пароль можно узнать у администратора.', 'info');
 
   } catch (error) {
     console.error('❌ Ошибка сброса пароля:', error);
+    // Всё равно обновляем время последнего входа
     try {
       await updateDoc(uDocRef, { lastLoginAt: serverTimestamp() });
     } catch (updateErr) {
@@ -2481,6 +2489,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
