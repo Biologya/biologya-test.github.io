@@ -177,6 +177,7 @@ if (user && user.email !== ADMIN_EMAIL) {
       }
     }
   });
+}
   
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
@@ -2502,3 +2503,4 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
