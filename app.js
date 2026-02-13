@@ -110,7 +110,6 @@ if (authBtn) {
       setStatus('Вход выполнен');
       
       // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
-      setTimeout(async () => {
         try {
           const user = auth.currentUser;
           if (user && user.email !== ADMIN_EMAIL) {
@@ -208,36 +207,33 @@ function generateNewPassword() {
 
 /* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
 async function resetUserPassword(user) {
+  // Защита от повторного вызова
   if (passwordResetInProgress) return;
-  
   // Админ не меняет пароль
-  if (user.email === ADMIN_EMAIL) {
-    return;
-  }
-  
+  if (user.email === ADMIN_EMAIL) return;
+
   passwordResetInProgress = true;
   const uDocRef = doc(db, USERS_COLLECTION, user.uid);
-  
+
   try {
     const userDoc = await getDoc(uDocRef);
     if (!userDoc.exists()) {
-      passwordResetInProgress = false;
+      console.warn('Документ пользователя не найден');
       return;
     }
-    
-    // Генерируем НОВЫЙ пароль
+
+    // Генерируем новый пароль
     const newPassword = generateNewPassword();
-    
+
     console.log(`%c🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА`, "color: #4CAF50; font-weight: bold; font-size: 16px;");
     console.log(`%c📧 Email: ${user.email}`, "color: #2196F3; font-size: 14px;");
-    console.log(`%c🔑 Новый пароль: ${newPassword}`, 
-                "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;");
-    
-    // Обновляем пароль в Firebase Auth
+    console.log(`%c🔑 Новый пароль: ${newPassword}`, "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;");
+
+    // 1. Обновляем пароль в Firebase Authentication
     await updatePassword(user, newPassword);
     console.log('✅ Пароль обновлен в Firebase Auth');
-    
-    // Если успешно — сохраняем новый пароль в Firestore
+
+    // 2. Сохраняем новый пароль в Firestore
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
@@ -245,21 +241,18 @@ async function resetUserPassword(user) {
       lastLoginAt: serverTimestamp()
     });
     console.log('✅ Пароль сохранен в Firestore');
-    
-  } catch (authError) {
-    console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
-    // В случае ошибки НЕ меняем currentPassword, только фиксируем время входа
+
+  } catch (error) {
+    console.error('Ошибка при сбросе пароля:', error);
+    // Если не удалось обновить в Auth, хотя бы запишем время входа
     try {
-      await updateDoc(uDocRef, {
-        lastLoginAt: serverTimestamp()
-      });
+      await updateDoc(uDocRef, { lastLoginAt: serverTimestamp() });
     } catch (updateErr) {
-      console.error('Ошибка обновления времени входа:', updateErr);
+      console.error('Не удалось обновить время входа:', updateErr);
     }
   } finally {
-    setTimeout(() => {
-      passwordResetInProgress = false;
-    }, 3000);
+    // Сбрасываем флаг через некоторое время
+    setTimeout(() => { passwordResetInProgress = false; }, 3000);
   }
 }
 
@@ -2497,3 +2490,4 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
