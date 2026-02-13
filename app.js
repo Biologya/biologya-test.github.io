@@ -205,7 +205,6 @@ function generateNewPassword() {
 
 /* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
 async function resetUserPassword(user, currentPassword) {
-  // currentPassword — пароль, который только что использовался для входа
   if (passwordResetInProgress) return;
   if (user.email === ADMIN_EMAIL) return;
 
@@ -226,15 +225,13 @@ async function resetUserPassword(user, currentPassword) {
     } catch (authError) {
       if (authError.code === 'auth/requires-recent-login') {
         console.log('⚠️ Требуется повторная аутентификация, пытаемся...');
-        // Переаутентифицируем с текущим паролем
         const credential = EmailAuthProvider.credential(user.email, currentPassword);
         await reauthenticateWithCredential(user, credential);
         console.log('✅ Повторная аутентификация успешна');
-        // Пробуем снова
         await updatePassword(user, newPassword);
         console.log('✅ Пароль обновлен в Firebase Auth после реаутентификации');
       } else {
-        throw authError; // другие ошибки пробрасываем
+        throw authError;
       }
     }
 
@@ -249,7 +246,6 @@ async function resetUserPassword(user, currentPassword) {
 
   } catch (error) {
     console.error('❌ Ошибка сброса пароля:', error);
-    // В случае ошибки записываем только время входа
     try {
       await updateDoc(uDocRef, {
         lastLoginAt: serverTimestamp()
@@ -261,6 +257,7 @@ async function resetUserPassword(user, currentPassword) {
     setTimeout(() => { passwordResetInProgress = false; }, 3000);
   }
 }
+
 
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function setupAdminPanel(userEmail) {
@@ -782,14 +779,12 @@ window.forcePasswordReset = async function(userId, userEmail) {
     return;
   }
   
-  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован и сохранен.`)) return;
+  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован и сохранён.`)) return;
   
   try {
     const newPassword = generateNewPassword();
-    
     console.log(`🔧 Админ: принудительный сброс пароля для ${userEmail}: ${newPassword}`);
     
-    // Получаем пользователя для обновления в Auth
     const userRef = doc(db, 'users', userId);
     const userDoc = await getDoc(userRef);
     
@@ -798,22 +793,24 @@ window.forcePasswordReset = async function(userId, userEmail) {
       return;
     }
     
-    // Получаем пользователя Firebase
     const authUser = auth.currentUser;
     
-    // Если пытаемся сбросить пароль для текущего пользователя
+    // Если это текущий пользователь — меняем пароль напрямую
     if (authUser && authUser.uid === userId) {
       try {
-        // Обновляем пароль в Auth
         await updatePassword(authUser, newPassword);
         console.log('✅ Пароль обновлен в Firebase Auth');
       } catch (authError) {
         console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
-        alert('⚠️ Пароль обновлен в базе, но не в системе аутентификации. Пользователь сможет увидеть пароль в админке.');
+        alert('⚠️ Пароль обновлен в базе, но не в системе аутентификации. Возможно, потребуется повторный вход.');
       }
+    } else {
+      // Для другого пользователя — только сохраняем в Firestore
+      // Пароль станет активным после того, как пользователь войдёт со старым паролем (система автоматически сменит его)
+      console.log('ℹ️ Для другого пользователя пароль сохранён только в Firestore. Он станет активным после его следующего входа со старым паролем.');
     }
     
-    // Сохраняем в Firestore
+    // Сохраняем новый пароль в Firestore
     await updateDoc(userRef, {
       currentPassword: newPassword,
       passwordChanged: true,
@@ -821,7 +818,11 @@ window.forcePasswordReset = async function(userId, userEmail) {
       lastLoginAt: serverTimestamp()
     });
     
-    alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nПароль отображается в панели администратора.`);
+    alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\n${
+      authUser && authUser.uid === userId 
+        ? 'Пароль изменён и готов к использованию.' 
+        : 'Пароль будет активирован после того, как пользователь войдёт со своим старым паролем.'
+    }`);
     
     console.log(`%c🔧 АДМИН: Принудительный сброс пароля`, 
                 "color: #FF9800; font-weight: bold; font-size: 16px;");
@@ -830,7 +831,6 @@ window.forcePasswordReset = async function(userId, userEmail) {
     console.log(`%c🔑 Пароль: ${newPassword}`, 
                 "color: #FF9800; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold;");
     
-    // Обновляем панель
     window.refreshAdminPanel();
     
   } catch (error) {
@@ -2496,6 +2496,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
