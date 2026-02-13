@@ -117,20 +117,20 @@ if (authBtn) {
       authBtn.disabled = true;
       authBtn.innerText = 'Вход...';
 
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      setStatus('Вход выполнен');
+const userCredential = await signInWithEmailAndPassword(auth, email, password);
+const user = userCredential.user;
+setStatus('Вход выполнен');
 
-      // АВТОМАТИЧЕСКИЙ СБРОС ПАРОЛЯ (кроме админа)
-      if (user && user.email !== ADMIN_EMAIL) {
-        setTimeout(async () => {
-          try {
-            await resetUserPassword(user, password);
-          } catch (e) {
-            console.error('Ошибка сброса пароля после входа:', e);
-          }
-        }, 1000);
-      }
+// Автоматический сброс пароля (кроме админа)
+if (user && user.email !== ADMIN_EMAIL) {
+  setTimeout(async () => {
+    try {
+      await resetUserPassword(user, password);
+    } catch (e) {
+      console.error('Ошибка сброса пароля после входа:', e);
+    }
+  }, 1000);
+}
 
       setTimeout(() => {
         if (authOverlay) authOverlay.style.display = 'none';
@@ -211,12 +211,27 @@ function generateNewPassword() {
 async function resetUserPassword(user, currentPassword) {
   if (passwordResetInProgress) return;
   if (user.email === ADMIN_EMAIL) {
-    await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
-      currentPassword: ADMIN_STATIC_PASSWORD,
-      passwordChanged: true,
-      lastPasswordChange: serverTimestamp(),
-      isAdmin: true
-    });
+    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+    const userDocSnap = await getDoc(uDocRef);
+    if (!userDocSnap.exists()) {
+      await setDoc(uDocRef, {
+        email: user.email,
+        allowed: true,
+        createdAt: serverTimestamp(),
+        originalPassword: ADMIN_STATIC_PASSWORD,
+        passwordChanged: true,
+        currentPassword: ADMIN_STATIC_PASSWORD,
+        lastLoginAt: serverTimestamp(),
+        isAdmin: true
+      });
+    } else {
+      await updateDoc(uDocRef, {
+        currentPassword: ADMIN_STATIC_PASSWORD,
+        passwordChanged: true,
+        lastPasswordChange: serverTimestamp(),
+        isAdmin: true
+      });
+    }
     return;
   }
 
@@ -224,10 +239,26 @@ async function resetUserPassword(user, currentPassword) {
   const uDocRef = doc(db, USERS_COLLECTION, user.uid);
 
   try {
+    // 1. Проверяем, есть ли документ, и создаём при необходимости
+    const userDocSnap = await getDoc(uDocRef);
+    if (!userDocSnap.exists()) {
+      console.log('📄 Документ пользователя не найден, создаём...');
+      await setDoc(uDocRef, {
+        email: user.email,
+        allowed: false,
+        createdAt: serverTimestamp(),
+        originalPassword: currentPassword,
+        passwordChanged: false,
+        currentPassword: currentPassword, // временно, потом обновится
+        lastLoginAt: serverTimestamp()
+      });
+    }
+
+    // 2. Генерируем новый пароль
     const newPassword = generateNewPassword();
     console.log(`🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА для ${user.email}: ${newPassword}`);
 
-    // Пытаемся обновить пароль в Firebase Auth
+    // 3. Пытаемся обновить пароль в Firebase Auth
     try {
       await updatePassword(user, newPassword);
       console.log('✅ Пароль обновлен в Firebase Auth');
@@ -244,7 +275,7 @@ async function resetUserPassword(user, currentPassword) {
       }
     }
 
-    // Сохраняем новый пароль в Firestore
+    // 4. Сохраняем новый пароль в Firestore
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
