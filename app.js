@@ -100,13 +100,24 @@ if (loadFromCloudBtn) {
   };
 }
 
+// ----------------- Утилиты
+function normalizeEmail(email) {
+  return (email || '').trim().toLowerCase();
+}
+function safeTrim(s) {
+  return (s || '').trim();
+}
+
 /* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
-    const email = (emailInput?.value || '').trim();
-    const password = passInput?.value || '';
+    const rawEmail = emailInput?.value || '';
+    const rawPassword = passInput?.value || '';
 
-    console.log('DEBUG: signIn attempt', { email, passwordLength: password.length, typeofEmail: typeof email });
+    const email = normalizeEmail(rawEmail);
+    const password = safeTrim(rawPassword);
+
+    console.log('AUTH DEBUG: signIn attempt', { email, passwordLength: password.length });
 
     if (!email || !password) {
       setStatus('Введите email и пароль', true);
@@ -119,38 +130,46 @@ if (authBtn) {
       authBtn.disabled = true;
       authBtn.innerText = 'Вход...';
 
-      // Важно: signInWithEmailAndPassword принимает (auth, email, password)
+      // signIn
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       setStatus('Вход выполнен');
-      console.log('DEBUG: signIn success', { uid: user.uid, email: user.email });
+      console.log('AUTH DEBUG: signIn success', { uid: user.uid, email: user.email });
 
-      // сразу сбрасываем пароль (если нужно)
+      // ВАЖНО: временно не вызывать автоматический resetUserPassword здесь, если вы
+      // отлаживаете проблему входа. После того, как вход будет подтверждён рабочим,
+      // можно включить автоматический сброс.
       if (user && user.email !== ADMIN_EMAIL) {
         try {
-          await resetUserPassword(user, password);
+          // Если хотите включить авто-сброс: раскомментируйте следующую строку.
+          // await resetUserPassword(user, password);
         } catch (pwErr) {
-          console.error('Ошибка автоматического сброса пароля после входа:', pwErr);
+          console.error('AUTH DEBUG: ошибка автоматического сброса пароля:', pwErr);
         }
       }
 
       if (authOverlay) authOverlay.style.display = 'none';
 
     } catch (e) {
-      // расширенное логирование для диагностики
-      console.error('Ошибка входа (full):', e);
-      console.error('e.code=', e.code);
-      console.error('e.message=', e.message);
-      if (e.customData) console.error('e.customData=', e.customData);
-      if (e.stack) console.error(e.stack);
+      console.error('AUTH DEBUG: Ошибка входа (full):', e);
+      console.error('AUTH DEBUG: e.code =', e.code);
+      console.error('AUTH DEBUG: e.message =', e.message);
+      if (e.customData) console.error('AUTH DEBUG: e.customData =', e.customData);
+      // Иногда серверный ответ лежит в e.customData._tokenResponse.error.message
+      try {
+        const tokenResp = e?.customData?._tokenResponse;
+        if (tokenResp && tokenResp.error) {
+          console.error('AUTH DEBUG: tokenResponse.error =', tokenResp.error);
+        }
+      } catch (ignored) {}
 
-      // показываем пользователю понятное сообщение
-      if (e.code === 'auth/user-not-found') {
+      if (e.code === 'auth/user-not-found' || (e?.customData?._tokenResponse?.error?.message === 'EMAIL_NOT_FOUND')) {
         setStatus('Учётной записи не найдено — создаём...', true);
-      } else if (e.code === 'auth/wrong-password') {
+        // здесь у вас уже есть логика создания аккаунта
+      } else if (e.code === 'auth/wrong-password' || (e?.customData?._tokenResponse?.error?.message === 'INVALID_PASSWORD')) {
         setStatus('Неверный пароль. Если забыли — обратитесь к администратору.', true);
-      } else if (e.code === 'auth/invalid-credential') {
-        setStatus('Ошибка учётных данных (invalid-credential). Проверьте конфигурацию Firebase и API key.', true);
+      } else if (e.code === 'auth/invalid-credential' || (e?.customData?._tokenResponse?.error?.message)) {
+        setStatus('Ошибка учётных данных или конфигурации (invalid-credential). См. консоль Network/Response.', true);
       } else {
         setStatus('Ошибка входа: ' + (e.message || e.code || 'неизвестная ошибка'), true);
       }
@@ -202,7 +221,7 @@ async function resetUserPassword(user, currentPlainPassword) {
   const uDocRef = doc(db, USERS_COLLECTION, user.uid);
 
   try {
-    // Создаём документ пользователя если нет
+    // убедимся, что документ существует
     const uDocSnap = await getDoc(uDocRef);
     if (!uDocSnap.exists()) {
       await setDoc(uDocRef, {
@@ -215,35 +234,33 @@ async function resetUserPassword(user, currentPlainPassword) {
       });
     }
 
-    // Генерируем новый пароль
     const newPassword = generateNewPassword();
+    console.log(`AUTH DEBUG: сгенерирован новый пароль для ${user.email}`);
 
-    // Пытаемся обновить пароль в Firebase Auth (пользователь только что вошёл => действие должно пройти)
+    // Попытка обновить пароль в Auth. Обычно пользователь только что вошёл => updatePassword пройдет.
     try {
       await updatePassword(user, newPassword);
-      console.log('✅ Пароль обновлён в Auth для', user.email);
+      console.log('AUTH DEBUG: updatePassword прошёл успешно');
     } catch (authError) {
-      // Если требуется реаутентификация — пробуем автоматически с тем паролем, с которым только что вошли
+      console.warn('AUTH DEBUG: updatePassword упал:', authError);
+      // Если требуется повторная аутентификация — пробуем реаутентифицировать с текущим паролем
       if (authError.code === 'auth/requires-recent-login' || authError.code === 'auth/requires-recent-auth') {
         try {
           const credential = EmailAuthProvider.credential(user.email, currentPlainPassword);
           await reauthenticateWithCredential(user, credential);
-          console.log('✅ Реаутентификация успешна, пробуем обновить пароль снова');
+          console.log('AUTH DEBUG: реаутентификация успешна, пробуем updatePassword снова');
           await updatePassword(user, newPassword);
-          console.log('✅ Пароль обновлён после реаутентификации');
+          console.log('AUTH DEBUG: updatePassword после реаутентификации успешен');
         } catch (reauthErr) {
-          console.error('Ошибка реаутентификации/обновления пароля:', reauthErr);
-          // Не пробуем дальше — просто логируем
+          console.error('AUTH DEBUG: ошибка реаутентификации/обновления пароля:', reauthErr);
           throw reauthErr;
         }
       } else {
-        console.error('Ошибка updatePassword:', authError);
         throw authError;
       }
     }
 
-    // Сохраняем новый пароль в Firestore (виден только админу по правилам)
-    // ВАЖНО: хранение plaintext-паролей — риск; лучше храните временно и удаляйте
+    // Сохраняем в Firestore (видимость поля ограничьте правилами)
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
@@ -251,14 +268,13 @@ async function resetUserPassword(user, currentPlainPassword) {
       lastLoginAt: serverTimestamp()
     });
 
-    console.log(`🔒 Новый пароль для ${user.email} сохранён в Firestore (currentPassword).`);
+    console.log(`AUTH DEBUG: Пароль сохранён в Firestore для ${user.email}`);
 
   } catch (error) {
-    console.error('Ошибка сброса пароля:', error);
+    console.error('AUTH DEBUG: Ошибка сброса пароля:', error);
     throw error;
   } finally {
-    // небольшая задержка чтобы снять флаг
-    setTimeout(() => { passwordResetInProgress = false; }, 1000);
+    setTimeout(() => { passwordResetInProgress = false; }, 800);
   }
 }
 
@@ -2466,6 +2482,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
