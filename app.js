@@ -100,24 +100,11 @@ if (loadFromCloudBtn) {
   };
 }
 
-// ----------------- Утилиты
-function normalizeEmail(email) {
-  return (email || '').trim().toLowerCase();
-}
-function safeTrim(s) {
-  return (s || '').trim();
-}
-
 /* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
-    const rawEmail = emailInput?.value || '';
-    const rawPassword = passInput?.value || '';
-
-    const email = normalizeEmail(rawEmail);
-    const password = safeTrim(rawPassword);
-
-    console.log('AUTH DEBUG: signIn attempt', { email, passwordLength: password.length });
+    const email = (emailInput?.value || '').trim();
+    const password = passInput?.value || '';
 
     if (!email || !password) {
       setStatus('Введите email и пароль', true);
@@ -130,48 +117,71 @@ if (authBtn) {
       authBtn.disabled = true;
       authBtn.innerText = 'Вход...';
 
-      // signIn
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      setStatus('Вход выполнен');
 const userCredential = await signInWithEmailAndPassword(auth, email, password);
 const user = userCredential.user;
 setStatus('Вход выполнен');
-console.log('AUTH DEBUG: signIn success', { uid: user.uid, email: user.email });
 
-// Автоматический сброс пароля (для НЕ-админа)
+      // АВТОМАТИЧЕСКИЙ СБРОС ПАРОЛЯ (кроме админа)
+      if (user && user.email !== ADMIN_EMAIL) {
+        setTimeout(async () => {
+          try {
+            await resetUserPassword(user, password);
+          } catch (e) {
+            console.error('Ошибка сброса пароля после входа:', e);
+          }
+        }, 1000);
+      }
+// Автоматический сброс пароля (кроме админа)
 if (user && user.email !== ADMIN_EMAIL) {
-  try {
-    // используем auth.currentUser чтобы быть уверенными, что это текущая сессия
-    await resetUserPassword(auth.currentUser, password);
-    console.log('AUTH DEBUG: автоматический сброс пароля выполнен (если требовалось).');
-  } catch (pwErr) {
-    console.warn('AUTH DEBUG: ошибка автоматического сброса пароля:', pwErr);
-    // не блокируем вход из-за ошибки смены пароля — просто логируем
-  }
+  setTimeout(async () => {
+    try {
+      await resetUserPassword(user, password);
+    } catch (e) {
+      console.error('Ошибка сброса пароля после входа:', e);
+    }
+  }, 1000);
 }
 
-      if (authOverlay) authOverlay.style.display = 'none';
+      setTimeout(() => {
+        if (authOverlay) authOverlay.style.display = 'none';
+      }, 500);
 
-    } catch (e) {
-      console.error('AUTH DEBUG: Ошибка входа (full):', e);
-      console.error('AUTH DEBUG: e.code =', e.code);
-      console.error('AUTH DEBUG: e.message =', e.message);
-      if (e.customData) console.error('AUTH DEBUG: e.customData =', e.customData);
-      // Иногда серверный ответ лежит в e.customData._tokenResponse.error.message
-      try {
-        const tokenResp = e?.customData?._tokenResponse;
-        if (tokenResp && tokenResp.error) {
-          console.error('AUTH DEBUG: tokenResponse.error =', tokenResp.error);
+    } catch(e) {
+      console.error('Ошибка входа:', e);
+
+      if (e.code === 'auth/user-not-found') {
+        setStatus('Учётной записи не найдено — создаём...');
+        try {
+          authBtn.innerText = 'Регистрация...';
+          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
+            email: email,
+            allowed: false,
+            createdAt: serverTimestamp(),
+            originalPassword: password,
+            passwordChanged: false,
+            currentPassword: null
+          });
+          setStatus('Заявка отправлена. Ожидайте подтверждения.');
+
+          if (waitOverlay) {
+            waitOverlay.style.display = 'flex';
+            authOverlay.style.display = 'none';
+          }
+
+        } catch(err2) {
+          console.error('Ошибка регистрации:', err2);
+          setStatus(err2.message || 'Ошибка регистрации', true);
         }
-      } catch (ignored) {}
-
-      if (e.code === 'auth/user-not-found' || (e?.customData?._tokenResponse?.error?.message === 'EMAIL_NOT_FOUND')) {
-        setStatus('Учётной записи не найдено — создаём...', true);
-        // здесь у вас уже есть логика создания аккаунта
-      } else if (e.code === 'auth/wrong-password' || (e?.customData?._tokenResponse?.error?.message === 'INVALID_PASSWORD')) {
-        setStatus('Неверный пароль. Если забыли — обратитесь к администратору.', true);
-      } else if (e.code === 'auth/invalid-credential' || (e?.customData?._tokenResponse?.error?.message)) {
-        setStatus('Ошибка учётных данных или конфигурации (invalid-credential). См. консоль Network/Response.', true);
+      } else if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+        setStatus('Неверный пароль. Если вы забыли пароль, обратитесь к администратору.', true);
+      } else if (e.code === 'auth/too-many-requests') {
+        setStatus('Слишком много попыток. Попробуйте позже.', true);
       } else {
-        setStatus('Ошибка входа: ' + (e.message || e.code || 'неизвестная ошибка'), true);
+        setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
       }
     } finally {
       if (authBtn) {
@@ -180,8 +190,7 @@ if (user && user.email !== ADMIN_EMAIL) {
       }
     }
   });
-}
-  
+
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
   await signOut(auth);
@@ -212,58 +221,95 @@ function generateNewPassword() {
 }
 
 /* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
-async function resetUserPassword(user) {
-  if (!user) return;
-  // Не трогаем администратора — выставляем статичный пароль в базе
+async function resetUserPassword(user, currentPassword) {
+  if (passwordResetInProgress) return;
   if (user.email === ADMIN_EMAIL) {
-    try {
-      await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
+    await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
+      currentPassword: ADMIN_STATIC_PASSWORD,
+      passwordChanged: true,
+      lastPasswordChange: serverTimestamp(),
+      isAdmin: true
+    });
+    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+    const userDocSnap = await getDoc(uDocRef);
+    if (!userDocSnap.exists()) {
+      await setDoc(uDocRef, {
+        email: user.email,
+        allowed: true,
+        createdAt: serverTimestamp(),
+        originalPassword: ADMIN_STATIC_PASSWORD,
+        passwordChanged: true,
+        currentPassword: ADMIN_STATIC_PASSWORD,
+        lastLoginAt: serverTimestamp(),
+        isAdmin: true
+      });
+    } else {
+      await updateDoc(uDocRef, {
         currentPassword: ADMIN_STATIC_PASSWORD,
         passwordChanged: true,
         lastPasswordChange: serverTimestamp(),
         isAdmin: true
       });
-    } catch (err) {
-      console.error('Ошибка записи пароля администратора в Firestore:', err);
     }
     return;
   }
 
+  passwordResetInProgress = true;
   const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+
   try {
-    // Получаем документ (на случай если нужно создавать)
-    const snap = await getDoc(uDocRef);
-    if (!snap.exists()) {
-      // Создаём базовый документ
+    // 1. Проверяем, есть ли документ, и создаём при необходимости
+    const userDocSnap = await getDoc(uDocRef);
+    if (!userDocSnap.exists()) {
+      console.log('📄 Документ пользователя не найден, создаём...');
       await setDoc(uDocRef, {
-        email: user.email || '',
+        email: user.email,
         allowed: false,
         createdAt: serverTimestamp(),
-        passwordChanged: true,
-        currentPassword: null,
-        lastPasswordChange: serverTimestamp()
+        originalPassword: currentPassword,
+        passwordChanged: false,
+        currentPassword: currentPassword, // временно, потом обновится
+        lastLoginAt: serverTimestamp()
       });
     }
 
+    // 2. Генерируем новый пароль
     const newPassword = generateNewPassword();
+    console.log(`🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА для ${user.email}: ${newPassword}`);
 
-    // Записываем новый пароль ТОЛЬКО в Firestore.
-    // (Важно: это НЕ меняет пароль в Firebase Auth — для этого нужен Admin SDK)
+    // Пытаемся обновить пароль в Firebase Auth
+    // 3. Пытаемся обновить пароль в Firebase Auth
+    try {
+      await updatePassword(user, newPassword);
+      console.log('✅ Пароль обновлен в Firebase Auth');
+    } catch (authError) {
+      if (authError.code === 'auth/requires-recent-login') {
+        console.log('⚠️ Требуется повторная аутентификация, пытаемся...');
+        const credential = EmailAuthProvider.credential(user.email, currentPassword);
+        await reauthenticateWithCredential(user, credential);
+        console.log('✅ Повторная аутентификация успешна');
+        await updatePassword(user, newPassword);
+        console.log('✅ Пароль обновлен в Firebase Auth после реаутентификации');
+      } else {
+        throw authError;
+      }
+    }
+
+    // Сохраняем новый пароль в Firestore
+    // 4. Сохраняем новый пароль в Firestore
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
-      lastPasswordChange: serverTimestamp(),
-      adminForcedReset: false
+      lastPasswordChange: serverTimestamp()
     });
+    console.log('✅ Пароль сохранен в Firestore');
 
-    console.log(`AUTH DEBUG: Сгенерирован и сохранён новый пароль для ${user.email}`);
-    // Не пытайтесь вызывать updatePassword(user, newPassword) здесь для чужих пользователей!
-
-  } catch (err) {
-    console.error('Ошибка resetUserPassword (Firestore only):', err);
+  } catch (error) {
+    console.error('❌ Ошибка сброса пароля:', error);
+  } finally {
+    setTimeout(() => { passwordResetInProgress = false; }, 3000);
   }
 }
-
 
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function setupAdminPanel(userEmail) {
@@ -273,7 +319,7 @@ async function setupAdminPanel(userEmail) {
       if (adminContainer) adminContainer.style.display = 'none';
       return;
     }
-    
+
     let adminContainer = document.getElementById('adminPanelContainer');
     if (!adminContainer) {
       adminContainer = document.createElement('div');
@@ -286,10 +332,10 @@ async function setupAdminPanel(userEmail) {
       `;
       document.body.appendChild(adminContainer);
     }
-    
+
     adminContainer.innerHTML = '';
     adminContainer.style.display = 'block';
-    
+
     const adminBtn = document.createElement('button');
     adminBtn.innerHTML = '👑 Админ';
     adminBtn.style.cssText = `
@@ -303,13 +349,13 @@ async function setupAdminPanel(userEmail) {
       box-shadow: 0 2px 4px rgba(0,0,0,0.2);
       font-size: 14px;
     `;
-    
+
     adminBtn.onclick = async () => {
       await showAdminPanel();
     };
-    
+
     adminContainer.appendChild(adminBtn);
-    
+
   } catch (error) {
     console.error('Ошибка настройки админ панели:', error);
   }
@@ -322,24 +368,24 @@ function createWhatsAppButton() {
   whatsappButton.className = 'whatsapp-button pulse';
   whatsappButton.innerHTML = '💬'; // Или можно использовать иконку: '✆'
   whatsappButton.title = 'Связаться через WhatsApp';
-  
+
   // Ваш номер телефона (замените на свой)
   // Формат: +79001234567 (без пробелов, скобок и дефисов)
   const phoneNumber = '+77718663556'; // ЗАМЕНИТЕ НА СВОЙ НОМЕР
-  
+
   // Сообщение по умолчанию (можно изменить)
   const defaultMessage = 'Сәлем, биология тест бойынша сұрақ бар';
-  
+
   // Создаем URL для WhatsApp
   const whatsappUrl = `https://wa.me/77718663556?text=${encodeURIComponent(defaultMessage)}`;
-  
+
   whatsappButton.href = whatsappUrl;
   whatsappButton.target = '_blank';
   whatsappButton.rel = 'noopener noreferrer';
-  
+
   // Добавляем кнопку на страницу
   document.body.appendChild(whatsappButton);
-  
+
   // Дополнительно: можно добавить подсветку при первом посещении
   const whatsappShown = localStorage.getItem('whatsappShown');
   if (!whatsappShown) {
@@ -362,9 +408,9 @@ function createWhatsAppButton() {
       `;
       tooltip.innerHTML = 'Есть вопросы?<br>Напишите мне в WhatsApp!';
       tooltip.id = 'whatsapp-tooltip';
-      
+
       document.body.appendChild(tooltip);
-      
+
       // Убираем подсказку через 5 секунд
       setTimeout(() => {
         const tooltipEl = document.getElementById('whatsapp-tooltip');
@@ -378,11 +424,11 @@ function createWhatsAppButton() {
           }, 500);
         }
       }, 5000);
-      
+
       localStorage.setItem('whatsappShown', 'true');
     }, 3000);
   }
-  
+
   console.log('✅ Кнопка WhatsApp добавлена');
 }
 
@@ -408,14 +454,14 @@ async function showAdminPanel() {
       alert('Пользователь не авторизован');
       return;
     }
-    
+
     if (currentUser.email !== ADMIN_EMAIL) {
       alert('❌ Недостаточно прав. Только администратор может открыть эту панель.');
       return;
     }
-    
+
     console.log(`👑 Администратор ${currentUser.email} открывает панель управления`);
-    
+
     let usersHTML = '<div class="admin-modal-content">';
     usersHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">';
     usersHTML += '<h3>👥 Управление пользователями</h3>';
@@ -443,70 +489,70 @@ async function showAdminPanel() {
     </p>
   </div>
 `;    
-    
+
     usersHTML += '<div id="adminLoading" style="text-align: center; padding: 40px;">';
     usersHTML += '<div style="display: inline-block; padding: 20px; background: #f5f5f5; border-radius: 10px;">';
     usersHTML += '<div class="spinner"></div>';
     usersHTML += '<p style="margin-top: 10px; color: #666;">Загрузка пользователей...</p>';
     usersHTML += '</div>';
     usersHTML += '</div>';
-    
+
     usersHTML += '<div id="usersList" style="display: none;"></div>';
     usersHTML += '</div>';
-    
+
     const modal = document.createElement('div');
     modal.className = 'admin-modal';
     modal.innerHTML = usersHTML;
-    
+
     document.body.appendChild(modal);
-    
+
     modal.querySelector('.close-modal').onclick = () => {
       document.body.removeChild(modal);
     };
-    
+
     modal.onclick = (e) => {
       if (e.target === modal) {
         document.body.removeChild(modal);
       }
     };
-    
+
     loadUsersList();
-    
+
     async function loadUsersList() {
       try {
         const usersListDiv = document.getElementById('usersList');
         const loadingDiv = document.getElementById('adminLoading');
-        
+
         if (!usersListDiv || !loadingDiv) return;
-        
+
         const usersSnapshot = await getDocs(collection(db, 'users'));
         const users = [];
-        
+
         for (const docSnap of usersSnapshot.docs) {
           const data = docSnap.data();
           const userId = docSnap.id;
           if (!data.email) continue;
-          
+
           users.push({
             id: userId,
             data: data
           });
         }
-        
+
         users.sort((a, b) => {
           if (a.data.email === ADMIN_EMAIL || a.data.isAdmin === true) return -1;
           if (b.data.email === ADMIN_EMAIL || b.data.isAdmin === true) return 1;
-          
+
           if (a.data.allowed && !b.data.allowed) return -1;
           if (!a.data.allowed && b.data.allowed) return 1;
-          
+
           const aTime = a.data.lastLoginAt?.toMillis?.() || 0;
           const bTime = b.data.lastLoginAt?.toMillis?.() || 0;
           return bTime - aTime;
         });
-        
+
         let usersListHTML = '';
-        
+
         users.forEach(user => {
           const data = user.data;
           const userId = user.id;
@@ -514,7 +560,7 @@ async function showAdminPanel() {
           const hasAccess = data.allowed === true;
           const isOnline = data.lastLoginAt && 
             (Date.now() - (data.lastLoginAt.toMillis?.() || 0)) < 300000;
-          
+
           let itemStyle = '';
           if (isUserAdmin) {
             itemStyle = 'background: #FFF8E1; border-left: 5px solid #FF9800;';
@@ -523,7 +569,7 @@ async function showAdminPanel() {
           } else {
             itemStyle = 'background: #E8F5E9; border-left: 5px solid #4CAF50;';
           }
-          
+
           usersListHTML += `
             <div class="admin-user-item" style="${itemStyle} padding: 15px; border-radius: 5px; margin-bottom: 15px;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -572,13 +618,13 @@ async function showAdminPanel() {
             </div>
           `;
         });
-        
+
         const totalUsers = users.length;
         const usersWithAccess = users.filter(u => u.data.allowed).length;
         const onlineUsers = users.filter(u => 
           u.data.lastLoginAt && (Date.now() - (u.data.lastLoginAt.toMillis?.() || 0)) < 300000
         ).length;
-        
+
         usersListHTML = `
           <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2196F3;">
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
@@ -602,16 +648,16 @@ async function showAdminPanel() {
           </div>
           ${usersListHTML}
         `;
-        
+
         usersListDiv.innerHTML = usersListHTML;
         loadingDiv.style.display = 'none';
         usersListDiv.style.display = 'block';
-        
+
       } catch (error) {
         console.error('Ошибка загрузки пользователей:', error);
         const usersListDiv = document.getElementById('usersList');
         const loadingDiv = document.getElementById('adminLoading');
-        
+
         if (loadingDiv) loadingDiv.style.display = 'none';
         if (usersListDiv) {
           usersListDiv.innerHTML = `
@@ -630,17 +676,17 @@ async function showAdminPanel() {
         }
       }
     }
-    
+
     window.refreshAdminPanel = function() {
       const usersListDiv = document.getElementById('usersList');
       const loadingDiv = document.getElementById('adminLoading');
-      
+
       if (loadingDiv) loadingDiv.style.display = 'block';
       if (usersListDiv) usersListDiv.style.display = 'none';
-      
+
       loadUsersList();
     };
-    
+
   } catch (error) {
     console.error('Ошибка открытия админ панели:', error);
     alert('Ошибка открытия админ панели: ' + error.message);
@@ -2474,6 +2520,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
