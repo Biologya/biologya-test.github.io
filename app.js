@@ -118,23 +118,25 @@ authBtn.addEventListener('click', async () => {
 
     // Просто пытаемся войти
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-    setStatus('Вход выполнен');
-    
-    // Автоматический сброс пароля после входа (кроме админа)
-    setTimeout(async () => {
-      try {
-        if (user && user.email !== ADMIN_EMAIL) {
-          await resetUserPassword(user, password);
-        }
-      } catch (e) {
-        console.error('Ошибка сброса пароля после входа:', e);
-      }
-    }, 1000);
+await signInWithEmailAndPassword(auth, email, password);
+setStatus('Вход выполнен');
 
-    setTimeout(() => {
-      if (authOverlay) authOverlay.style.display = 'none';
-    }, 500);
+// Автоматический сброс пароля (кроме админа)
+const user = auth.currentUser;
+if (user && user.email !== ADMIN_EMAIL) {
+  // Запускаем сброс через небольшую задержку, чтобы не блокировать интерфейс
+  setTimeout(async () => {
+    try {
+      await resetUserPassword(user, password);
+    } catch (e) {
+      console.error('Ошибка сброса пароля после входа:', e);
+    }
+  }, 1000);
+}
+
+setTimeout(() => {
+  if (authOverlay) authOverlay.style.display = 'none';
+}, 500);
       
   } catch (e) {
     console.error('Ошибка входа:', e);
@@ -209,15 +211,21 @@ function generateNewPassword() {
 /* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
 async function resetUserPassword(user, currentPassword) {
   if (passwordResetInProgress) return;
-  if (user.email === ADMIN_EMAIL) return;
+  if (user.email === ADMIN_EMAIL) {
+    // Для админа просто обновляем время и поле isAdmin
+    await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
+      currentPassword: ADMIN_STATIC_PASSWORD,
+      passwordChanged: true,
+      lastPasswordChange: serverTimestamp(),
+      isAdmin: true
+    });
+    return;
+  }
 
   passwordResetInProgress = true;
   const uDocRef = doc(db, USERS_COLLECTION, user.uid);
 
   try {
-    const userDoc = await getDoc(uDocRef);
-    if (!userDoc.exists()) return;
-
     const newPassword = generateNewPassword();
     console.log(`🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА для ${user.email}: ${newPassword}`);
 
@@ -242,22 +250,12 @@ async function resetUserPassword(user, currentPassword) {
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
-      lastPasswordChange: serverTimestamp(),
-      lastLoginAt: serverTimestamp()
+      lastPasswordChange: serverTimestamp()
     });
     console.log('✅ Пароль сохранен в Firestore');
 
-    // Показать уведомление пользователю (опционально)
-    showNotification('🔐 Пароль был изменён. Новый пароль можно узнать у администратора.', 'info');
-
   } catch (error) {
     console.error('❌ Ошибка сброса пароля:', error);
-    // Всё равно обновляем время последнего входа
-    try {
-      await updateDoc(uDocRef, { lastLoginAt: serverTimestamp() });
-    } catch (updateErr) {
-      console.error('Ошибка обновления времени входа:', updateErr);
-    }
   } finally {
     setTimeout(() => { passwordResetInProgress = false; }, 3000);
   }
@@ -2475,6 +2473,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
