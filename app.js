@@ -1116,27 +1116,16 @@ async function saveProgressToCloud() {
   try {
     const uid = auth.currentUser.uid;
     const STORAGE_KEY = `bioState_${uid}`;
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY); // уже строка JSON
 
     if (!raw) {
-      // Если локального прогресса нет — ничего не сохраняем
       alert('ℹ️ Локального прогресса не найдено — сначала пройдите тест или сохраните локально.');
       return false;
     }
 
-    let progressObj;
-    try {
-      progressObj = JSON.parse(raw);
-    } catch (e) {
-      console.warn('Невалидный JSON в localStorage, сохраним как строку', e);
-      progressObj = { rawData: raw };
-    }
-
     const progressRef = doc(db, USERS_PROGRESS_COLLECTION, uid);
-
-    // Сохраняем объект прогресса (без двойного JSON.stringify), добавляем updatedAt
     await setDoc(progressRef, {
-      progress: progressObj,
+      progress: raw,            // сохраняем как строку
       updatedAt: serverTimestamp(),
       lastUpdated: Date.now(),
       userId: uid,
@@ -1145,16 +1134,9 @@ async function saveProgressToCloud() {
 
     console.log('💾 Прогресс успешно записан в Firestore для', uid);
     return true;
-
   } catch (err) {
     console.error('Ошибка сохранения прогресса в облако:', err);
-
-    // Показываем подсказку при ошибке прав доступа или сети
-    if (err && err.code === 'permission-denied') {
-      showNotification('❌ Ошибка: доступ запрещён. Проверьте правила Firestore.', 'error');
-    } else {
-      showNotification('❌ Ошибка при сохранении в облако: ' + (err.message || err), 'error');
-    }
+    showNotification('❌ Ошибка при сохранении в облако: ' + (err.message || err), 'error');
     return false;
   }
 }
@@ -2496,6 +2478,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
