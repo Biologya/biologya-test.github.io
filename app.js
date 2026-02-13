@@ -101,84 +101,83 @@ if (loadFromCloudBtn) {
 }
 
 /* ====== АВТОРИЗАЦИЯ ====== */
-authBtn.addEventListener('click', async () => {
-  const email = (emailInput?.value || '').trim();
-  const password = passInput?.value || '';
-    
-  if (!email || !password) {
-    setStatus('Введите email и пароль', true);
-    return;
-  }
+if (authBtn) {
+  authBtn.addEventListener('click', async () => {
+    const email = (emailInput?.value || '').trim();
+    const password = passInput?.value || '';
 
-  setStatus('Пробуем войти...');
-    
-  try {
-    authBtn.disabled = true;
-    authBtn.innerText = 'Вход...';
+    if (!email || !password) {
+      setStatus('Введите email и пароль', true);
+      return;
+    }
 
-    // Просто пытаемся войти
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-await signInWithEmailAndPassword(auth, email, password);
-setStatus('Вход выполнен');
+    setStatus('Пробуем войти...');
 
-// Автоматический сброс пароля (кроме админа)
-const user = auth.currentUser;
-if (user && user.email !== ADMIN_EMAIL) {
-  // Запускаем сброс через небольшую задержку, чтобы не блокировать интерфейс
-  setTimeout(async () => {
     try {
-      await resetUserPassword(user, password);
-    } catch (e) {
-      console.error('Ошибка сброса пароля после входа:', e);
-    }
-  }, 1000);
-}
+      authBtn.disabled = true;
+      authBtn.innerText = 'Вход...';
 
-setTimeout(() => {
-  if (authOverlay) authOverlay.style.display = 'none';
-}, 500);
-      
-  } catch (e) {
-    console.error('Ошибка входа:', e);
-    
-    if (e.code === 'auth/user-not-found') {
-      // Регистрация нового пользователя
-      try {
-        authBtn.innerText = 'Регистрация...';
-        const cred = await createUserWithEmailAndPassword(auth, email, password);
-        await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
-          email: email,
-          allowed: false,
-          createdAt: serverTimestamp(),
-          originalPassword: password,
-          passwordChanged: false,
-          currentPassword: password,
-          lastLoginAt: null
-        });
-        setStatus('Заявка отправлена. Ожидайте подтверждения.');
-        if (waitOverlay) {
-          waitOverlay.style.display = 'flex';
-          authOverlay.style.display = 'none';
-        }
-      } catch (err2) {
-        console.error('Ошибка регистрации:', err2);
-        setStatus(err2.message || 'Ошибка регистрации', true);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      setStatus('Вход выполнен');
+
+      // АВТОМАТИЧЕСКИЙ СБРОС ПАРОЛЯ (кроме админа)
+      if (user && user.email !== ADMIN_EMAIL) {
+        setTimeout(async () => {
+          try {
+            await resetUserPassword(user, password);
+          } catch (e) {
+            console.error('Ошибка сброса пароля после входа:', e);
+          }
+        }, 1000);
       }
-    } else if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
-      setStatus('Неверный пароль. Если вы забыли пароль, обратитесь к администратору.', true);
-    } else if (e.code === 'auth/too-many-requests') {
-      setStatus('Слишком много попыток. Попробуйте позже.', true);
-    } else {
-      setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
-    }
-  } finally {
-    if (authBtn) {
-      authBtn.disabled = false;
-      authBtn.innerText = 'Войти / Зарегистрироваться';
-    }
-  }
-});
 
+      setTimeout(() => {
+        if (authOverlay) authOverlay.style.display = 'none';
+      }, 500);
+
+    } catch(e) {
+      console.error('Ошибка входа:', e);
+
+      if (e.code === 'auth/user-not-found') {
+        setStatus('Учётной записи не найдено — создаём...');
+        try {
+          authBtn.innerText = 'Регистрация...';
+          const cred = await createUserWithEmailAndPassword(auth, email, password);
+          await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
+            email: email,
+            allowed: false,
+            createdAt: serverTimestamp(),
+            originalPassword: password,
+            passwordChanged: false,
+            currentPassword: null
+          });
+          setStatus('Заявка отправлена. Ожидайте подтверждения.');
+
+          if (waitOverlay) {
+            waitOverlay.style.display = 'flex';
+            authOverlay.style.display = 'none';
+          }
+
+        } catch(err2) {
+          console.error('Ошибка регистрации:', err2);
+          setStatus(err2.message || 'Ошибка регистрации', true);
+        }
+      } else if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+        setStatus('Неверный пароль. Если вы забыли пароль, обратитесь к администратору.', true);
+      } else if (e.code === 'auth/too-many-requests') {
+        setStatus('Слишком много попыток. Попробуйте позже.', true);
+      } else {
+        setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
+      }
+    } finally {
+      if (authBtn) {
+        authBtn.disabled = false;
+        authBtn.innerText = 'Войти / Зарегистрироваться';
+      }
+    }
+  });
+  
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
   await signOut(auth);
@@ -212,7 +211,6 @@ function generateNewPassword() {
 async function resetUserPassword(user, currentPassword) {
   if (passwordResetInProgress) return;
   if (user.email === ADMIN_EMAIL) {
-    // Для админа просто обновляем время и поле isAdmin
     await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
       currentPassword: ADMIN_STATIC_PASSWORD,
       passwordChanged: true,
@@ -2473,6 +2471,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
