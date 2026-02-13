@@ -8,8 +8,8 @@ import {
   signOut,
   onAuthStateChanged,
   updatePassword,
-  reauthenticateWithCredential,  
-  EmailAuthProvider               
+  reauthenticateWithCredential,
+  EmailAuthProvider
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getFirestore,
@@ -24,6 +24,7 @@ import {
   arrayUnion,
   writeBatch
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-firestore.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-functions.js";
 
 /* ====== КОНФИГ FIREBASE ====== */
 const firebaseConfig = {
@@ -49,6 +50,7 @@ const app = initializeApp(firebaseConfig);
 try { getAnalytics(app); } catch(e) { console.error('Analytics не инициализированы:', e); }
 const auth = getAuth(app);
 const db = getFirestore(app);
+const functions = getFunctions(app); // для callable function (если вы её развернёте)
 
 /* ====== DOM ЭЛЕМЕНТЫ ====== */
 const authOverlay = document.getElementById('authOverlay');
@@ -63,48 +65,25 @@ const helpBtn = document.getElementById('helpBtn');
 const signOutFromWait = document.getElementById('signOutFromWait');
 const userEmailSpan = document.getElementById('userEmail');
 
-// Элементы теста
-const qText = document.getElementById('questionText');
-const answersDiv = document.getElementById('answers');
-const submitBtn = document.getElementById('submitBtn');
-const nextBtn = document.getElementById('nextBtn');
-const prevBtn = document.getElementById('prevBtn');
-const progressText = document.getElementById('progressText');
-const progressFill = document.getElementById('progressFill');
-const statsDiv = document.getElementById('stats');
-const resetBtn = document.getElementById('resetBtn');
-const errorsBtn = document.getElementById('errorsBtn');
-const questionPanel = document.getElementById('questionPanel');
-const pageNav = document.getElementById('pageNav');
-
+/* ====== УТИЛИТЫ ====== */
 function setStatus(text, isError = false) {
   if (!statusP) return;
   statusP.innerText = text;
   statusP.style.color = isError ? '#e53935' : '#444';
 }
+function normalizeEmail(email) { return (email || '').trim().toLowerCase(); }
+function safeTrim(s) { return (s || '').trim(); }
 
-/* ====== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====== */
-let quizInitialized = false;
-let quizInstance = null;
+/* ====== ГЛОБАЛЫ ====== */
 let passwordResetInProgress = false;
-let userUnsubscribe = null;
-let saveProgressBtn = null;
-let isInitializing = false;
 
-// Кнопка "Загрузить из облака"
-const loadFromCloudBtn = document.getElementById('loadFromCloudBtn');
-if (loadFromCloudBtn) {
-  loadFromCloudBtn.onclick = async () => {
-    if (!confirm('⚠️ Загрузить прогресс из облака? Локальный прогресс будет заменён.')) return;
-    await loadProgressFromCloud();
-  };
-}
-
-/* ====== АВТОРИЗАЦИЯ ====== */
+/* ====== АВТОРИЗАЦИЯ (исправлено) ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
-    const email = (emailInput?.value || '').trim();
-    const password = passInput?.value || '';
+    const rawEmail = emailInput?.value || '';
+    const rawPassword = passInput?.value || '';
+    const email = normalizeEmail(rawEmail);
+    const password = safeTrim(rawPassword);
 
     if (!email || !password) {
       setStatus('Введите email и пароль', true);
@@ -112,48 +91,34 @@ if (authBtn) {
     }
 
     setStatus('Пробуем войти...');
+    authBtn.disabled = true;
+    authBtn.innerText = 'Вход...';
 
     try {
-      authBtn.disabled = true;
-      authBtn.innerText = 'Вход...';
-
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       setStatus('Вход выполнен');
-const userCredential = await signInWithEmailAndPassword(auth, email, password);
-const user = userCredential.user;
-setStatus('Вход выполнен');
+      console.log('AUTH DEBUG: signIn success', { uid: user.uid, email: user.email });
 
-      // АВТОМАТИЧЕСКИЙ СБРОС ПАРОЛЯ (кроме админа)
+      // Автоматический сброс пароля — для текущего вошедшего пользователя.
+      // Передаём текущий введённый пароль, чтобы при необходимости реаутентифицироваться.
       if (user && user.email !== ADMIN_EMAIL) {
-        setTimeout(async () => {
-          try {
-            await resetUserPassword(user, password);
-          } catch (e) {
-            console.error('Ошибка сброса пароля после входа:', e);
-          }
-        }, 1000);
+        try {
+          await resetUserPassword(user, password);
+        } catch (pwErr) {
+          console.warn('AUTH DEBUG: ошибка автоматического сброса пароля:', pwErr);
+        }
+      } else if (user && user.email === ADMIN_EMAIL) {
+        // Убедиться, что админский документ в users корректен
+        await resetUserPassword(user, password);
       }
-// Автоматический сброс пароля (кроме админа)
-if (user && user.email !== ADMIN_EMAIL) {
-  setTimeout(async () => {
-    try {
-      await resetUserPassword(user, password);
+
+      if (authOverlay) authOverlay.style.display = 'none';
+
     } catch (e) {
-      console.error('Ошибка сброса пароля после входа:', e);
-    }
-  }, 1000);
-}
-
-      setTimeout(() => {
-        if (authOverlay) authOverlay.style.display = 'none';
-      }, 500);
-
-    } catch(e) {
-      console.error('Ошибка входа:', e);
-
+      console.error('AUTH DEBUG: Ошибка входа (full):', e);
       if (e.code === 'auth/user-not-found') {
-        setStatus('Учётной записи не найдено — создаём...');
+        setStatus('Учётной записи не найдено — создаём...', true);
         try {
           authBtn.innerText = 'Регистрация...';
           const cred = await createUserWithEmailAndPassword(auth, email, password);
@@ -166,13 +131,8 @@ if (user && user.email !== ADMIN_EMAIL) {
             currentPassword: null
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
-
-          if (waitOverlay) {
-            waitOverlay.style.display = 'flex';
-            authOverlay.style.display = 'none';
-          }
-
-        } catch(err2) {
+          if (waitOverlay) { waitOverlay.style.display = 'flex'; authOverlay.style.display = 'none'; }
+        } catch (err2) {
           console.error('Ошибка регистрации:', err2);
           setStatus(err2.message || 'Ошибка регистрации', true);
         }
@@ -184,130 +144,118 @@ if (user && user.email !== ADMIN_EMAIL) {
         setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
       }
     } finally {
-      if (authBtn) {
-        authBtn.disabled = false;
-        authBtn.innerText = 'Войти / Зарегистрироваться';
-      }
+      authBtn.disabled = false;
+      authBtn.innerText = 'Войти / Зарегистрироваться';
     }
   });
-
-/* ====== ВЫХОД ====== */
-async function handleLogout() {
-  await signOut(auth);
 }
 
-if (logoutBtn) logoutBtn.onclick = async () => { 
-  await handleLogout(); 
-  setStatus('Вы вышли из системы.');
-};
-
-if (signOutFromWait) signOutFromWait.onclick = async () => { 
-  await handleLogout();
-  setStatus('Вы вышли из системы.');
-};
-
-if (helpBtn) helpBtn.onclick = () => { 
-  alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); 
-};
+/* ====== ВЫХОД ====== */
+async function handleLogout() { await signOut(auth); }
+if (logoutBtn) logoutBtn.onclick = async () => { await handleLogout(); setStatus('Вы вышли из системы.'); };
+if (signOutFromWait) signOutFromWait.onclick = async () => { await handleLogout(); setStatus('Вы вышли из системы.'); };
+if (helpBtn) helpBtn.onclick = () => { alert('Админ: Firebase Console → Firestore → collection "users" → поставьте allowed = true.'); };
 
 /* ====== ГЕНЕРАЦИЯ ПАРОЛЯ ====== */
 function generateNewPassword() {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
   let password = '';
-  for (let i = 0; i < 12; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
+  for (let i = 0; i < 12; i++) password += chars.charAt(Math.floor(Math.random() * chars.length));
   return password;
 }
 
-/* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
-async function resetUserPassword(user, currentPassword) {
-  if (passwordResetInProgress) return;
-  if (user.email === ADMIN_EMAIL) {
-    await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
-      currentPassword: ADMIN_STATIC_PASSWORD,
-      passwordChanged: true,
-      lastPasswordChange: serverTimestamp(),
-      isAdmin: true
-    });
-    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
-    const userDocSnap = await getDoc(uDocRef);
-    if (!userDocSnap.exists()) {
-      await setDoc(uDocRef, {
-        email: user.email,
-        allowed: true,
-        createdAt: serverTimestamp(),
-        originalPassword: ADMIN_STATIC_PASSWORD,
-        passwordChanged: true,
-        currentPassword: ADMIN_STATIC_PASSWORD,
-        lastLoginAt: serverTimestamp(),
-        isAdmin: true
-      });
-    } else {
-      await updateDoc(uDocRef, {
-        currentPassword: ADMIN_STATIC_PASSWORD,
-        passwordChanged: true,
-        lastPasswordChange: serverTimestamp(),
-        isAdmin: true
-      });
-    }
-    return;
-  }
 
+/* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
+async function resetUserPassword(user, currentPlainPassword = null) {
+  if (!user) return;
+  if (passwordResetInProgress) return;
   passwordResetInProgress = true;
+
   const uDocRef = doc(db, USERS_COLLECTION, user.uid);
 
   try {
-    // 1. Проверяем, есть ли документ, и создаём при необходимости
-    const userDocSnap = await getDoc(uDocRef);
-    if (!userDocSnap.exists()) {
-      console.log('📄 Документ пользователя не найден, создаём...');
+    // 1) Убедимся, что документ существует
+    const docSnap = await getDoc(uDocRef);
+    if (!docSnap.exists()) {
       await setDoc(uDocRef, {
-        email: user.email,
+        email: user.email || '',
         allowed: false,
         createdAt: serverTimestamp(),
-        originalPassword: currentPassword,
+        originalPassword: null,
         passwordChanged: false,
-        currentPassword: currentPassword, // временно, потом обновится
+        currentPassword: null,
         lastLoginAt: serverTimestamp()
       });
     }
 
-    // 2. Генерируем новый пароль
-    const newPassword = generateNewPassword();
-    console.log(`🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА для ${user.email}: ${newPassword}`);
-
-    // Пытаемся обновить пароль в Firebase Auth
-    // 3. Пытаемся обновить пароль в Firebase Auth
-    try {
-      await updatePassword(user, newPassword);
-      console.log('✅ Пароль обновлен в Firebase Auth');
-    } catch (authError) {
-      if (authError.code === 'auth/requires-recent-login') {
-        console.log('⚠️ Требуется повторная аутентификация, пытаемся...');
-        const credential = EmailAuthProvider.credential(user.email, currentPassword);
-        await reauthenticateWithCredential(user, credential);
-        console.log('✅ Повторная аутентификация успешна');
-        await updatePassword(user, newPassword);
-        console.log('✅ Пароль обновлен в Firebase Auth после реаутентификации');
-      } else {
-        throw authError;
-      }
+    // 2) Если админ — записываем статичный пароль для админа и выходим
+    if (user.email === ADMIN_EMAIL) {
+      const adminPass = ADMIN_STATIC_PASSWORD;
+      await updateDoc(uDocRef, {
+        currentPassword: adminPass,
+        passwordChanged: true,
+        lastPasswordChange: serverTimestamp(),
+        isAdmin: true,
+        lastLoginAt: serverTimestamp()
+      });
+      console.log('AUTH DEBUG: Обновлён админский пароль в Firestore');
+      return;
     }
 
-    // Сохраняем новый пароль в Firestore
-    // 4. Сохраняем новый пароль в Firestore
+    // 3) Генерируем новый пароль
+    const newPassword = generateNewPassword();
+
+    // 4) Попытка обновить пароль в Firebase Auth ТОЛЬКО если это текущая сессия
+    const currentUser = auth.currentUser;
+    let updatedInAuth = false;
+    if (currentUser && currentUser.uid === user.uid) {
+      try {
+        await updatePassword(currentUser, newPassword);
+        updatedInAuth = true;
+        console.log('AUTH DEBUG: updatePassword прошёл успешно для текущего пользователя');
+      } catch (authError) {
+        console.warn('AUTH DEBUG: updatePassword упал:', authError);
+        if (authError.code === 'auth/requires-recent-login' || authError.code === 'auth/requires-recent-auth') {
+          // Пытаемся реаутентифицировать
+          if (!currentPlainPassword) {
+            console.warn('AUTH DEBUG: нет текущего пароля для реаутентификации');
+          } else {
+            try {
+              const credential = EmailAuthProvider.credential(user.email, currentPlainPassword);
+              await reauthenticateWithCredential(currentUser, credential);
+              console.log('AUTH DEBUG: реаутентификация успешна, пробуем updatePassword снова');
+              await updatePassword(currentUser, newPassword);
+              updatedInAuth = true;
+              console.log('AUTH DEBUG: updatePassword после реаутентификации успешен');
+            } catch (reauthErr) {
+              console.error('AUTH DEBUG: ошибка реаутентификации:', reauthErr);
+            }
+          }
+        } else {
+          console.error('AUTH DEBUG: ошибка обновления пароля (не requires-recent-login):', authError);
+        }
+      }
+    } else {
+      console.log('AUTH DEBUG: текущая сессия не совпадает с user.uid — не пытаемся менять Auth пароли с клиента');
+    }
+
+    // 5) Сохраняем (или резервируем) новый пароль в Firestore В ЛЮБОМ СЛУЧАЕ (чтобы админ видел)
+    //    Обратите внимание: это plaintext — в проде лучше не хранить пароли открытыми.
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
-      lastPasswordChange: serverTimestamp()
+      lastPasswordChange: serverTimestamp(),
+      lastLoginAt: serverTimestamp(),
+      authSynced: updatedInAuth // флаг: удалось ли синхронизировать с Auth
     });
-    console.log('✅ Пароль сохранен в Firestore');
+
+    console.log(`AUTH DEBUG: Сохранён новый пароль в Firestore для ${user.email}. authSynced=${updatedInAuth}`);
 
   } catch (error) {
-    console.error('❌ Ошибка сброса пароля:', error);
+    console.error('AUTH DEBUG: Ошибка в resetUserPassword:', error);
   } finally {
-    setTimeout(() => { passwordResetInProgress = false; }, 3000);
+    // небольшой таймаут, чтобы не позволить частые повторные вызовы
+    setTimeout(() => { passwordResetInProgress = false; }, 1500);
   }
 }
 
@@ -818,85 +766,77 @@ window.bulkAccessControl = async function(action) {
 
 /* ====== ФУНКЦИЯ ПРИНУДИТЕЛЬНОГО СБРОСА ПАРОЛЯ ====== */
 window.forcePasswordReset = async function(userId, userEmail) {
+  if (!userId || !userEmail) return;
   if (userEmail === ADMIN_EMAIL) {
-    alert('❌ Нельзя сбросить пароль администратора!\nПароль администратора статичный: ' + ADMIN_STATIC_PASSWORD);
+    alert('Нельзя сбросить пароль администратора! Админ использует статичный пароль.');
     return;
   }
 
-  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован и сохранён.`)) return;
+  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован и сохранён (в Firestore).`)) return;
 
+  const userRef = doc(db, USERS_COLLECTION, userId);
+  const newPassword = generateNewPassword();
+
+  // Попытка: вызвать callable function (если задеплоена)
   try {
-    const newPassword = generateNewPassword();
-    console.log(`🔧 Админ: принудительный сброс пароля для ${userEmail}`);
-
-    const userRef = doc(db, USERS_COLLECTION, userId);
-    const userDoc = await getDoc(userRef);
-    if (!userDoc.exists()) {
-      alert('❌ Пользователь не найден');
-      return;
-    }
-
-    // Попытка обновить через callable Cloud Function (рекомендуется)
-    try {
-      const adminReset = httpsCallable(functions, 'adminResetPassword');
-      const result = await adminReset({ uid: userId, newPassword });
-      if (result?.data?.success) {
-        // Обновим локально документ (чтобы admin panel сразу отобразил пароль)
-        await updateDoc(userRef, {
-          currentPassword: newPassword,
-          passwordChanged: true,
-          lastPasswordChange: serverTimestamp(),
-          adminForcedReset: true
-        });
-        alert(`✅ Пароль обновлён в Authentication и Firestore.\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}`);
-        window.refreshAdminPanel && window.refreshAdminPanel();
-        return;
-      } else {
-        console.warn('adminResetPassword возвратил неожиданный результат:', result);
-        // fallthrough to fallback write
-      }
-    } catch (funcErr) {
-      console.warn('Ошибка вызова adminResetPassword (Cloud Function):', funcErr);
-      // fallback: запишем пароль в Firestore и поставим флаг — но это НЕ изменит Auth
+    const adminReset = httpsCallable(functions, 'adminResetPassword');
+    const res = await adminReset({ uid: userId, newPassword });
+    if (res?.data?.success) {
+      // Обновим Firestore для отображения в админке
       await updateDoc(userRef, {
         currentPassword: newPassword,
         passwordChanged: true,
         lastPasswordChange: serverTimestamp(),
-        adminForcedReset: true
+        adminForcedReset: true,
+        authSynced: true
       });
-      alert(
-        `⚠️ Пароль сохранён в Firestore: ${newPassword}\n\n` +
-        `Но Cloud Function не доступна. Чтобы реально изменить пароль в Authentication,\n` +
-        `разверните Cloud Function adminResetPassword (Admin SDK) и попробуйте снова.`
-      );
+      alert(`Пароль обновлён в Authentication и Firestore:\n\n${newPassword}`);
       window.refreshAdminPanel && window.refreshAdminPanel();
       return;
+    } else {
+      console.warn('AUTH DEBUG: adminResetPassword вернула неожиданный ответ:', res);
     }
+  } catch (funcErr) {
+    console.warn('AUTH DEBUG: ошибочный вызов Cloud Function (fallback to Firestore):', funcErr);
+    // fallback ниже
+  }
 
-  } catch (error) {
-    console.error('Ошибка принудительного сброса:', error);
-    alert('Ошибка сброса пароля: ' + (error.message || error));
-  } finally {
+  // Fallback: просто пишем в Firestore (Auth НЕ будет изменён)
+  try {
+    await updateDoc(userRef, {
+      currentPassword: newPassword,
+      passwordChanged: true,
+      lastPasswordChange: serverTimestamp(),
+      adminForcedReset: true,
+      authSynced: false
+    });
+    alert(`⚠️ Cloud Function недоступна. Пароль сохранён только в Firestore:\n\n${newPassword}\n\nЧтобы синхронизировать с Firebase Auth, задеплойте Cloud Function adminResetPassword.`);
     window.refreshAdminPanel && window.refreshAdminPanel();
+  } catch (err) {
+    console.error('AUTH DEBUG: Ошибка записи пароля в Firestore (fallback):', err);
+    alert('Ошибка при записи пароля в Firestore: ' + (err.message || err));
   }
 };
 
 /* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ (замена) ====== */
 onAuthStateChanged(auth, async (user) => {
   try {
-    // отписываемся от предыдущих слушателей
+    // Отписываемся от предыдущих слушателей
     if (userUnsubscribe) {
-      try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
+      try { userUnsubscribe(); } catch (e) { console.error('Ошибка отписки:', e); }
       userUnsubscribe = null;
     }
 
-    // Если нет юзера — показываем экран авторизации и сбрасываем состояние
+    // Если нет пользователя — показываем экран авторизации
     if (!user) {
-      authOverlay?.removeAttribute('inert');
-      if (authOverlay) authOverlay.style.display = 'flex';
+      if (authOverlay) {
+        authOverlay.removeAttribute('inert');
+        authOverlay.style.display = 'flex';
+      }
       if (waitOverlay) waitOverlay.style.display = 'none';
       if (appDiv) appDiv.style.display = 'none';
       if (userEmailSpan) userEmailSpan.innerText = '';
+
       quizInitialized = false;
       quizInstance = null;
 
@@ -905,14 +845,17 @@ onAuthStateChanged(auth, async (user) => {
       return;
     }
 
-    // Пользователь вошёл — не грузим облако автоматически, только инициализируем по локалу
-    authOverlay?.setAttribute('inert', '');
-    if (authOverlay) authOverlay.style.display = 'none';
+    // Пользователь вошёл
+    if (authOverlay) {
+      authOverlay.setAttribute('inert', '');
+      authOverlay.style.display = 'none';
+    }
     if (userEmailSpan) userEmailSpan.innerText = user.email || '';
 
+    // Настраиваем админ-панель
     await setupAdminPanel(user.email);
 
-    // Создаём / убеждаемся в наличии документа user (как у тебя было)
+    // Создаём / убеждаемся в наличии документа пользователя
     const uDocRef = doc(db, USERS_COLLECTION, user.uid);
     try {
       const uDocSnap = await getDoc(uDocRef);
@@ -931,8 +874,8 @@ onAuthStateChanged(auth, async (user) => {
       console.error('Ошибка чтения/создания user doc:', err);
     }
 
-    // Слушаем allowed — чтобы показать приложение или экран ожидания
-    userUnsubscribe = onSnapshot(uDocRef, async (docSnap) => {
+    // Слушаем изменения поля allowed
+    userUnsubscribe = onSnapshot(uDocRef, (docSnap) => {
       if (!docSnap.exists()) return;
 
       const data = docSnap.data();
@@ -944,16 +887,15 @@ onAuthStateChanged(auth, async (user) => {
         if (appDiv) appDiv.style.display = 'block';
         setStatus('');
 
-        // Инициализируем тест — ВАЖНО: initQuiz внутри сам загрузит состояние из localStorage
+        // Инициализация теста (только один раз)
         if (!quizInitialized) {
           try {
-            // сохраняем глобально userId, чтобы initQuiz мог сформировать STORAGE_KEY
             window.currentUserId = user.uid;
-            quizInstance = initQuiz(user.uid);
+            quizInstance = initQuiz(user.uid); // initQuiz сама загрузит локальный прогресс
             quizInitialized = true;
           } catch (error) {
             console.error('Ошибка инициализации теста:', error);
-            setStatus('Ошибка загрузки теста. Попробуйте перезагрузить страницу.', true);
+            setStatus('Ошибка загрузки теста. Перезагрузите страницу.', true);
           }
         }
 
@@ -2520,6 +2462,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
