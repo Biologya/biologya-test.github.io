@@ -225,35 +225,37 @@ async function resetUserPassword(user) {
       return;
     }
     
-    // Генерируем НОВЫЙ пароль для СЛЕДУЮЩЕГО входа
+    // Генерируем НОВЫЙ пароль
     const newPassword = generateNewPassword();
     
     console.log(`%c🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА`, "color: #4CAF50; font-weight: bold; font-size: 16px;");
     console.log(`%c📧 Email: ${user.email}`, "color: #2196F3; font-size: 14px;");
-    console.log(`%c🔑 Новый пароль для следующего входа: ${newPassword}`, 
+    console.log(`%c🔑 Новый пароль: ${newPassword}`, 
                 "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;");
     
-    // Обновляем пароль в Firebase Auth (для следующего входа)
-    try {
-      await updatePassword(user, newPassword);
-      console.log('✅ Пароль обновлен в Firebase Auth для следующего входа');
-    } catch (authError) {
-      console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
-      // Продолжаем - пароль сохранится в Firestore для админки
-    }
+    // Обновляем пароль в Firebase Auth
+    await updatePassword(user, newPassword);
+    console.log('✅ Пароль обновлен в Firebase Auth');
     
-    // Сохраняем новый пароль в Firestore (появится в админке)
+    // Если успешно — сохраняем новый пароль в Firestore
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
       lastLoginAt: serverTimestamp()
     });
+    console.log('✅ Пароль сохранен в Firestore');
     
-    console.log('✅ Пароль сохранен в Firestore (виден в админке)');
-    
-  } catch (error) {
-    console.error('Ошибка сброса пароля:', error);
+  } catch (authError) {
+    console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
+    // В случае ошибки НЕ меняем currentPassword, только фиксируем время входа
+    try {
+      await updateDoc(uDocRef, {
+        lastLoginAt: serverTimestamp()
+      });
+    } catch (updateErr) {
+      console.error('Ошибка обновления времени входа:', updateErr);
+    }
   } finally {
     setTimeout(() => {
       passwordResetInProgress = false;
@@ -2495,6 +2497,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
