@@ -91,6 +91,14 @@ let userUnsubscribe = null;
 let saveProgressBtn = null;
 let isInitializing = false;
 
+// Кнопка "Загрузить из облака"
+if (loadFromCloudBtn) {
+  loadFromCloudBtn.onclick = async () => {
+    if (!confirm('⚠️ Загрузить прогресс из облака? Локальный прогресс будет заменён.')) return;
+    await loadProgressFromCloud();
+  };
+}
+
 /* ====== АВТОРИЗАЦИЯ ====== */
 authBtn.addEventListener('click', async () => {
   const email = (emailInput?.value || '').trim();
@@ -317,14 +325,6 @@ async function setupAdminPanel(userEmail) {
   } catch (error) {
     console.error('Ошибка настройки админ панели:', error);
   }
-}
-
-// Кнопка "Загрузить из облака"
-if (loadFromCloudBtn) {
-  loadFromCloudBtn.onclick = async () => {
-    if (!confirm('⚠️ Загрузить прогресс из облака? Локальный прогресс будет заменён.')) return;
-    await loadProgressFromCloud();
-  };
 }
 
 /* ====== КНОПКА WHATSAPP ====== */
@@ -2489,6 +2489,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
