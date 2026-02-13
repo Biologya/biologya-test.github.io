@@ -94,12 +94,12 @@ authBtn.addEventListener('click', async () => {
   const email = (emailInput?.value || '').trim();
   const password = passInput?.value || '';
     
-    if (!email || !password) {
-      setStatus('Введите email и пароль', true);
-      return;
-    }
+  if (!email || !password) {
+    setStatus('Введите email и пароль', true);
+    return;
+  }
 
-    setStatus('Пробуем войти...');
+  setStatus('Пробуем войти...');
     
   try {
     authBtn.disabled = true;
@@ -108,7 +108,7 @@ authBtn.addEventListener('click', async () => {
     const user = userCredential.user;
     setStatus('Вход выполнен');
     
-      // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
+    // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
     setTimeout(async () => {
       try {
         if (user && user.email !== ADMIN_EMAIL) {
@@ -123,49 +123,48 @@ authBtn.addEventListener('click', async () => {
       if (authOverlay) authOverlay.style.display = 'none';
     }, 500);
       
-    } catch(e) {
-      console.error('Ошибка входа:', e);
-      
-      if (e.code === 'auth/user-not-found') {
-        setStatus('Учётной записи не найдено — создаём...');
-        try {
-          authBtn.innerText = 'Регистрация...';
-          const cred = await createUserWithEmailAndPassword(auth, email, password);
-          await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
-            email: email,
-            allowed: false,
-            createdAt: serverTimestamp(),
-            originalPassword: password,
-            passwordChanged: false,
-            currentPassword: password, // Сохраняем пароль для первого входа
-            lastLoginAt: null
-          });
-          setStatus('Заявка отправлена. Ожидайте подтверждения.');
-          
-          if (waitOverlay) {
-            waitOverlay.style.display = 'flex';
-            authOverlay.style.display = 'none';
-          }
-          
-        } catch(err2) {
-          console.error('Ошибка регистрации:', err2);
-          setStatus(err2.message || 'Ошибка регистрации', true);
+  } catch(e) {
+    console.error('Ошибка входа:', e);
+    
+    if (e.code === 'auth/user-not-found') {
+      setStatus('Учётной записи не найдено — создаём...');
+      try {
+        authBtn.innerText = 'Регистрация...';
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
+          email: email,
+          allowed: false,
+          createdAt: serverTimestamp(),
+          originalPassword: password,
+          passwordChanged: false,
+          currentPassword: password,
+          lastLoginAt: null
+        });
+        setStatus('Заявка отправлена. Ожидайте подтверждения.');
+        
+        if (waitOverlay) {
+          waitOverlay.style.display = 'flex';
+          authOverlay.style.display = 'none';
         }
-      } else if (e.code === 'auth/wrong-password') {
-        setStatus('Неверный пароль', true);
-      } else if (e.code === 'auth/too-many-requests') {
-        setStatus('Слишком много попыток. Попробуйте позже.', true);
-      } else {
-        setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
+        
+      } catch(err2) {
+        console.error('Ошибка регистрации:', err2);
+        setStatus(err2.message || 'Ошибка регистрации', true);
       }
-    } finally {
-      if (authBtn) {
-        authBtn.disabled = false;
-        authBtn.innerText = 'Войти / Зарегистрироваться';
-      }
+    } else if (e.code === 'auth/wrong-password') {
+      setStatus('Неверный пароль', true);
+    } else if (e.code === 'auth/too-many-requests') {
+      setStatus('Слишком много попыток. Попробуйте позже.', true);
+    } else {
+      setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
     }
-  });
-}
+  } finally {
+    if (authBtn) {
+      authBtn.disabled = false;
+      authBtn.innerText = 'Войти / Зарегистрироваться';
+    }
+  }
+});
 
 const loadFromCloudBtn = document.getElementById('loadFromCloudBtn');
 
@@ -2497,6 +2496,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
