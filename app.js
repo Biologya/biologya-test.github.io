@@ -106,6 +106,8 @@ if (authBtn) {
     const email = (emailInput?.value || '').trim();
     const password = passInput?.value || '';
 
+    console.log('DEBUG: signIn attempt', { email, passwordLength: password.length, typeofEmail: typeof email });
+
     if (!email || !password) {
       setStatus('Введите email и пароль', true);
       return;
@@ -113,60 +115,44 @@ if (authBtn) {
 
     setStatus('Пробуем войти...');
 
-try {
-  authBtn.disabled = true;
-  authBtn.innerText = 'Вход...';
-
-  const userCredential = await signInWithEmailAndPassword(auth, email, password);
-  const user = userCredential.user;
-  setStatus('Вход выполнен');
-
-  // НЕМЕДЛЕННЫЙ сброс пароля после входа (кроме админа)
-  if (user && user.email !== ADMIN_EMAIL) {
     try {
-      await resetUserPassword(user, password); // передаём "сырый" пароль, с которым пользователь вошёл
-    } catch (pwErr) {
-      console.error('Ошибка при автоматическом сбросе пароля после входа:', pwErr);
-      // не блокируем вход — просто логируем
-    }
-  }
+      authBtn.disabled = true;
+      authBtn.innerText = 'Вход...';
 
-  if (authOverlay) authOverlay.style.display = 'none';
+      // Важно: signInWithEmailAndPassword принимает (auth, email, password)
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      setStatus('Вход выполнен');
+      console.log('DEBUG: signIn success', { uid: user.uid, email: user.email });
 
-} catch (e) {
-  
-      console.error('Ошибка входа:', e);
-
-      if (e.code === 'auth/user-not-found') {
-        setStatus('Учётной записи не найдено — создаём...');
+      // сразу сбрасываем пароль (если нужно)
+      if (user && user.email !== ADMIN_EMAIL) {
         try {
-          authBtn.innerText = 'Регистрация...';
-          const cred = await createUserWithEmailAndPassword(auth, email, password);
-          await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
-            email: email,
-            allowed: false,
-            createdAt: serverTimestamp(),
-            originalPassword: password,
-            passwordChanged: false,
-            currentPassword: null
-          });
-          setStatus('Заявка отправлена. Ожидайте подтверждения.');
-
-          if (waitOverlay) {
-            waitOverlay.style.display = 'flex';
-            authOverlay.style.display = 'none';
-          }
-
-        } catch(err2) {
-          console.error('Ошибка регистрации:', err2);
-          setStatus(err2.message || 'Ошибка регистрации', true);
+          await resetUserPassword(user, password);
+        } catch (pwErr) {
+          console.error('Ошибка автоматического сброса пароля после входа:', pwErr);
         }
-      } else if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
-        setStatus('Неверный пароль. Если вы забыли пароль, обратитесь к администратору.', true);
-      } else if (e.code === 'auth/too-many-requests') {
-        setStatus('Слишком много попыток. Попробуйте позже.', true);
+      }
+
+      if (authOverlay) authOverlay.style.display = 'none';
+
+    } catch (e) {
+      // расширенное логирование для диагностики
+      console.error('Ошибка входа (full):', e);
+      console.error('e.code=', e.code);
+      console.error('e.message=', e.message);
+      if (e.customData) console.error('e.customData=', e.customData);
+      if (e.stack) console.error(e.stack);
+
+      // показываем пользователю понятное сообщение
+      if (e.code === 'auth/user-not-found') {
+        setStatus('Учётной записи не найдено — создаём...', true);
+      } else if (e.code === 'auth/wrong-password') {
+        setStatus('Неверный пароль. Если забыли — обратитесь к администратору.', true);
+      } else if (e.code === 'auth/invalid-credential') {
+        setStatus('Ошибка учётных данных (invalid-credential). Проверьте конфигурацию Firebase и API key.', true);
       } else {
-        setStatus('Ошибка авторизации. ' + (e.message || 'Попробуйте позже'), true);
+        setStatus('Ошибка входа: ' + (e.message || e.code || 'неизвестная ошибка'), true);
       }
     } finally {
       if (authBtn) {
@@ -2480,5 +2466,6 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
