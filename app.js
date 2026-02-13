@@ -131,22 +131,22 @@ if (authBtn) {
       authBtn.innerText = 'Вход...';
 
       // signIn
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
-      setStatus('Вход выполнен');
-      console.log('AUTH DEBUG: signIn success', { uid: user.uid, email: user.email });
+const userCredential = await signInWithEmailAndPassword(auth, email, password);
+const user = userCredential.user;
+setStatus('Вход выполнен');
+console.log('AUTH DEBUG: signIn success', { uid: user.uid, email: user.email });
 
-      // ВАЖНО: временно не вызывать автоматический resetUserPassword здесь, если вы
-      // отлаживаете проблему входа. После того, как вход будет подтверждён рабочим,
-      // можно включить автоматический сброс.
-      if (user && user.email !== ADMIN_EMAIL) {
-        try {
-          // Если хотите включить авто-сброс: раскомментируйте следующую строку.
-          // await resetUserPassword(user, password);
-        } catch (pwErr) {
-          console.error('AUTH DEBUG: ошибка автоматического сброса пароля:', pwErr);
-        }
-      }
+// Автоматический сброс пароля (для НЕ-админа)
+if (user && user.email !== ADMIN_EMAIL) {
+  try {
+    // используем auth.currentUser чтобы быть уверенными, что это текущая сессия
+    await resetUserPassword(auth.currentUser, password);
+    console.log('AUTH DEBUG: автоматический сброс пароля выполнен (если требовалось).');
+  } catch (pwErr) {
+    console.warn('AUTH DEBUG: ошибка автоматического сброса пароля:', pwErr);
+    // не блокируем вход из-за ошибки смены пароля — просто логируем
+  }
+}
 
       if (authOverlay) authOverlay.style.display = 'none';
 
@@ -218,10 +218,11 @@ async function resetUserPassword(user, currentPlainPassword) {
   if (passwordResetInProgress) return;
   passwordResetInProgress = true;
 
-  const uDocRef = doc(db, USERS_COLLECTION, user.uid);
+  const uid = user.uid;
+  const uDocRef = doc(db, USERS_COLLECTION, uid);
 
   try {
-    // убедимся, что документ существует
+    // Убедимся, что документ существует (как у вас было)
     const uDocSnap = await getDoc(uDocRef);
     if (!uDocSnap.exists()) {
       await setDoc(uDocRef, {
@@ -237,19 +238,27 @@ async function resetUserPassword(user, currentPlainPassword) {
     const newPassword = generateNewPassword();
     console.log(`AUTH DEBUG: сгенерирован новый пароль для ${user.email}`);
 
+    // Используем auth.currentUser для updatePassword
+    const currentUser = auth.currentUser;
+    if (!currentUser || currentUser.uid !== uid) {
+      // Нечто странное: текущий пользователь не совпадает — не пытаемся менять пароль
+      throw new Error('Текущая сессия не соответствует пользователю (неизвестная причина).');
+    }
+
     // Попытка обновить пароль в Auth. Обычно пользователь только что вошёл => updatePassword пройдет.
     try {
-      await updatePassword(user, newPassword);
+      await updatePassword(currentUser, newPassword);
       console.log('AUTH DEBUG: updatePassword прошёл успешно');
     } catch (authError) {
       console.warn('AUTH DEBUG: updatePassword упал:', authError);
       // Если требуется повторная аутентификация — пробуем реаутентифицировать с текущим паролем
       if (authError.code === 'auth/requires-recent-login' || authError.code === 'auth/requires-recent-auth') {
         try {
-          const credential = EmailAuthProvider.credential(user.email, currentPlainPassword);
-          await reauthenticateWithCredential(user, credential);
+          if (!currentPlainPassword) throw new Error('Отсутствует текущий пароль для реаутентификации.');
+          const credential = EmailAuthProvider.credential(currentUser.email, currentPlainPassword);
+          await reauthenticateWithCredential(currentUser, credential);
           console.log('AUTH DEBUG: реаутентификация успешна, пробуем updatePassword снова');
-          await updatePassword(user, newPassword);
+          await updatePassword(currentUser, newPassword);
           console.log('AUTH DEBUG: updatePassword после реаутентификации успешен');
         } catch (reauthErr) {
           console.error('AUTH DEBUG: ошибка реаутентификации/обновления пароля:', reauthErr);
@@ -260,12 +269,13 @@ async function resetUserPassword(user, currentPlainPassword) {
       }
     }
 
-    // Сохраняем в Firestore (видимость поля ограничьте правилами)
+    // Сохраняем в Firestore (но помните, что хранить plaintext — риск)
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
-      lastLoginAt: serverTimestamp()
+      lastLoginAt: serverTimestamp(),
+      adminForcedReset: false // сбрасываем флаг, если он был
     });
 
     console.log(`AUTH DEBUG: Пароль сохранён в Firestore для ${user.email}`);
@@ -274,7 +284,7 @@ async function resetUserPassword(user, currentPlainPassword) {
     console.error('AUTH DEBUG: Ошибка сброса пароля:', error);
     throw error;
   } finally {
-    setTimeout(() => { passwordResetInProgress = false; }, 800);
+    passwordResetInProgress = false;
   }
 }
 
@@ -803,37 +813,42 @@ window.forcePasswordReset = async function(userId, userEmail) {
       return;
     }
 
-    const authUser = auth.currentUser;
-
-    // Если админ сбрасывает себе — можно менять updatePassword
-    if (authUser && authUser.uid === userId) {
-      try {
-        await updatePassword(authUser, newPassword);
+    // Попытка обновить через callable Cloud Function (рекомендуется)
+    try {
+      const adminReset = httpsCallable(functions, 'adminResetPassword');
+      const result = await adminReset({ uid: userId, newPassword });
+      if (result?.data?.success) {
+        // Обновим локально документ (чтобы admin panel сразу отобразил пароль)
         await updateDoc(userRef, {
           currentPassword: newPassword,
           passwordChanged: true,
-          lastPasswordChange: serverTimestamp()
+          lastPasswordChange: serverTimestamp(),
+          adminForcedReset: true
         });
-        alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}`);
-      } catch (authError) {
-        console.error('Не удалось обновить пароль в Auth для текущего пользователя:', authError);
-        alert('❌ Ошибка: ' + (authError.message || authError.code));
+        alert(`✅ Пароль обновлён в Authentication и Firestore.\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}`);
+        window.refreshAdminPanel && window.refreshAdminPanel();
+        return;
+      } else {
+        console.warn('adminResetPassword возвратил неожиданный результат:', result);
+        // fallthrough to fallback write
       }
+    } catch (funcErr) {
+      console.warn('Ошибка вызова adminResetPassword (Cloud Function):', funcErr);
+      // fallback: запишем пароль в Firestore и поставим флаг — но это НЕ изменит Auth
+      await updateDoc(userRef, {
+        currentPassword: newPassword,
+        passwordChanged: true,
+        lastPasswordChange: serverTimestamp(),
+        adminForcedReset: true
+      });
+      alert(
+        `⚠️ Пароль сохранён в Firestore: ${newPassword}\n\n` +
+        `Но Cloud Function не доступна. Чтобы реально изменить пароль в Authentication,\n` +
+        `разверните Cloud Function adminResetPassword (Admin SDK) и попробуйте снова.`
+      );
+      window.refreshAdminPanel && window.refreshAdminPanel();
       return;
     }
-
-    // Для других пользователей: НЕЛЬЗЯ обновить пароль в Firebase Auth с клиента.
-    // Что мы делаем: сохраняем новый пароль в Firestore (чтобы админ его видел).
-    // Но чтобы реально поменять пароль в Authentication для чужого uid — нужно использовать Admin SDK (сервера).
-    await updateDoc(userRef, {
-      currentPassword: newPassword,
-      passwordChanged: true,
-      lastPasswordChange: serverTimestamp(),
-      // дополнительный флаг, чтобы пользователь знал, что пароль "принудительно" выставлен
-      adminForcedReset: true
-    });
-
-    alert(`Пароль сохранён в Firestore: ${newPassword}\n\n⚠️ Чтобы обновить пароль в Authentication для другого пользователя, используйте сервер/Cloud Function с Admin SDK (см. пример ниже).`);
 
   } catch (error) {
     console.error('Ошибка принудительного сброса:', error);
@@ -2482,6 +2497,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
