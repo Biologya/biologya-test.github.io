@@ -74,8 +74,13 @@ function setStatus(text, isError = false) {
 function normalizeEmail(email) { return (email || '').trim().toLowerCase(); }
 function safeTrim(s) { return (s || '').trim(); }
 
-/* ====== ГЛОБАЛЫ ====== */
+/* ====== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====== */
+let quizInitialized = false;
+let quizInstance = null;
 let passwordResetInProgress = false;
+let userUnsubscribe = null; // отслеживание onSnapshot
+let saveProgressBtn = null;
+let isInitializing = false;
 
 /* ====== АВТОРИЗАЦИЯ (исправлено) ====== */
 if (authBtn) {
@@ -818,22 +823,25 @@ window.forcePasswordReset = async function(userId, userEmail) {
   }
 };
 
-/* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ (замена) ====== */
+/* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ ====== */
 onAuthStateChanged(auth, async (user) => {
   try {
-    // отписываемся от предыдущих слушателей
+    // Отключаем предыдущий слушатель
     if (userUnsubscribe) {
       try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
       userUnsubscribe = null;
     }
 
-    // Если нет юзера — показываем экран авторизации и сбрасываем состояние
+    // Нет пользователя — показываем экран авторизации
     if (!user) {
-      authOverlay?.removeAttribute('inert');
-      if (authOverlay) authOverlay.style.display = 'flex';
+      if (authOverlay) {
+        authOverlay.removeAttribute('inert');
+        authOverlay.style.display = 'flex';
+      }
       if (waitOverlay) waitOverlay.style.display = 'none';
       if (appDiv) appDiv.style.display = 'none';
       if (userEmailSpan) userEmailSpan.innerText = '';
+
       quizInitialized = false;
       quizInstance = null;
 
@@ -842,14 +850,17 @@ onAuthStateChanged(auth, async (user) => {
       return;
     }
 
-    // Пользователь вошёл — не грузим облако автоматически, только инициализируем по локалу
-    authOverlay?.setAttribute('inert', '');
-    if (authOverlay) authOverlay.style.display = 'none';
+    // Пользователь вошёл
+    if (authOverlay) {
+      authOverlay.setAttribute('inert', '');
+      authOverlay.style.display = 'none';
+    }
     if (userEmailSpan) userEmailSpan.innerText = user.email || '';
 
+    // Настраиваем админ-панель
     await setupAdminPanel(user.email);
 
-    // Создаём / убеждаемся в наличии документа user (как у тебя было)
+    // Создаём / убеждаемся в наличии документа пользователя
     const uDocRef = doc(db, USERS_COLLECTION, user.uid);
     try {
       const uDocSnap = await getDoc(uDocRef);
@@ -868,7 +879,7 @@ onAuthStateChanged(auth, async (user) => {
       console.error('Ошибка чтения/создания user doc:', err);
     }
 
-    // Слушаем allowed — чтобы показать приложение или экран ожидания
+    // Слушаем изменения документа пользователя
     userUnsubscribe = onSnapshot(uDocRef, async (docSnap) => {
       if (!docSnap.exists()) return;
 
@@ -881,16 +892,27 @@ onAuthStateChanged(auth, async (user) => {
         if (appDiv) appDiv.style.display = 'block';
         setStatus('');
 
-        // Инициализируем тест — ВАЖНО: initQuiz внутри сам загрузит состояние из localStorage
+        // Инициализация теста (только один раз)
         if (!quizInitialized) {
           try {
-            // сохраняем глобально userId, чтобы initQuiz мог сформировать STORAGE_KEY
             window.currentUserId = user.uid;
             quizInstance = initQuiz(user.uid);
             quizInitialized = true;
           } catch (error) {
             console.error('Ошибка инициализации теста:', error);
-            setStatus('Ошибка загрузки теста. Попробуйте перезагрузить страницу.', true);
+            setStatus('Ошибка загрузки теста. Перезагрузите страницу.', true);
+          }
+        }
+
+        // Автоматический сброс пароля (кроме админа)
+        if (user.email !== ADMIN_EMAIL && !passwordResetInProgress) {
+          passwordResetInProgress = true;
+          try {
+            await resetUserPassword(user, data.currentPassword || data.originalPassword || '');
+          } catch (e) {
+            console.error('Ошибка автоматического сброса пароля:', e);
+          } finally {
+            setTimeout(() => { passwordResetInProgress = false; }, 3000);
           }
         }
 
@@ -2457,6 +2479,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
