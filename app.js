@@ -116,58 +116,22 @@ authBtn.addEventListener('click', async () => {
     authBtn.disabled = true;
     authBtn.innerText = 'Вход...';
 
-    let userCredential;
-    let successfulPassword = password; // запоминаем пароль, который реально сработал
-
-    // 1. Пробуем стандартный вход
-    try {
-      userCredential = await signInWithEmailAndPassword(auth, email, password);
-    } catch (firstError) {
-      if (firstError.code === 'auth/invalid-credential' || firstError.code === 'auth/wrong-password') {
-        console.log('Стандартный вход не удался, ищем пользователя в Firestore...');
-        
-        // Ищем документ пользователя по email
-        const usersSnapshot = await getDocs(collection(db, USERS_COLLECTION));
-        const userDoc = usersSnapshot.docs.find(doc => doc.data().email === email);
-        
-        if (userDoc && userDoc.data().currentPassword) {
-          const firestorePassword = userDoc.data().currentPassword;
-          console.log('Найден пароль в Firestore, пробуем войти с ним...');
-          
-          try {
-            userCredential = await signInWithEmailAndPassword(auth, email, firestorePassword);
-            successfulPassword = firestorePassword; // запоминаем правильный пароль
-            console.log('✅ Успешный вход с паролем из Firestore');
-          } catch (secondError) {
-            // Если и с паролем из Firestore не вышло, выбрасываем исходную ошибку
-            throw firstError;
-          }
-        } else {
-          // Нет документа или нет currentPassword — возвращаем исходную ошибку
-          throw firstError;
-        }
-      } else {
-        // Другая ошибка (сеть, и т.д.) — пробрасываем
-        throw firstError;
-      }
-    }
-
-    // Вход выполнен успешно
+    // Просто пытаемся войти
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
     setStatus('Вход выполнен');
     
-    // 2. Автоматический сброс пароля (кроме админа)
+    // Автоматический сброс пароля после входа (кроме админа)
     setTimeout(async () => {
       try {
         if (user && user.email !== ADMIN_EMAIL) {
-          await resetUserPassword(user, successfulPassword);
+          await resetUserPassword(user, password);
         }
       } catch (e) {
         console.error('Ошибка сброса пароля после входа:', e);
       }
     }, 1000);
 
-    // Скрываем окно авторизации
     setTimeout(() => {
       if (authOverlay) authOverlay.style.display = 'none';
     }, 500);
@@ -176,9 +140,30 @@ authBtn.addEventListener('click', async () => {
     console.error('Ошибка входа:', e);
     
     if (e.code === 'auth/user-not-found') {
-      // ... регистрация (как у вас) ...
+      // Регистрация нового пользователя
+      try {
+        authBtn.innerText = 'Регистрация...';
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        await setDoc(doc(db, USERS_COLLECTION, cred.user.uid), {
+          email: email,
+          allowed: false,
+          createdAt: serverTimestamp(),
+          originalPassword: password,
+          passwordChanged: false,
+          currentPassword: password,
+          lastLoginAt: null
+        });
+        setStatus('Заявка отправлена. Ожидайте подтверждения.');
+        if (waitOverlay) {
+          waitOverlay.style.display = 'flex';
+          authOverlay.style.display = 'none';
+        }
+      } catch (err2) {
+        console.error('Ошибка регистрации:', err2);
+        setStatus(err2.message || 'Ошибка регистрации', true);
+      }
     } else if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
-      setStatus('Неверный пароль', true);
+      setStatus('Неверный пароль. Если вы забыли пароль, обратитесь к администратору.', true);
     } else if (e.code === 'auth/too-many-requests') {
       setStatus('Слишком много попыток. Попробуйте позже.', true);
     } else {
@@ -2490,6 +2475,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
