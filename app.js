@@ -821,22 +821,19 @@ window.forcePasswordReset = async function(userId, userEmail) {
 /* ====== НАБЛЮДЕНИЕ ЗА АУТЕНТИФИКАЦИЕЙ (замена) ====== */
 onAuthStateChanged(auth, async (user) => {
   try {
-    // Отписываемся от предыдущих слушателей
+    // отписываемся от предыдущих слушателей
     if (userUnsubscribe) {
-      try { userUnsubscribe(); } catch (e) { console.error('Ошибка отписки:', e); }
+      try { userUnsubscribe(); } catch(e) { console.error('Ошибка отписки:', e); }
       userUnsubscribe = null;
     }
 
-    // Если нет пользователя — показываем экран авторизации
+    // Если нет юзера — показываем экран авторизации и сбрасываем состояние
     if (!user) {
-      if (authOverlay) {
-        authOverlay.removeAttribute('inert');
-        authOverlay.style.display = 'flex';
-      }
+      authOverlay?.removeAttribute('inert');
+      if (authOverlay) authOverlay.style.display = 'flex';
       if (waitOverlay) waitOverlay.style.display = 'none';
       if (appDiv) appDiv.style.display = 'none';
       if (userEmailSpan) userEmailSpan.innerText = '';
-
       quizInitialized = false;
       quizInstance = null;
 
@@ -845,17 +842,14 @@ onAuthStateChanged(auth, async (user) => {
       return;
     }
 
-    // Пользователь вошёл
-    if (authOverlay) {
-      authOverlay.setAttribute('inert', '');
-      authOverlay.style.display = 'none';
-    }
+    // Пользователь вошёл — не грузим облако автоматически, только инициализируем по локалу
+    authOverlay?.setAttribute('inert', '');
+    if (authOverlay) authOverlay.style.display = 'none';
     if (userEmailSpan) userEmailSpan.innerText = user.email || '';
 
-    // Настраиваем админ-панель
     await setupAdminPanel(user.email);
 
-    // Создаём / убеждаемся в наличии документа пользователя
+    // Создаём / убеждаемся в наличии документа user (как у тебя было)
     const uDocRef = doc(db, USERS_COLLECTION, user.uid);
     try {
       const uDocSnap = await getDoc(uDocRef);
@@ -874,8 +868,8 @@ onAuthStateChanged(auth, async (user) => {
       console.error('Ошибка чтения/создания user doc:', err);
     }
 
-    // Слушаем изменения поля allowed
-    userUnsubscribe = onSnapshot(uDocRef, (docSnap) => {
+    // Слушаем allowed — чтобы показать приложение или экран ожидания
+    userUnsubscribe = onSnapshot(uDocRef, async (docSnap) => {
       if (!docSnap.exists()) return;
 
       const data = docSnap.data();
@@ -887,15 +881,16 @@ onAuthStateChanged(auth, async (user) => {
         if (appDiv) appDiv.style.display = 'block';
         setStatus('');
 
-        // Инициализация теста (только один раз)
+        // Инициализируем тест — ВАЖНО: initQuiz внутри сам загрузит состояние из localStorage
         if (!quizInitialized) {
           try {
+            // сохраняем глобально userId, чтобы initQuiz мог сформировать STORAGE_KEY
             window.currentUserId = user.uid;
-            quizInstance = initQuiz(user.uid); // initQuiz сама загрузит локальный прогресс
+            quizInstance = initQuiz(user.uid);
             quizInitialized = true;
           } catch (error) {
             console.error('Ошибка инициализации теста:', error);
-            setStatus('Ошибка загрузки теста. Перезагрузите страницу.', true);
+            setStatus('Ошибка загрузки теста. Попробуйте перезагрузить страницу.', true);
           }
         }
 
@@ -2462,6 +2457,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
