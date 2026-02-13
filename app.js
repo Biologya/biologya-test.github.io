@@ -1,13 +1,13 @@
 // app.js (ES module)
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-app.js";
-import { getAnalytics } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-analytics.js";
 import {
   getAuth,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updatePassword
+  updatePassword,
+  EmailAuthProvider,
+  reauthenticateWithCredential
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getFirestore,
@@ -92,8 +92,8 @@ let isInitializing = false;
 /* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
-    const email = (emailInput?.value || '').trim();
-    const password = passInput?.value || '';
+  const email = (emailInput?.value || '').trim();
+  const password = passInput?.value || '';
     
     if (!email || !password) {
       setStatus('Введите email и пароль', true);
@@ -102,29 +102,25 @@ if (authBtn) {
 
     setStatus('Пробуем войти...');
     
-    try {
-      authBtn.disabled = true;
-      authBtn.innerText = 'Вход...';
-      
-      await signInWithEmailAndPassword(auth, email, password);
-      setStatus('Вход выполнен');
-      
-      // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
-        try {
-          const user = auth.currentUser;
-          if (user && user.email !== ADMIN_EMAIL) {
-            await resetUserPassword(user);
-          }
-        } catch (e) {
-          console.error('Ошибка сброса пароля после входа:', e);
-        }
-      }, 1000);
-      
-      setTimeout(() => {
-        if (authOverlay) authOverlay.style.display = 'none';
-      }, 500);
-      
-    } catch(e) {
+  try {
+    authBtn.disabled = true;
+    authBtn.innerText = 'Вход...';
+
+    const userCredential = await signInWithEmailAndPassword(auth, email, password);
+    setStatus('Вход выполнен');
+
+    // После успешного входа сбрасываем пароль, передавая старый пароль
+    const user = userCredential.user;
+    if (user && user.email !== ADMIN_EMAIL) {
+      await resetUserPassword(user, password);   // ← передаём password
+    }
+
+    setTimeout(() => {
+      if (authOverlay) authOverlay.style.display = 'none';
+    }, 500);
+
+  } catch(e) {
+    
       console.error('Ошибка входа:', e);
       
       if (e.code === 'auth/user-not-found') {
@@ -206,7 +202,7 @@ function generateNewPassword() {
 }
 
 /* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
-async function resetUserPassword(user) {
+async function resetUserPassword(user, oldPassword) {
   // Защита от повторного вызова
   if (passwordResetInProgress) return;
   // Админ не меняет пароль
@@ -229,11 +225,16 @@ async function resetUserPassword(user) {
     console.log(`%c📧 Email: ${user.email}`, "color: #2196F3; font-size: 14px;");
     console.log(`%c🔑 Новый пароль: ${newPassword}`, "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;");
 
-    // 1. Обновляем пароль в Firebase Authentication
+    // 1. Повторная аутентификация (требуется для смены пароля)
+    const credential = EmailAuthProvider.credential(user.email, oldPassword);
+    await reauthenticateWithCredential(user, credential);
+    console.log('✅ Повторная аутентификация пройдена');
+
+    // 2. Обновляем пароль в Firebase Authentication
     await updatePassword(user, newPassword);
     console.log('✅ Пароль обновлен в Firebase Auth');
 
-    // 2. Сохраняем новый пароль в Firestore
+    // 3. Сохраняем новый пароль в Firestore
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
@@ -251,7 +252,6 @@ async function resetUserPassword(user) {
       console.error('Не удалось обновить время входа:', updateErr);
     }
   } finally {
-    // Сбрасываем флаг через некоторое время
     setTimeout(() => { passwordResetInProgress = false; }, 3000);
   }
 }
@@ -2490,4 +2490,5 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
