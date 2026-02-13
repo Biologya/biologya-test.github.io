@@ -212,81 +212,58 @@ function generateNewPassword() {
 }
 
 /* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
-async function resetUserPassword(user, currentPlainPassword) {
-  if (!user) throw new Error('Нет пользователя для сброса пароля');
-  if (user.email === ADMIN_EMAIL) return; // не трогаем администратора
-  if (passwordResetInProgress) return;
-  passwordResetInProgress = true;
+async function resetUserPassword(user) {
+  if (!user) return;
+  // Не трогаем администратора — выставляем статичный пароль в базе
+  if (user.email === ADMIN_EMAIL) {
+    try {
+      await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
+        currentPassword: ADMIN_STATIC_PASSWORD,
+        passwordChanged: true,
+        lastPasswordChange: serverTimestamp(),
+        isAdmin: true
+      });
+    } catch (err) {
+      console.error('Ошибка записи пароля администратора в Firestore:', err);
+    }
+    return;
+  }
 
-  const uid = user.uid;
-  const uDocRef = doc(db, USERS_COLLECTION, uid);
-
+  const uDocRef = doc(db, USERS_COLLECTION, user.uid);
   try {
-    // Убедимся, что документ существует (как у вас было)
-    const uDocSnap = await getDoc(uDocRef);
-    if (!uDocSnap.exists()) {
+    // Получаем документ (на случай если нужно создавать)
+    const snap = await getDoc(uDocRef);
+    if (!snap.exists()) {
+      // Создаём базовый документ
       await setDoc(uDocRef, {
         email: user.email || '',
         allowed: false,
         createdAt: serverTimestamp(),
-        passwordChanged: false,
+        passwordChanged: true,
         currentPassword: null,
-        lastLoginAt: serverTimestamp()
+        lastPasswordChange: serverTimestamp()
       });
     }
 
     const newPassword = generateNewPassword();
-    console.log(`AUTH DEBUG: сгенерирован новый пароль для ${user.email}`);
 
-    // Используем auth.currentUser для updatePassword
-    const currentUser = auth.currentUser;
-    if (!currentUser || currentUser.uid !== uid) {
-      // Нечто странное: текущий пользователь не совпадает — не пытаемся менять пароль
-      throw new Error('Текущая сессия не соответствует пользователю (неизвестная причина).');
-    }
-
-    // Попытка обновить пароль в Auth. Обычно пользователь только что вошёл => updatePassword пройдет.
-    try {
-      await updatePassword(currentUser, newPassword);
-      console.log('AUTH DEBUG: updatePassword прошёл успешно');
-    } catch (authError) {
-      console.warn('AUTH DEBUG: updatePassword упал:', authError);
-      // Если требуется повторная аутентификация — пробуем реаутентифицировать с текущим паролем
-      if (authError.code === 'auth/requires-recent-login' || authError.code === 'auth/requires-recent-auth') {
-        try {
-          if (!currentPlainPassword) throw new Error('Отсутствует текущий пароль для реаутентификации.');
-          const credential = EmailAuthProvider.credential(currentUser.email, currentPlainPassword);
-          await reauthenticateWithCredential(currentUser, credential);
-          console.log('AUTH DEBUG: реаутентификация успешна, пробуем updatePassword снова');
-          await updatePassword(currentUser, newPassword);
-          console.log('AUTH DEBUG: updatePassword после реаутентификации успешен');
-        } catch (reauthErr) {
-          console.error('AUTH DEBUG: ошибка реаутентификации/обновления пароля:', reauthErr);
-          throw reauthErr;
-        }
-      } else {
-        throw authError;
-      }
-    }
-
-    // Сохраняем в Firestore (но помните, что хранить plaintext — риск)
+    // Записываем новый пароль ТОЛЬКО в Firestore.
+    // (Важно: это НЕ меняет пароль в Firebase Auth — для этого нужен Admin SDK)
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
       lastPasswordChange: serverTimestamp(),
-      lastLoginAt: serverTimestamp(),
-      adminForcedReset: false // сбрасываем флаг, если он был
+      adminForcedReset: false
     });
 
-    console.log(`AUTH DEBUG: Пароль сохранён в Firestore для ${user.email}`);
+    console.log(`AUTH DEBUG: Сгенерирован и сохранён новый пароль для ${user.email}`);
+    // Не пытайтесь вызывать updatePassword(user, newPassword) здесь для чужих пользователей!
 
-  } catch (error) {
-    console.error('AUTH DEBUG: Ошибка сброса пароля:', error);
-    throw error;
-  } finally {
-    passwordResetInProgress = false;
+  } catch (err) {
+    console.error('Ошибка resetUserPassword (Firestore only):', err);
   }
 }
+
 
 /* ====== ПАНЕЛЬ АДМИНИСТРАТОРА ====== */
 async function setupAdminPanel(userEmail) {
@@ -2497,6 +2474,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
