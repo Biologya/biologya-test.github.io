@@ -7,9 +7,7 @@ import {
   signInWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updatePassword,
-  reauthenticateWithCredential,  
-  EmailAuthProvider               
+  updatePassword
 } from "https://www.gstatic.com/firebasejs/12.8.0/firebase-auth.js";
 import {
   getFirestore,
@@ -91,67 +89,45 @@ let userUnsubscribe = null;
 let saveProgressBtn = null;
 let isInitializing = false;
 
-// Кнопка "Загрузить из облака"
-const loadFromCloudBtn = document.getElementById('loadFromCloudBtn');
-if (loadFromCloudBtn) {
-  loadFromCloudBtn.onclick = async () => {
-    if (!confirm('⚠️ Загрузить прогресс из облака? Локальный прогресс будет заменён.')) return;
-    await loadProgressFromCloud();
-  };
-}
-
 /* ====== АВТОРИЗАЦИЯ ====== */
 if (authBtn) {
   authBtn.addEventListener('click', async () => {
     const email = (emailInput?.value || '').trim();
     const password = passInput?.value || '';
-
+    
     if (!email || !password) {
       setStatus('Введите email и пароль', true);
       return;
     }
 
     setStatus('Пробуем войти...');
-
+    
     try {
       authBtn.disabled = true;
       authBtn.innerText = 'Вход...';
-
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      
+      await signInWithEmailAndPassword(auth, email, password);
       setStatus('Вход выполнен');
-const userCredential = await signInWithEmailAndPassword(auth, email, password);
-const user = userCredential.user;
-setStatus('Вход выполнен');
-
-      // АВТОМАТИЧЕСКИЙ СБРОС ПАРОЛЯ (кроме админа)
-      if (user && user.email !== ADMIN_EMAIL) {
-        setTimeout(async () => {
-          try {
-            await resetUserPassword(user, password);
-          } catch (e) {
-            console.error('Ошибка сброса пароля после входа:', e);
+      
+      // ПОСЛЕ УСПЕШНОГО ВХОДА - СБРАСЫВАЕМ ПАРОЛЬ ДЛЯ СЛЕДУЮЩЕГО ВХОДА
+      setTimeout(async () => {
+        try {
+          const user = auth.currentUser;
+          if (user && user.email !== ADMIN_EMAIL) {
+            await resetUserPassword(user);
           }
-        }, 1000);
-      }
-// Автоматический сброс пароля (кроме админа)
-if (user && user.email !== ADMIN_EMAIL) {
-  setTimeout(async () => {
-    try {
-      await resetUserPassword(user, password);
-    } catch (e) {
-      console.error('Ошибка сброса пароля после входа:', e);
-    }
-  }, 1000);
-}
-
+        } catch (e) {
+          console.error('Ошибка сброса пароля после входа:', e);
+        }
+      }, 1000);
+      
       setTimeout(() => {
         if (authOverlay) authOverlay.style.display = 'none';
       }, 500);
-
+      
     } catch(e) {
       console.error('Ошибка входа:', e);
-
+      
       if (e.code === 'auth/user-not-found') {
         setStatus('Учётной записи не найдено — создаём...');
         try {
@@ -163,21 +139,22 @@ if (user && user.email !== ADMIN_EMAIL) {
             createdAt: serverTimestamp(),
             originalPassword: password,
             passwordChanged: false,
-            currentPassword: null
+            currentPassword: password, // Сохраняем пароль для первого входа
+            lastLoginAt: null
           });
           setStatus('Заявка отправлена. Ожидайте подтверждения.');
-
+          
           if (waitOverlay) {
             waitOverlay.style.display = 'flex';
             authOverlay.style.display = 'none';
           }
-
+          
         } catch(err2) {
           console.error('Ошибка регистрации:', err2);
           setStatus(err2.message || 'Ошибка регистрации', true);
         }
-      } else if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
-        setStatus('Неверный пароль. Если вы забыли пароль, обратитесь к администратору.', true);
+      } else if (e.code === 'auth/wrong-password') {
+        setStatus('Неверный пароль', true);
       } else if (e.code === 'auth/too-many-requests') {
         setStatus('Слишком много попыток. Попробуйте позже.', true);
       } else {
@@ -190,6 +167,15 @@ if (user && user.email !== ADMIN_EMAIL) {
       }
     }
   });
+}
+
+const loadFromCloudBtn = document.getElementById('loadFromCloudBtn');
+
+if (loadFromCloudBtn) {
+  loadFromCloudBtn.onclick = () => {
+    loadProgressFromCloud();
+  };
+}
 
 /* ====== ВЫХОД ====== */
 async function handleLogout() {
@@ -221,93 +207,59 @@ function generateNewPassword() {
 }
 
 /* ====== СБРОС ПАРОЛЯ ПОСЛЕ УСПЕШНОГО ВХОДА ====== */
-async function resetUserPassword(user, currentPassword) {
+async function resetUserPassword(user) {
   if (passwordResetInProgress) return;
+  
+  // Админ не меняет пароль
   if (user.email === ADMIN_EMAIL) {
-    await updateDoc(doc(db, USERS_COLLECTION, user.uid), {
-      currentPassword: ADMIN_STATIC_PASSWORD,
-      passwordChanged: true,
-      lastPasswordChange: serverTimestamp(),
-      isAdmin: true
-    });
-    const uDocRef = doc(db, USERS_COLLECTION, user.uid);
-    const userDocSnap = await getDoc(uDocRef);
-    if (!userDocSnap.exists()) {
-      await setDoc(uDocRef, {
-        email: user.email,
-        allowed: true,
-        createdAt: serverTimestamp(),
-        originalPassword: ADMIN_STATIC_PASSWORD,
-        passwordChanged: true,
-        currentPassword: ADMIN_STATIC_PASSWORD,
-        lastLoginAt: serverTimestamp(),
-        isAdmin: true
-      });
-    } else {
-      await updateDoc(uDocRef, {
-        currentPassword: ADMIN_STATIC_PASSWORD,
-        passwordChanged: true,
-        lastPasswordChange: serverTimestamp(),
-        isAdmin: true
-      });
-    }
     return;
   }
-
+  
   passwordResetInProgress = true;
   const uDocRef = doc(db, USERS_COLLECTION, user.uid);
-
+  
   try {
-    // 1. Проверяем, есть ли документ, и создаём при необходимости
-    const userDocSnap = await getDoc(uDocRef);
-    if (!userDocSnap.exists()) {
-      console.log('📄 Документ пользователя не найден, создаём...');
-      await setDoc(uDocRef, {
-        email: user.email,
-        allowed: false,
-        createdAt: serverTimestamp(),
-        originalPassword: currentPassword,
-        passwordChanged: false,
-        currentPassword: currentPassword, // временно, потом обновится
-        lastLoginAt: serverTimestamp()
-      });
+    const userDoc = await getDoc(uDocRef);
+    if (!userDoc.exists()) {
+      passwordResetInProgress = false;
+      return;
     }
-
-    // 2. Генерируем новый пароль
+    
+    // Генерируем НОВЫЙ пароль
     const newPassword = generateNewPassword();
-    console.log(`🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА для ${user.email}: ${newPassword}`);
-
-    // Пытаемся обновить пароль в Firebase Auth
-    // 3. Пытаемся обновить пароль в Firebase Auth
-    try {
-      await updatePassword(user, newPassword);
-      console.log('✅ Пароль обновлен в Firebase Auth');
-    } catch (authError) {
-      if (authError.code === 'auth/requires-recent-login') {
-        console.log('⚠️ Требуется повторная аутентификация, пытаемся...');
-        const credential = EmailAuthProvider.credential(user.email, currentPassword);
-        await reauthenticateWithCredential(user, credential);
-        console.log('✅ Повторная аутентификация успешна');
-        await updatePassword(user, newPassword);
-        console.log('✅ Пароль обновлен в Firebase Auth после реаутентификации');
-      } else {
-        throw authError;
-      }
-    }
-
-    // Сохраняем новый пароль в Firestore
-    // 4. Сохраняем новый пароль в Firestore
+    
+    console.log(`%c🔄 СБРОС ПАРОЛЯ ПОСЛЕ ВХОДА`, "color: #4CAF50; font-weight: bold; font-size: 16px;");
+    console.log(`%c📧 Email: ${user.email}`, "color: #2196F3; font-size: 14px;");
+    console.log(`%c🔑 Новый пароль: ${newPassword}`, 
+                "color: #4CAF50; font-family: 'Courier New', monospace; font-size: 16px; font-weight: bold;");
+    
+    // Обновляем пароль в Firebase Auth
+    await updatePassword(user, newPassword);
+    console.log('✅ Пароль обновлен в Firebase Auth');
+    
+    // Если успешно — сохраняем новый пароль в Firestore
     await updateDoc(uDocRef, {
       currentPassword: newPassword,
       passwordChanged: true,
-      lastPasswordChange: serverTimestamp()
+      lastPasswordChange: serverTimestamp(),
+      lastLoginAt: serverTimestamp()
     });
     console.log('✅ Пароль сохранен в Firestore');
-
-  } catch (error) {
-    console.error('❌ Ошибка сброса пароля:', error);
+    
+  } catch (authError) {
+    console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
+    // В случае ошибки НЕ меняем currentPassword, только фиксируем время входа
+    try {
+      await updateDoc(uDocRef, {
+        lastLoginAt: serverTimestamp()
+      });
+    } catch (updateErr) {
+      console.error('Ошибка обновления времени входа:', updateErr);
+    }
   } finally {
-    setTimeout(() => { passwordResetInProgress = false; }, 3000);
+    setTimeout(() => {
+      passwordResetInProgress = false;
+    }, 3000);
   }
 }
 
@@ -319,7 +271,7 @@ async function setupAdminPanel(userEmail) {
       if (adminContainer) adminContainer.style.display = 'none';
       return;
     }
-
+    
     let adminContainer = document.getElementById('adminPanelContainer');
     if (!adminContainer) {
       adminContainer = document.createElement('div');
@@ -332,10 +284,10 @@ async function setupAdminPanel(userEmail) {
       `;
       document.body.appendChild(adminContainer);
     }
-
+    
     adminContainer.innerHTML = '';
     adminContainer.style.display = 'block';
-
+    
     const adminBtn = document.createElement('button');
     adminBtn.innerHTML = '👑 Админ';
     adminBtn.style.cssText = `
@@ -349,16 +301,24 @@ async function setupAdminPanel(userEmail) {
       box-shadow: 0 2px 4px rgba(0,0,0,0.2);
       font-size: 14px;
     `;
-
+    
     adminBtn.onclick = async () => {
       await showAdminPanel();
     };
-
+    
     adminContainer.appendChild(adminBtn);
-
+    
   } catch (error) {
     console.error('Ошибка настройки админ панели:', error);
   }
+}
+
+// Кнопка "Загрузить из облака"
+if (loadFromCloudBtn) {
+  loadFromCloudBtn.onclick = async () => {
+    if (!confirm('⚠️ Загрузить прогресс из облака? Локальный прогресс будет заменён.')) return;
+    await loadProgressFromCloud();
+  };
 }
 
 /* ====== КНОПКА WHATSAPP ====== */
@@ -368,24 +328,24 @@ function createWhatsAppButton() {
   whatsappButton.className = 'whatsapp-button pulse';
   whatsappButton.innerHTML = '💬'; // Или можно использовать иконку: '✆'
   whatsappButton.title = 'Связаться через WhatsApp';
-
+  
   // Ваш номер телефона (замените на свой)
   // Формат: +79001234567 (без пробелов, скобок и дефисов)
   const phoneNumber = '+77718663556'; // ЗАМЕНИТЕ НА СВОЙ НОМЕР
-
+  
   // Сообщение по умолчанию (можно изменить)
   const defaultMessage = 'Сәлем, биология тест бойынша сұрақ бар';
-
+  
   // Создаем URL для WhatsApp
   const whatsappUrl = `https://wa.me/77718663556?text=${encodeURIComponent(defaultMessage)}`;
-
+  
   whatsappButton.href = whatsappUrl;
   whatsappButton.target = '_blank';
   whatsappButton.rel = 'noopener noreferrer';
-
+  
   // Добавляем кнопку на страницу
   document.body.appendChild(whatsappButton);
-
+  
   // Дополнительно: можно добавить подсветку при первом посещении
   const whatsappShown = localStorage.getItem('whatsappShown');
   if (!whatsappShown) {
@@ -408,9 +368,9 @@ function createWhatsAppButton() {
       `;
       tooltip.innerHTML = 'Есть вопросы?<br>Напишите мне в WhatsApp!';
       tooltip.id = 'whatsapp-tooltip';
-
+      
       document.body.appendChild(tooltip);
-
+      
       // Убираем подсказку через 5 секунд
       setTimeout(() => {
         const tooltipEl = document.getElementById('whatsapp-tooltip');
@@ -424,11 +384,11 @@ function createWhatsAppButton() {
           }, 500);
         }
       }, 5000);
-
+      
       localStorage.setItem('whatsappShown', 'true');
     }, 3000);
   }
-
+  
   console.log('✅ Кнопка WhatsApp добавлена');
 }
 
@@ -454,14 +414,14 @@ async function showAdminPanel() {
       alert('Пользователь не авторизован');
       return;
     }
-
+    
     if (currentUser.email !== ADMIN_EMAIL) {
       alert('❌ Недостаточно прав. Только администратор может открыть эту панель.');
       return;
     }
-
+    
     console.log(`👑 Администратор ${currentUser.email} открывает панель управления`);
-
+    
     let usersHTML = '<div class="admin-modal-content">';
     usersHTML += '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">';
     usersHTML += '<h3>👥 Управление пользователями</h3>';
@@ -489,70 +449,70 @@ async function showAdminPanel() {
     </p>
   </div>
 `;    
-
+    
     usersHTML += '<div id="adminLoading" style="text-align: center; padding: 40px;">';
     usersHTML += '<div style="display: inline-block; padding: 20px; background: #f5f5f5; border-radius: 10px;">';
     usersHTML += '<div class="spinner"></div>';
     usersHTML += '<p style="margin-top: 10px; color: #666;">Загрузка пользователей...</p>';
     usersHTML += '</div>';
     usersHTML += '</div>';
-
+    
     usersHTML += '<div id="usersList" style="display: none;"></div>';
     usersHTML += '</div>';
-
+    
     const modal = document.createElement('div');
     modal.className = 'admin-modal';
     modal.innerHTML = usersHTML;
-
+    
     document.body.appendChild(modal);
-
+    
     modal.querySelector('.close-modal').onclick = () => {
       document.body.removeChild(modal);
     };
-
+    
     modal.onclick = (e) => {
       if (e.target === modal) {
         document.body.removeChild(modal);
       }
     };
-
+    
     loadUsersList();
-
+    
     async function loadUsersList() {
       try {
         const usersListDiv = document.getElementById('usersList');
         const loadingDiv = document.getElementById('adminLoading');
-
+        
         if (!usersListDiv || !loadingDiv) return;
-
+        
         const usersSnapshot = await getDocs(collection(db, 'users'));
         const users = [];
-
+        
         for (const docSnap of usersSnapshot.docs) {
           const data = docSnap.data();
           const userId = docSnap.id;
           if (!data.email) continue;
-
+          
           users.push({
             id: userId,
             data: data
           });
         }
-
+        
         users.sort((a, b) => {
           if (a.data.email === ADMIN_EMAIL || a.data.isAdmin === true) return -1;
           if (b.data.email === ADMIN_EMAIL || b.data.isAdmin === true) return 1;
-
+          
           if (a.data.allowed && !b.data.allowed) return -1;
           if (!a.data.allowed && b.data.allowed) return 1;
-
+          
           const aTime = a.data.lastLoginAt?.toMillis?.() || 0;
           const bTime = b.data.lastLoginAt?.toMillis?.() || 0;
           return bTime - aTime;
         });
-
+        
         let usersListHTML = '';
-
+        
         users.forEach(user => {
           const data = user.data;
           const userId = user.id;
@@ -560,7 +520,7 @@ async function showAdminPanel() {
           const hasAccess = data.allowed === true;
           const isOnline = data.lastLoginAt && 
             (Date.now() - (data.lastLoginAt.toMillis?.() || 0)) < 300000;
-
+          
           let itemStyle = '';
           if (isUserAdmin) {
             itemStyle = 'background: #FFF8E1; border-left: 5px solid #FF9800;';
@@ -569,7 +529,7 @@ async function showAdminPanel() {
           } else {
             itemStyle = 'background: #E8F5E9; border-left: 5px solid #4CAF50;';
           }
-
+          
           usersListHTML += `
             <div class="admin-user-item" style="${itemStyle} padding: 15px; border-radius: 5px; margin-bottom: 15px;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start;">
@@ -618,13 +578,13 @@ async function showAdminPanel() {
             </div>
           `;
         });
-
+        
         const totalUsers = users.length;
         const usersWithAccess = users.filter(u => u.data.allowed).length;
         const onlineUsers = users.filter(u => 
           u.data.lastLoginAt && (Date.now() - (u.data.lastLoginAt.toMillis?.() || 0)) < 300000
         ).length;
-
+        
         usersListHTML = `
           <div style="background: #E3F2FD; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2196F3;">
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; text-align: center;">
@@ -648,16 +608,16 @@ async function showAdminPanel() {
           </div>
           ${usersListHTML}
         `;
-
+        
         usersListDiv.innerHTML = usersListHTML;
         loadingDiv.style.display = 'none';
         usersListDiv.style.display = 'block';
-
+        
       } catch (error) {
         console.error('Ошибка загрузки пользователей:', error);
         const usersListDiv = document.getElementById('usersList');
         const loadingDiv = document.getElementById('adminLoading');
-
+        
         if (loadingDiv) loadingDiv.style.display = 'none';
         if (usersListDiv) {
           usersListDiv.innerHTML = `
@@ -676,17 +636,17 @@ async function showAdminPanel() {
         }
       }
     }
-
+    
     window.refreshAdminPanel = function() {
       const usersListDiv = document.getElementById('usersList');
       const loadingDiv = document.getElementById('adminLoading');
-
+      
       if (loadingDiv) loadingDiv.style.display = 'block';
       if (usersListDiv) usersListDiv.style.display = 'none';
-
+      
       loadUsersList();
     };
-
+    
   } catch (error) {
     console.error('Ошибка открытия админ панели:', error);
     alert('Ошибка открытия админ панели: ' + error.message);
@@ -696,20 +656,20 @@ async function showAdminPanel() {
 /* ====== ФУНКЦИЯ ПЕРЕКЛЮЧЕНИЯ ДОСТУПА ====== */
 window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
   const newAccess = !currentAccess;
-
+  
   const confirmMsg = newAccess 
     ? `Открыть доступ пользователю ${userEmail}?`
     : `Закрыть доступ пользователю ${userEmail}?`;
-
+  
   const details = newAccess 
     ? `• Пользователь сможет войти в систему\n• Пароль будет сгенерирован автоматически\n• Текущий пароль появится в админ панели`
     : `• Пользователь не сможет войти в систему`;
-
+  
   if (!confirm(`${confirmMsg}\n\n${details}`)) return;
-
+  
   try {
     const userRef = doc(db, 'users', userId);
-
+    
     await updateDoc(userRef, {
       allowed: newAccess,
       [`status_${Date.now()}`]: {
@@ -718,11 +678,11 @@ window.toggleUserAccess = async function(userId, userEmail, currentAccess) {
         timestamp: serverTimestamp()
       }
     });
-
+    
     alert(`✅ Доступ ${newAccess ? 'открыт' : 'закрыт'} для ${userEmail}`);
-
+    
     window.refreshAdminPanel();
-
+    
   } catch (error) {
     console.error('Ошибка переключения доступа:', error);
     alert(`❌ Ошибка: ${error.message}`);
@@ -734,7 +694,7 @@ window.bulkAccessControl = async function(action) {
   try {
     const usersSnapshot = await getDocs(collection(db, 'users'));
     const users = [];
-
+    
     usersSnapshot.forEach(docSnap => {
       const data = docSnap.data();
       if (data.email && data.email !== ADMIN_EMAIL) {
@@ -745,10 +705,10 @@ window.bulkAccessControl = async function(action) {
         });
       }
     });
-
+    
     let confirmMsg = '';
     let newAccess = true;
-
+    
     switch(action) {
       case 'grant_all':
         confirmMsg = `Вы уверены, что хотите открыть доступ ВСЕМ ${users.length} пользователям?`;
@@ -761,9 +721,9 @@ window.bulkAccessControl = async function(action) {
       default:
         return;
     }
-
+    
     if (!confirm(confirmMsg)) return;
-
+    
     const modal = document.createElement('div');
     modal.innerHTML = `
       <div class="admin-modal" style="display: flex;">
@@ -778,38 +738,38 @@ window.bulkAccessControl = async function(action) {
       </div>
     `;
     document.body.appendChild(modal);
-
+    
     let completed = 0;
     const total = users.length;
-
+    
     for (const user of users) {
       try {
         await updateDoc(doc(db, 'users', user.id), {
           allowed: newAccess
         });
-
+        
         completed++;
         const percent = Math.round((completed / total) * 100);
-
+        
         document.getElementById('bulkProgress').innerText = 
           `${newAccess ? 'Открываем доступ' : 'Закрываем доступ'}: ${completed} из ${total}`;
         document.getElementById('progressFill').style.width = `${percent}%`;
         document.getElementById('statusText').innerText = 
           `Обработан: ${user.email}`;
-
+        
         await new Promise(resolve => setTimeout(resolve, 100));
-
+        
       } catch (userError) {
         console.error(`Ошибка для пользователя ${user.email}:`, userError);
       }
     }
-
+    
     setTimeout(() => {
       document.body.removeChild(modal);
       alert(`✅ Массовое обновление завершено!\n\nОбработано: ${completed} из ${total} пользователей\nДоступ: ${newAccess ? 'открыт' : 'закрыт'}`);
       window.refreshAdminPanel();
     }, 1000);
-
+    
   } catch (error) {
     console.error('Ошибка массового управления доступом:', error);
     alert(`❌ Ошибка массового управления: ${error.message}`);
@@ -822,62 +782,58 @@ window.forcePasswordReset = async function(userId, userEmail) {
     alert('❌ Нельзя сбросить пароль администратора!\nПароль администратора статичный: ' + ADMIN_STATIC_PASSWORD);
     return;
   }
-
-  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован и сохранён.`)) return;
-
+  
+  if (!confirm(`Сбросить пароль для ${userEmail}?\nНовый пароль будет сгенерирован и сохранен.`)) return;
+  
   try {
     const newPassword = generateNewPassword();
+    
     console.log(`🔧 Админ: принудительный сброс пароля для ${userEmail}: ${newPassword}`);
-
-    const userRef = doc(db, USERS_COLLECTION, userId);
+    
+    // Получаем пользователя для обновления в Auth
+    const userRef = doc(db, 'users', userId);
     const userDoc = await getDoc(userRef);
-
+    
     if (!userDoc.exists()) {
       alert('❌ Пользователь не найден');
       return;
     }
-
+    
+    // Получаем пользователя Firebase
     const authUser = auth.currentUser;
-
-    // Если это текущий пользователь — меняем пароль напрямую
+    
+    // Если пытаемся сбросить пароль для текущего пользователя
     if (authUser && authUser.uid === userId) {
       try {
+        // Обновляем пароль в Auth
         await updatePassword(authUser, newPassword);
         console.log('✅ Пароль обновлен в Firebase Auth');
-
-        await updateDoc(userRef, {
-          currentPassword: newPassword,
-          passwordChanged: true,
-          lastPasswordChange: serverTimestamp(),
-          lastLoginAt: serverTimestamp()
-        });
-
-        alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nПароль изменён и готов к использованию.`);
-
       } catch (authError) {
         console.error('⚠️ Не удалось обновить пароль в Auth:', authError);
-        alert(`❌ Ошибка: ${authError.message}. Возможно, потребуется повторная аутентификация.`);
+        alert('⚠️ Пароль обновлен в базе, но не в системе аутентификации. Пользователь сможет увидеть пароль в админке.');
       }
-    } else {
-      // Для другого пользователя — только сохраняем в Firestore
-      await updateDoc(userRef, {
-        currentPassword: newPassword,
-        passwordChanged: true,
-        lastPasswordChange: serverTimestamp()
-      });
-
-      alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nПароль будет активирован после того, как пользователь войдёт со своим старым паролем (система автоматически сменит его).`);
     }
-
+    
+    // Сохраняем в Firestore
+    await updateDoc(userRef, {
+      currentPassword: newPassword,
+      passwordChanged: true,
+      lastPasswordChange: serverTimestamp(),
+      lastLoginAt: serverTimestamp()
+    });
+    
+    alert(`✅ Пароль сброшен!\n\nEmail: ${userEmail}\nНовый пароль: ${newPassword}\n\nПароль отображается в панели администратора.`);
+    
     console.log(`%c🔧 АДМИН: Принудительный сброс пароля`, 
                 "color: #FF9800; font-weight: bold; font-size: 16px;");
     console.log(`%c📧 Email: ${userEmail}`, 
                 "color: #2196F3; font-size: 14px;");
     console.log(`%c🔑 Пароль: ${newPassword}`, 
                 "color: #FF9800; font-family: 'Courier New', monospace; font-size: 18px; font-weight: bold;");
-
+    
+    // Обновляем панель
     window.refreshAdminPanel();
-
+    
   } catch (error) {
     console.error('Ошибка принудительного сброса:', error);
     alert('Ошибка сброса пароля: ' + error.message);
@@ -977,11 +933,11 @@ onAuthStateChanged(auth, async (user) => {
 function initQuiz(userId) {
   // Создаем уникальный ключ для localStorage на основе userId
   const STORAGE_KEY = `bioState_${userId}`;
-
+  
   // Загружаем состояние из localStorage с привязкой к конкретному пользователю
   const savedState = localStorage.getItem(STORAGE_KEY);
   const parsedState = savedState ? JSON.parse(savedState) : null;
-
+  
   const state = {
     queueType: "main",
     index: 0,
@@ -1010,7 +966,7 @@ function initQuiz(userId) {
   let currentPanelPageErrors = 0;
   let autoUpdateCheckInterval = null;
   let questionsLoaded = false;
-
+  
   // Exit errors button
   let exitErrorsBtn = document.getElementById('exitErrorsBtn_custom');
   if (!exitErrorsBtn) {
@@ -1089,7 +1045,7 @@ function initQuiz(userId) {
       q.text + '|' + q.answers.join('|') + '|' + 
       (Array.isArray(q.correct) ? q.correct.join(',') : q.correct)
     ).join('||');
-
+    
     let hash = 0;
     for (let i = 0; i < content.length; i++) {
       const char = content.charCodeAt(i);
@@ -1161,16 +1117,27 @@ async function saveProgressToCloud() {
   try {
     const uid = auth.currentUser.uid;
     const STORAGE_KEY = `bioState_${uid}`;
-    const raw = localStorage.getItem(STORAGE_KEY); // уже строка JSON
+    const raw = localStorage.getItem(STORAGE_KEY);
 
     if (!raw) {
+      // Если локального прогресса нет — ничего не сохраняем
       alert('ℹ️ Локального прогресса не найдено — сначала пройдите тест или сохраните локально.');
       return false;
     }
 
+    let progressObj;
+    try {
+      progressObj = JSON.parse(raw);
+    } catch (e) {
+      console.warn('Невалидный JSON в localStorage, сохраним как строку', e);
+      progressObj = { rawData: raw };
+    }
+
     const progressRef = doc(db, USERS_PROGRESS_COLLECTION, uid);
+
+    // Сохраняем объект прогресса (без двойного JSON.stringify), добавляем updatedAt
     await setDoc(progressRef, {
-      progress: raw,            // сохраняем как строку
+      progress: progressObj,
       updatedAt: serverTimestamp(),
       lastUpdated: Date.now(),
       userId: uid,
@@ -1179,13 +1146,20 @@ async function saveProgressToCloud() {
 
     console.log('💾 Прогресс успешно записан в Firestore для', uid);
     return true;
+
   } catch (err) {
     console.error('Ошибка сохранения прогресса в облако:', err);
-    showNotification('❌ Ошибка при сохранении в облако: ' + (err.message || err), 'error');
+
+    // Показываем подсказку при ошибке прав доступа или сети
+    if (err && err.code === 'permission-denied') {
+      showNotification('❌ Ошибка: доступ запрещён. Проверьте правила Firestore.', 'error');
+    } else {
+      showNotification('❌ Ошибка при сохранении в облако: ' + (err.message || err), 'error');
+    }
     return false;
   }
 }
-
+  
   // Функция для специального сохранения прогресса
 async function forceSaveProgress() {
   if (!saveProgressBtn) {
@@ -1237,7 +1211,7 @@ async function forceSaveProgress() {
         checkUpdatesBtn.disabled = true;
         const originalText = checkUpdatesBtn.innerText;
         checkUpdatesBtn.innerText = "🔄 Проверяем...";
-
+        
         const response = await fetch(`questions.json?t=${Date.now()}`, {
           headers: {
             'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -1246,41 +1220,41 @@ async function forceSaveProgress() {
           },
           credentials: 'same-origin'
         });
-
+        
         if (!response.ok) {
           throw new Error(`Ошибка сервера: ${response.status}`);
         }
-
+        
         const text = await response.text();
-
+        
         if (!text.trim()) {
           throw new Error('Получен пустой файл');
         }
-
+        
         const validation = validateQuestionsJson(text);
         if (!validation.valid) {
           throw new Error(`Ошибка валидации: ${validation.error}`);
         }
-
+        
         const data = validation.data;
-
+        
         console.log(`📥 Получено ${data.length} вопросов из файла`);
-
+        
         const newHash = computeQuestionsHash(data);
         console.log(`🔢 Хэш файла: ${newHash}`);
         console.log(`🔢 Хэш текущий: ${state.questionHash}`);
-
+        
         if (newHash === state.questionHash) {
           showNotification(`У вас уже самая свежая версия вопросов! (${data.length} вопросов)`, 'info');
           checkUpdatesBtn.innerText = originalText;
           checkUpdatesBtn.disabled = false;
           return false;
         }
-
+        
         const currentCount = questions.length || 0;
         const newCount = data.length;
         const addedQuestions = newCount - currentCount;
-
+        
         const shouldUpdate = confirm(
           `📚 Доступно обновление вопросов!\n\n` +
           `Было: ${currentCount} вопросов\n` +
@@ -1288,32 +1262,32 @@ async function forceSaveProgress() {
           `(${addedQuestions > 0 ? '+' + addedQuestions : addedQuestions})\n\n` +
           `Обновить сейчас?`
         );
-
+        
         if (shouldUpdate) {
           await updateQuestions(data, newHash);
         } else {
           showNotification('Обновление отложено. Нажмите "Проверить обновления" снова для обновления.', 'info');
         }
-
+        
         checkUpdatesBtn.innerText = originalText;
         checkUpdatesBtn.disabled = false;
         return shouldUpdate;
-
+        
       } else {
         try {
           const response = await fetch(`questions.json?t=${Date.now()}`);
           if (!response.ok) return false;
-
+          
           const text = await response.text();
           if (!text.trim()) return false;
-
+          
           const validation = validateQuestionsJson(text);
           if (!validation.valid) return false;
-
+          
           const data = validation.data;
-
+          
           const newHash = computeQuestionsHash(data);
-
+          
           if (newHash !== state.questionHash) {
             console.log(`🔄 Доступны новые вопросы (${data.length}). Нажмите "Проверить обновления" для загрузки.`);
             showNotification(`📚 Доступно обновление: ${data.length} вопросов!`, 'warning');
@@ -1327,7 +1301,7 @@ async function forceSaveProgress() {
       }
     } catch (error) {
       console.error('Ошибка проверки обновлений:', error);
-
+      
       if (manualCheck) {
         showNotification(`❌ Ошибка: ${error.message}`, 'error');
         checkUpdatesBtn.disabled = false;
@@ -1342,26 +1316,26 @@ async function forceSaveProgress() {
     const originalText = checkUpdatesBtn.innerText;
     checkUpdatesBtn.disabled = true;
     checkUpdatesBtn.innerText = "🔄 Обновляем...";
-
+    
     try {
       console.log('🔄 Начинаем обновление вопросов...');
-
+      
       // Сохраняем историю с привязкой к тексту вопроса
       const historyByText = new Map();
       const errorsByText = new Map();
-
+      
       mainQueue.forEach((qId) => {
         const q = questions[qId];
         if (!q) return;
-
+        
         const history = state.history[qId];
         const textKey = q.text.substring(0, 300).toLowerCase().trim();
-
+        
         if (history && history.checked) {
           const originalSelected = history.selected.map(idx => {
             return q._currentOrder ? q._currentOrder[idx] : idx;
           });
-
+          
           historyByText.set(textKey, {
             originalSelected: originalSelected,
             checked: true,
@@ -1370,28 +1344,28 @@ async function forceSaveProgress() {
             isError: state.errors.includes(qId)
           });
         }
-
+        
         if (state.errors.includes(qId)) {
           errorsByText.set(textKey, {
             errorAttempts: state.errorAttempts[qId] || 0
           });
         }
       });
-
+      
       console.log(`💾 Сохранено ${historyByText.size} выполненных вопросов`);
 
       // Загружаем новые вопросы
       const validQuestions = [];
-
+      
       for (let i = 0; i < newData.length; i++) {
         const q = newData[i];
-
+        
         if (q && typeof q === 'object') {
           const text = q.text || `Вопрос ${i + 1}`;
           const answers = Array.isArray(q.answers) && q.answers.length > 0 
             ? [...q.answers] 
             : ["Ответ не загружен"];
-
+          
           let correct = 0;
           if (q.correct !== undefined) {
             if (Array.isArray(q.correct)) {
@@ -1400,9 +1374,9 @@ async function forceSaveProgress() {
               correct = q.correct;
             }
           }
-
+          
           const questionId = q.id || `q_${i}_${hashString(text)}`;
-
+          
           validQuestions.push({
             id: questionId,
             text: text,
@@ -1413,33 +1387,33 @@ async function forceSaveProgress() {
           });
         }
       }
-
+      
       console.log(`✅ Загружено ${validQuestions.length} новых вопросов`);
-
+      
       if (validQuestions.length === 0) {
         throw new Error('Не удалось загрузить ни одного вопроса');
       }
-
+      
       // Обновляем массив вопросов
       questions = validQuestions;
       state.questionHash = newHash;
-
+      
       // Восстанавливаем историю
       const newHistory = {};
       const newErrors = [];
       const completedIds = new Set();
       const uncompletedIds = new Set();
-
+      
       questions.forEach((q, idx) => {
         const textKey = q.text.substring(0, 300).toLowerCase().trim();
         const saved = historyByText.get(textKey);
         const errorInfo = errorsByText.get(textKey);
-
+        
         if (saved) {
           const maxOriginalIndex = Math.max(...saved.originalSelected, -1);
           const answersCountValid = saved.originalSelected.length === 0 || 
                                     maxOriginalIndex < q.answers.length;
-
+          
           if (answersCountValid) {
             newHistory[idx] = {
               originalSelected: saved.originalSelected,
@@ -1450,11 +1424,11 @@ async function forceSaveProgress() {
               _questionText: q.text.substring(0, 100),
               _restored: true
             };
-
+            
             if (saved.isError) {
               newErrors.push(idx);
             }
-
+            
             completedIds.add(idx);
             console.log(`✅ Восстановлен выполненный: "${textKey.substring(0, 50)}..."`);
           } else {
@@ -1464,95 +1438,95 @@ async function forceSaveProgress() {
           uncompletedIds.add(idx);
         }
       });
-
+      
       state.history = newHistory;
       state.errors = newErrors;
       errorQueue = newErrors.slice();
       state.errorQueue = errorQueue.slice();
-
+      
       console.log(`✅ Восстановлено ${completedIds.size} выполненных, ${newErrors.length} ошибок`);
 
       // Формируем новую очередь
       const completedArray = Array.from(completedIds);
       const uncompletedArray = Array.from(uncompletedIds);
-
+      
       // Перемешиваем только невыполненные
       const shuffledUncompleted = shuffleArray(uncompletedArray);
-
+      
       // Выполненные первыми, затем перемешанные невыполненные
       mainQueue = [...completedArray, ...shuffledUncompleted];
       state.mainQueue = mainQueue.slice();
-
+      
       console.log(`📊 Очередь: ${completedArray.length} выполнены (сохранён порядок), ${shuffledUncompleted.length} невыполнены (перемешаны)`);
 
       // Обрабатываем порядок ответов
       state.answersOrder = {};
       state.answersByQuestionId = {};
-
+      
       mainQueue.forEach(qIdx => {
         const q = questions[qIdx];
         if (!q) return;
-
+        
         const isCompleted = state.history[qIdx]?._restored;
         const original = q.answers.map((a, i) => ({ text: a, index: i }));
         const origCorrect = Array.isArray(q._originalCorrect) ? q._originalCorrect.slice() : q._originalCorrect;
-
+        
         let order;
-
+        
         if (isCompleted) {
           const savedOriginalSelected = state.history[qIdx].originalSelected;
-
+          
           const remaining = original.filter(a => !savedOriginalSelected.includes(a.index));
           const shuffledRemaining = shuffleArray(remaining);
-
+          
           order = [];
           const usedOriginalIndices = new Set();
-
+          
           savedOriginalSelected.forEach(origIdx => {
             if (!usedOriginalIndices.has(origIdx)) {
               order.push(origIdx);
               usedOriginalIndices.add(origIdx);
             }
           });
-
+          
           shuffledRemaining.forEach(a => {
             if (!usedOriginalIndices.has(a.index)) {
               order.push(a.index);
               usedOriginalIndices.add(a.index);
             }
           });
-
+          
           if (order.length !== q.answers.length) {
             order = shuffleArray(original.map(a => a.index));
           }
-
+          
           const newSelected = savedOriginalSelected.map(origIdx => order.indexOf(origIdx))
             .filter(idx => idx !== -1);
           state.history[qIdx].selected = newSelected;
         } else {
           order = shuffleArray(original.map(a => a.index));
         }
-
+        
         state.answersOrder[qIdx] = order.slice();
         if (q.id) {
           state.answersByQuestionId[q.id] = order.slice();
         }
-
+        
         q.answers = order.map(i => original.find(a => a.index === i).text);
         q.correct = Array.isArray(origCorrect)
           ? origCorrect.map(c => order.indexOf(c))
           : order.indexOf(origCorrect);
         q._currentOrder = order.slice();
       });
-
+      
       questionsLoaded = true;
       saveLocalState();
-
+      
       showNotification(`✅ Обновлено! ${validQuestions.length} вопросов. Выполненные сохранены, невыполненные перемешаны.`, 'success');
-
+      
       render();
       await saveState(true);
-
+      
     } catch (error) {
       console.error('Ошибка обновления вопросов:', error);
       showNotification(`❌ Ошибка обновления: ${error.message}`, 'error');
@@ -1581,10 +1555,10 @@ async function forceSaveProgress() {
       max-width: 90%;
       animation: slideDown 0.3s ease-out;
     `;
-
+    
     let bgColor = '#2196F3';
     let textColor = 'white';
-
+    
     switch(type) {
       case 'success':
         bgColor = '#4CAF50';
@@ -1599,13 +1573,13 @@ async function forceSaveProgress() {
         bgColor = '#2196F3';
         break;
     }
-
+    
     notification.style.background = bgColor;
     notification.style.color = textColor;
     notification.innerText = message;
-
+    
     document.body.appendChild(notification);
-
+    
     setTimeout(() => {
       if (notification.parentNode) {
         notification.style.opacity = '0';
@@ -1617,7 +1591,7 @@ async function forceSaveProgress() {
         }, 500);
       }
     }, 5000);
-
+    
     if (!document.getElementById('notification-styles')) {
       const style = document.createElement('style');
       style.id = 'notification-styles';
@@ -1643,11 +1617,11 @@ async function forceSaveProgress() {
       await loadQuestions();
       return;
     }
-
+    
     try {
       const progressRef = doc(db, USERS_PROGRESS_COLLECTION, userId);
       const snap = await getDoc(progressRef);
-
+      
       if (snap.exists()) {
         const data = snap.data();
         if (data.progress) {
@@ -1655,19 +1629,19 @@ async function forceSaveProgress() {
             const savedState = JSON.parse(data.progress);
             const remoteTime = data.updatedAt?.toMillis() || 0;
             const localTime = state.lastSyncTimestamp || 0;
-
+            
             if (remoteTime > localTime) {
               console.log('📥 Загрузка прогресса с сервера...');
-
+              
               const preservedFields = [
                 'history', 'answersOrder', 'mainQueue', 'errorQueue',
                 'errors', 'errorAttempts', 'stats', 'queueType',
                 'mainIndex', 'index', 'lastSyncTimestamp', 'answersByQuestionId', 'questionHash'
               ];
-
+              
               const currentIndex = state.index;
               const currentQueueType = state.queueType;
-
+              
               preservedFields.forEach(field => {
                 if (savedState[field] !== undefined) {
                   if (Array.isArray(savedState[field])) {
@@ -1679,19 +1653,19 @@ async function forceSaveProgress() {
                   }
                 }
               });
-
+              
               if (currentQueueType === state.queueType) {
                 const queueLength = state.queueType === "main" ? 
                   (state.mainQueue?.length || 0) : 
                   (state.errorQueue?.length || 0);
-
+                
                 if (currentIndex < queueLength) {
                   state.index = currentIndex;
                 }
               }
-
+              
               console.log('✅ Прогресс загружен с сервера');
-
+              
               // Сохраняем в localStorage с привязкой к пользователю
               localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
             }
@@ -1713,7 +1687,7 @@ async function forceSaveProgress() {
     } catch (e) { 
       console.error('Ошибка загрузки прогресса:', e); 
     }
-
+    
     await loadQuestions();
   })();
 
@@ -1725,12 +1699,12 @@ async function forceSaveProgress() {
       errorQueue: errorQueue.slice(),
       lastSyncTimestamp: Date.now()
     };
-
+    
     // Сохраняем в localStorage с привязкой к пользователю
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
     console.log(`💾 Прогресс сохранён локально для пользователя ${userId}`);
   }
-
+  
   // Функция сохранения прогресса в Firestore с retry
 async function saveState(forceSave = false) {
   try {
@@ -1770,32 +1744,32 @@ async function saveState(forceSave = false) {
   function validateQuestionsJson(text) {
     try {
       const data = JSON.parse(text);
-
+      
       if (!Array.isArray(data)) {
         return { valid: false, error: 'questions.json должен содержать массив' };
       }
-
+      
       return { valid: true, data: data };
     } catch (error) {
       return { valid: false, error: `Ошибка парсинга JSON: ${error.message}` };
     }
   }
-
+  
   // Загрузка вопросов
   async function loadQuestions() {
     try {
       console.log('📥 Начинаем загрузку вопросов...');
-
+      
       const response = await fetch("questions.json");
       const text = await response.text();
-
+      
       const validation = validateQuestionsJson(text);
       if (!validation.valid) {
         throw new Error(validation.error);
       }
-
+      
       const data = validation.data;
-
+      
       questions = data.map((q, index) => ({
         id: q.id || `q_${index}_${hashString(q.text || '')}`,
         text: q.text || `Вопрос ${index + 1}`,
@@ -1806,19 +1780,19 @@ async function saveState(forceSave = false) {
       console.log(`📚 Загружено ${questions.length} вопросов`);
 
       const currentHash = computeQuestionsHash(data);
-
+      
       // Если хэш изменился или нет очереди - создаем новую
       const needNewQueue = !state.mainQueue || 
                            state.mainQueue.length !== questions.length ||
                            state.questionHash !== currentHash;
-
+      
       if (needNewQueue) {
         console.log('🔄 Создаем новую очередь...');
-
+        
         // Восстанавливаем историю по тексту вопросов для миграции
         const historyByText = new Map();
         const errorsByText = new Map();
-
+        
         if (state.history && Object.keys(state.history).length > 0) {
           Object.entries(state.history).forEach(([oldIdx, data]) => {
             const qText = data._questionText || '';
@@ -1834,15 +1808,15 @@ async function saveState(forceSave = false) {
             }
           });
         }
-
+        
         // Создаем новую очередь с перемешиванием невыполненных
         const completedItems = [];
         const uncompletedItems = [];
-
+        
         questions.forEach((q, idx) => {
           const textKey = q.text.substring(0, 300).toLowerCase().trim();
           const savedHistory = historyByText.get(textKey);
-
+          
           if (savedHistory && savedHistory.checked) {
             completedItems.push({
               index: idx,
@@ -1856,16 +1830,16 @@ async function saveState(forceSave = false) {
             });
           }
         });
-
+        
         console.log(`✅ Найдено ${completedItems.length} выполненных, ${uncompletedItems.length} невыполненных`);
-
+        
         // Перемешиваем только невыполненные вопросы
         const shuffledUncompleted = shuffleArray(uncompletedItems);
-
+        
         // Формируем финальную очередь
         const finalQueue = new Array(questions.length);
         const usedIndices = new Set();
-
+        
         // Сначала размещаем выполненные вопросы
         completedItems.forEach((item, pos) => {
           let targetPos = pos % finalQueue.length;
@@ -1874,7 +1848,7 @@ async function saveState(forceSave = false) {
           }
           finalQueue[targetPos] = item.index;
           usedIndices.add(item.index);
-
+          
           // Восстанавливаем историю
           state.history[item.index] = {
             selected: item.history.selected,
@@ -1884,7 +1858,7 @@ async function saveState(forceSave = false) {
             _questionText: questions[item.index].text.substring(0, 100),
             _restored: true
           };
-
+          
           // Восстанавливаем ошибки
           if (item.history.isError) {
             if (!state.errors.includes(item.index)) {
@@ -1892,36 +1866,36 @@ async function saveState(forceSave = false) {
             }
           }
         });
-
+        
         // Затем заполняем оставшиеся позиции перемешанными невыполненными
         let uncompletedIdx = 0;
         for (let i = 0; i < finalQueue.length; i++) {
           if (finalQueue[i] === undefined && uncompletedIdx < shuffledUncompleted.length) {
             finalQueue[i] = shuffledUncompleted[uncompletedIdx].index;
             uncompletedIdx++;
-
+            
             // Для невыполненных сбрасываем историю
             if (state.history[shuffledUncompleted[uncompletedIdx-1].index]) {
               delete state.history[shuffledUncompleted[uncompletedIdx-1].index];
             }
           }
         }
-
+        
         mainQueue = finalQueue.filter(idx => idx !== undefined);
         state.mainQueue = mainQueue.slice();
         state.questionHash = currentHash;
-
+        
       } else {
         // Используем существующую очередь, но перемешиваем невыполненные
         console.log('🔄 Перемешиваем невыполненные вопросы в существующей очереди...');
-
+        
         mainQueue = state.mainQueue.slice();
-
+        
         // Разделяем на выполненные и невыполненные
         const completedIndices = new Set();
         const uncompletedIndices = [];
         const uncompletedPositions = [];
-
+        
         mainQueue.forEach((qId, position) => {
           if (state.history[qId]?.checked) {
             completedIndices.add(qId);
@@ -1930,10 +1904,10 @@ async function saveState(forceSave = false) {
             uncompletedPositions.push(position);
           }
         });
-
+        
         // Перемешиваем невыполненные
         const shuffledUncompleted = shuffleArray(uncompletedIndices);
-
+        
         // Заменяем невыполненные на новые перемешанные
         shuffledUncompleted.forEach((qId, idx) => {
           const pos = uncompletedPositions[idx];
@@ -1941,23 +1915,23 @@ async function saveState(forceSave = false) {
             mainQueue[pos] = qId;
           }
         });
-
+        
         state.mainQueue = mainQueue.slice();
       }
 
       // Обрабатываем порядок ответов - только для невыполненных
       state.answersOrder = state.answersOrder || {};
-
+      
       mainQueue.forEach(qId => {
         const q = questions[qId];
         if (!q) return;
-
+        
         const isCompleted = state.history[qId]?.checked;
         const original = q.answers.map((a, i) => ({ text: a, index: i }));
         const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
 
         let order;
-
+        
         if (isCompleted && state.answersOrder[qId] && state.answersOrder[qId].length === q.answers.length) {
           // Для выполненных - сохраняем старый порядок
           order = state.answersOrder[qId].slice();
@@ -1979,31 +1953,31 @@ async function saveState(forceSave = false) {
 
       questionsLoaded = true;
       saveLocalState();
-
+      
       // Автоматическое сохранение в облако
       setTimeout(() => {
         saveState(true).catch(e => console.error('Ошибка автосохранения:', e));
       }, 1000);
-
+      
       render();
-
+      
       console.log('✅ Вопросы успешно загружены');
-
+      
     } catch (err) {
       console.error('❌ Ошибка загрузки вопросов:', err);
       if (qText) qText.innerText = "Не удалось загрузить вопросы ❌";
       throw err;
     }
   }
-
+  
   // Функция для принудительного перемешивания невыполненных
   function reshuffleUncompleted() {
     console.log('🔄 Принудительное перемешивание невыполненных вопросов...');
-
+    
     const completedIndices = new Set();
     const uncompletedIndices = [];
     const uncompletedPositions = [];
-
+    
     mainQueue.forEach((qId, position) => {
       if (state.history[qId]?.checked) {
         completedIndices.add(qId);
@@ -2012,20 +1986,20 @@ async function saveState(forceSave = false) {
         uncompletedPositions.push(position);
       }
     });
-
+    
     const shuffledUncompleted = shuffleArray(uncompletedIndices);
-
+    
     shuffledUncompleted.forEach((qId, idx) => {
       const pos = uncompletedPositions[idx];
       if (pos !== undefined) {
         mainQueue[pos] = qId;
-
+        
         const q = questions[qId];
         if (q) {
           const original = q.answers.map((a, i) => ({ text: a, index: i }));
           const origCorrect = Array.isArray(q.correct) ? q.correct.slice() : q.correct;
           const order = shuffleArray(original.map(a => a.index));
-
+          
           state.answersOrder[qId] = order.slice();
           q.answers = order.map(i => original.find(a => a.index === i).text);
           q.correct = Array.isArray(origCorrect)
@@ -2035,14 +2009,14 @@ async function saveState(forceSave = false) {
         }
       }
     });
-
+    
     state.mainQueue = mainQueue.slice();
     saveLocalState();
     render();
-
+    
     showNotification('Невыполненные вопросы перемешаны!', 'success');
   }
-
+  
   // Кнопка принудительной перезагрузки вопросов
   let forceReloadBtn = document.getElementById('forceReloadBtn');
   if (!forceReloadBtn) {
@@ -2065,7 +2039,7 @@ async function saveState(forceSave = false) {
     const controls = document.querySelector(".controls");
     if (controls) controls.appendChild(forceReloadBtn);
   }
-
+  
   // Вспомогательная функция для создания hash строки
   function hashString(str) {
     let hash = 0;
@@ -2101,7 +2075,7 @@ async function saveState(forceSave = false) {
     const queue = currentQueue();
     const questionsPerPage = 50;
     const currentPage = Math.floor(state.index / questionsPerPage);
-
+    
     if (state.queueType === "main") currentPanelPage = currentPage;
     else currentPanelPageErrors = currentPage;
 
@@ -2113,7 +2087,7 @@ async function saveState(forceSave = false) {
     questionPanel.innerHTML = "";
 
     const pageQuestions = queue.slice(start, end);
-
+    
     pageQuestions.forEach((qId, idx) => {
       const btn = document.createElement("button");
       btn.innerText = start + idx + 1;
@@ -2134,14 +2108,14 @@ async function saveState(forceSave = false) {
     const totalPages = Math.ceil(queue.length / questionsPerPage);
     const startPage = Math.max(page - 1, 0);
     const endPage = Math.min(page + 1, totalPages - 1);
-
+    
     for (let p = startPage; p <= endPage; p++) {
       const navBtn = document.createElement("button");
       navBtn.innerText = p + 1;
       const activePage = state.queueType === "main" ? currentPanelPage : currentPanelPageErrors;
       if (p === activePage) navBtn.classList.add("active");
       else navBtn.classList.remove("active");
-
+      
       navBtn.onclick = () => {
         if (state.queueType === "main") currentPanelPage = p;
         else currentPanelPageErrors = p;
@@ -2156,7 +2130,7 @@ async function saveState(forceSave = false) {
   // Function to determine button status
   function getButtonStatus(qId) {
     if (!questions[qId]) return "unchecked";
-
+    
     if (state.history[qId]?.checked) {
       const sel = state.history[qId].selected || [];
       const corr = Array.isArray(questions[qId].correct) ? questions[qId].correct : [questions[qId].correct];
@@ -2202,10 +2176,10 @@ async function saveState(forceSave = false) {
   function highlightAnswers(qId) {
     const q = questions[qId];
     if (!q) return;
-
+    
     const correctIndexes = Array.isArray(q.correct) ? q.correct : [q.correct];
     const answerEls = answersDiv ? [...answersDiv.children] : [];
-
+    
     answerEls.forEach((el, i) => {
       el.classList.remove("correct", "wrong");
       if (correctIndexes.includes(i)) el.classList.add("correct");
@@ -2224,9 +2198,9 @@ async function saveState(forceSave = false) {
         _questionText: questions[qId]?.text.substring(0, 100)
       };
     }
-
+    
     state.history[qId].selected = [...selected];
-
+    
     const questionId = questions[qId]?.id;
     if (questionId) {
       state.answersByQuestionId[questionId] = {
@@ -2234,7 +2208,7 @@ async function saveState(forceSave = false) {
         timestamp: Date.now()
       };
     }
-
+    
     saveLocalState();
   }
 
@@ -2244,7 +2218,7 @@ async function saveState(forceSave = false) {
       console.log('⏳ Вопросы еще не загружены...');
       return;
     }
-
+    
     const queue = currentQueue();
     if (exitErrorsBtn) exitErrorsBtn.style.display = state.queueType === "errors" ? "inline-block" : "none";
 
@@ -2268,14 +2242,14 @@ async function saveState(forceSave = false) {
 
     const qId = queue[state.index];
     const q = questions[qId];
-
+    
     if (!q) {
       console.error(`❌ Вопрос с индексом ${qId} не найден`);
       qText.innerText = `Ошибка загрузки вопроса. Попробуйте обновить страницу.`;
       answersDiv.innerHTML = "";
       return;
     }
-
+    
     const multi = Array.isArray(q.correct);
 
     qText.classList.remove("fade");
@@ -2323,7 +2297,7 @@ async function saveState(forceSave = false) {
             el.classList.add("selected");
             el.classList.add("highlight");
           }
-
+          
           saveSelectedAnswers(qId);
         }
       };
@@ -2347,7 +2321,7 @@ async function saveState(forceSave = false) {
     const queue = currentQueue();
     const qId = queue[state.index];
     const q = questions[qId];
-
+    
     if (!q) return;
 
     const correctSet = new Set(Array.isArray(q.correct) ? q.correct : [q.correct]);
@@ -2363,7 +2337,7 @@ async function saveState(forceSave = false) {
     if (!state.answersOrder[qId] && q._currentOrder) {
       state.answersOrder[qId] = [...q._currentOrder];
     }
-
+    
     if (q.id) {
       state.answersByQuestionId[q.id] = [...q._currentOrder];
     }
@@ -2484,7 +2458,7 @@ async function saveState(forceSave = false) {
         console.log('🗑️ Локальное хранилище очищено для пользователя', userId);
 
         const progressRef = doc(db, USERS_PROGRESS_COLLECTION, user.uid);
-
+        
         await setDoc(progressRef, {
           progress: JSON.stringify(resetState),
           updatedAt: serverTimestamp(),
@@ -2494,13 +2468,13 @@ async function saveState(forceSave = false) {
           resetAt: serverTimestamp(),
           resetBy: 'user'
         }, { merge: true });
-
+        
         console.log('🗑️ Прогресс сброшен в Firestore для пользователя', userId);
 
         Object.assign(state, resetState);
-
+        
         await loadQuestions();
-
+        
         alert('✅ Прогресс успешно сброшен!\n\nТест начнётся с первого вопроса.');
 
       } catch (error) {
@@ -2509,7 +2483,7 @@ async function saveState(forceSave = false) {
       }
     };
   }
-
+  
   return {
     saveState,
     loadQuestions,
