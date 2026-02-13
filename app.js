@@ -92,6 +92,7 @@ let saveProgressBtn = null;
 let isInitializing = false;
 
 // Кнопка "Загрузить из облака"
+const loadFromCloudBtn = document.getElementById('loadFromCloudBtn');
 if (loadFromCloudBtn) {
   loadFromCloudBtn.onclick = async () => {
     if (!confirm('⚠️ Загрузить прогресс из облака? Локальный прогресс будет заменён.')) return;
@@ -2489,6 +2490,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
