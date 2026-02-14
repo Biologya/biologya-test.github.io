@@ -2330,60 +2330,28 @@ function render() {
   const oldWrappers = document.querySelectorAll('.question-image-wrapper');
   oldWrappers.forEach(n => n.parentNode && n.parentNode.removeChild(n));
 
-  // ---- РЕНДЕР ИЗОБРАЖЕНИЯ (если есть) ----
-  if (q.image) {
-    let imgSrc = String(q.image || '').trim();
+ // ---- РЕНДЕР ИЗОБРАЖЕНИЯ ----
+if (q.image) {
+  const imgWrapper = document.createElement('div');
+  imgWrapper.className = 'question-image-wrapper';
+  imgWrapper.style.textAlign = 'center';
+  imgWrapper.style.margin = '12px 0';
 
-    // Если передана ссылка на github.com/blob/... — преобразуем в raw.githubusercontent
-    if (imgSrc.includes('github.com') && imgSrc.includes('/blob/')) {
-      imgSrc = imgSrc
-        .replace('https://github.com/', 'https://raw.githubusercontent.com/')
-        .replace('/blob/', '/');
-    }
+  const img = document.createElement('img');
+  img.className = 'question-image';
+  img.alt = q.text ? q.text.substring(0, 80) : 'Изображение к вопросу';
+  img.src = q.image;
+  img.loading = 'lazy';
+  img.style.cursor = 'zoom-in';
+  img.onclick = () => window.open(img.src, '_blank');
 
-    // Если начинается с '/', считаем абсолютным от корня сайта
-    if (/^\/[^/]/.test(imgSrc)) {
-      imgSrc = location.origin + imgSrc;
-    } else if (/^\/\/|^https?:\/\//.test(imgSrc)) {
-      // полный URL — оставляем как есть
-    } else {
-      // относительный путь — оставляем как есть (например "photos/parazitizm.jpeg")
-      // при размещении на GitHub Pages относительный путь от корня страницы (если index в корне) будет работать
-    }
+  imgWrapper.appendChild(img);
 
-    // Кодируем URI для безопасных символов в имени файла
-    try { imgSrc = encodeURI(imgSrc); } catch (e) { console.warn('encodeURI failed', e); }
-
-    console.log('Загружаю изображение:', imgSrc);
-
-    const imgWrapper = document.createElement('div');
-    imgWrapper.className = 'question-image-wrapper';
-    imgWrapper.style.textAlign = 'center';
-    imgWrapper.style.marginBottom = '12px';
-
-    const img = document.createElement('img');
-    img.className = 'question-image';
-    img.alt = q.text ? q.text.substring(0, 80) : 'Изображение к вопросу';
-    img.loading = 'lazy';
-    img.src = imgSrc;
-
-    img.onerror = () => {
-      img.style.display = 'none';
-      console.warn('Не удалось загрузить изображение:', imgSrc);
-    };
-
-    img.style.cursor = 'zoom-in';
-    img.onclick = () => { try { window.open(img.src, '_blank'); } catch(e) { /* noop */ } };
-
-    imgWrapper.appendChild(img);
-
-    // Вставляем картинку перед qText
-    if (qText.parentNode) {
-      qText.parentNode.insertBefore(imgWrapper, qText);
-    } else {
-      answersDiv.parentNode?.insertBefore(imgWrapper, answersDiv);
-    }
+  // Вставляем картинку **после текста вопроса**, перед ответами
+  if (qText.parentNode) {
+    qText.parentNode.insertBefore(imgWrapper, answersDiv);
   }
+}
 
   // ---- ТЕКСТ ВОПРОСА ----
   qText.innerHTML = '';
@@ -2626,6 +2594,7 @@ function render() {
     }
   };
 }
+
 
 
 
