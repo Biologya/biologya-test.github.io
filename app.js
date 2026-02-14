@@ -1063,37 +1063,55 @@ async function loadProgressFromCloud() {
     const snap = await getDoc(progressRef);
 
     if (!snap.exists()) {
-      alert('ℹ️ В облаке нет сохранённого прогресса для этого аккаунта.');
+      console.log('ℹ️ В облаке нет сохранённого прогресса для этого аккаунта.');
       return false;
     }
 
     const data = snap.data();
-    if (!data || (data.progress === undefined || data.progress === null)) {
-      alert('❌ Данные прогресса в облаке отсутствуют или повреждены.');
+    if (!data || data.progress === undefined || data.progress === null) {
+      console.log('ℹ️ Прогресс в документе отсутствует или повреждён.');
       return false;
     }
 
-    // `data.progress` может быть объектом или строкой (старые версии)
-    let progressRaw;
-    if (typeof data.progress === 'string') {
-      // Если в облаке хранится строка JSON
-      progressRaw = data.progress;
-    } else {
-      // Если в облаке хранится объект — сохраним его в localStorage как строку
-      progressRaw = JSON.stringify(data.progress);
+    // Если progress — объект (старый формат), конвертируем его в строку локально.
+    // Важно: не переписываем документ в Firestore автоматически (иначе мы снова запишем объект).
+    if (typeof data.progress === 'object') {
+      try {
+        const progressString = JSON.stringify(data.progress);
+        localStorage.setItem(`bioState_${uid}`, progressString);
+        console.log('📥 Загружен progress (объект) — сохранён локально как строка (backward compatibility).');
+        showNotification('✅ Прогресс загружен (старый формат) и сохранён локально.', 'success');
+        return true;
+      } catch (e) {
+        console.error('Ошибка сериализации progress object:', e);
+        showNotification('❌ Ошибка обработки прогресса с сервера.', 'error');
+        return false;
+      }
     }
 
-    const STORAGE_KEY = `bioState_${uid}`;
-    localStorage.setItem(STORAGE_KEY, progressRaw);
+    // Если progress — строка (рекомендуемый формат)
+    if (typeof data.progress === 'string') {
+      try {
+        // проверим, валиден ли JSON
+        JSON.parse(data.progress);
+        localStorage.setItem(`bioState_${uid}`, data.progress);
+        console.log('📥 Прогресс загружен из облака и сохранён локально.');
+        showNotification('✅ Прогресс загружен из облака и сохранён локально.', 'success');
+        return true;
+      } catch (e) {
+        // Если строка — но не валидный JSON, всё равно сохраняем как-полезно (старые случаи)
+        console.warn('Строка progress не является JSON, сохраняем сырой текст.', e);
+        localStorage.setItem(`bioState_${uid}`, data.progress);
+        showNotification('✅ Прогресс (нестандартный формат) сохранён локально.', 'warning');
+        return true;
+      }
+    }
 
-    showNotification('✅ Прогресс загружен из облака и сохранён локально. Страница будет обновлена.', 'success');
-
-    // Обновляем страницу, чтобы initQuiz заново прочитал localStorage
-    setTimeout(() => location.reload(), 900);
-    return true;
+    console.warn('Неизвестный тип поля progress:', typeof data.progress);
+    return false;
 
   } catch (err) {
-    console.error('Ошибка загрузки из облака:', err);
+    console.error('Ошибка загрузки прогресса из облака:', err);
     if (err && err.code === 'permission-denied') {
       showNotification('❌ Ошибка: доступ запрещён (permission-denied). Проверьте правила Firestore.', 'error');
     } else {
@@ -1102,6 +1120,7 @@ async function loadProgressFromCloud() {
     return false;
   }
 }
+  
 /* ====== Сохранение прогресса в облако — ТОЛЬКО по кнопке ====== */
 async function saveProgressToCloud() {
   if (!auth || !auth.currentUser) {
@@ -1115,37 +1134,42 @@ async function saveProgressToCloud() {
     const raw = localStorage.getItem(STORAGE_KEY);
 
     if (!raw) {
-      // Если локального прогресса нет — ничего не сохраняем
       alert('ℹ️ Локального прогресса не найдено — сначала пройдите тест или сохраните локально.');
       return false;
     }
 
-    let progressObj;
-    try {
-      progressObj = JSON.parse(raw);
-    } catch (e) {
-      console.warn('Невалидный JSON в localStorage, сохраним как строку', e);
-      progressObj = { rawData: raw };
+    // raw из localStorage уже строка, но на всякий случай приводим к строке
+    let progressString = (typeof raw === 'string') ? raw : JSON.stringify(raw);
+
+    // Проверка размера (чтобы не превысить ограничение 1 MB на документ)
+    // Оставляем запас — допустим 900 KB
+    const bytes = (new TextEncoder()).encode(progressString).length;
+    const MAX_BYTES = 900 * 1024; // 900 KB
+
+    if (bytes > MAX_BYTES) {
+      console.error('Прогресс слишком большой для сохранения в Firestore:', bytes);
+      showNotification(`❌ Прогресс слишком большой (${Math.round(bytes/1024)} KB). Сохранение отменено.`, 'error');
+      // Можно предложить пользователю уменьшить прогресс или реализовать сжатие на стороне клиента.
+      return false;
     }
 
     const progressRef = doc(db, USERS_PROGRESS_COLLECTION, uid);
 
-    // Сохраняем объект прогресса (без двойного JSON.stringify), добавляем updatedAt
+    // Сохраняем progress как СТРОКУ — это предотвращает индексирование вложенных полей
     await setDoc(progressRef, {
-      progress: progressObj,
+      progress: progressString,
       updatedAt: serverTimestamp(),
       lastUpdated: Date.now(),
       userId: uid,
       email: auth.currentUser.email || ''
     }, { merge: true });
 
-    console.log('💾 Прогресс успешно записан в Firestore для', uid);
+    console.log('💾 Прогресс успешно записан в Firestore для', uid, `(${Math.round(bytes/1024)} KB)`);
+    showNotification('✅ Прогресс сохранён в облако', 'success');
     return true;
 
   } catch (err) {
     console.error('Ошибка сохранения прогресса в облако:', err);
-
-    // Показываем подсказку при ошибке прав доступа или сети
     if (err && err.code === 'permission-denied') {
       showNotification('❌ Ошибка: доступ запрещён. Проверьте правила Firestore.', 'error');
     } else {
@@ -2492,6 +2516,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
