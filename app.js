@@ -2349,18 +2349,19 @@ if (q.image) {
   img.loading = 'lazy';
   img.style.cursor = 'zoom-in';
 
-  // Универсальный стиль для всех устройств
-  img.style.maxWidth = '90%';  // не выходит за пределы экрана
-  img.style.height = 'auto';
+  // Стили для всех устройств
+  img.style.width = '90%';      // почти вся ширина экрана
+  img.style.maxWidth = '800px'; // ограничение на больших экранах
+  img.style.height = 'auto';    // сохраняем пропорции
   img.style.borderRadius = '6px';
-  img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+  img.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+  img.style.transition = 'transform 0.3s';
 
-  // Увеличение для мобильных (телефонов)
-  if (window.innerWidth <= 768) {  // <= 768px — типичная ширина планшета/телефона
-    img.style.maxWidth = '100%';
-  }
-
-  img.onclick = () => window.open(img.src, '_blank');
+  // Зум при нажатии
+  img.onclick = () => {
+    // открытие в новом окне
+    window.open(img.src, '_blank');
+  };
 
   imgWrapper.appendChild(img);
 
@@ -2611,6 +2612,7 @@ if (q.image) {
     }
   };
 }
+
 
 
 
