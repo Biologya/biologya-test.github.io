@@ -293,6 +293,8 @@ button.secondary { background: #81c784; }
   .question-image {
     max-width: 95%;   /* почти вся ширина экрана */
     max-height: none; /* убираем прежнее ограничение */
+    width: 100%;      /* гарантия: занимает всю ширину контейнера */
+    display: block;
   }
 }
 
@@ -434,7 +436,7 @@ button.secondary { background: #81c784; }
     box-shadow: 0 5px 15px rgba(0,0,0,0.1);
   }
 
-/* ====== Админ и статусы ====== */
+  /* ====== Админ и статусы ====== */
 .admin-status {
   cursor: pointer;
   transition: all 0.3s ease;
@@ -503,20 +505,24 @@ button.secondary { background: #81c784; }
   #questionPanel button { width: 32px; height: 32px; font-size: 12px; }
   #pageNav button { width: 32px; height: 32px; font-size: 12px; }
   #resetBtn { width: 45px; font-size: 11px; }
-  .app { margin-left: 60px; padding: 10px; }
+  .app { 
+    margin-left: 12px;   /* уменьшил отступ чтобы контейнер был шире */
+    margin-right: 12px;
+    padding: 10px; 
+    width: calc(100% - 24px); /* занимает почти весь экран */
+    max-width: 95vw;
+    box-sizing: border-box;
+  }
   .controls button { padding: 6px 10px; font-size: 14px; }
   #questionText { font-size: 18px; }
   .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
+
+  /* Дополнительно: делаем изображение максимальным по ширине внутри расширённого контейнера */
+  .question-image {
+    width: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin-bottom: 12px;
+  }
 }
-
-
-
-
-
-
-
-
-
-
-
