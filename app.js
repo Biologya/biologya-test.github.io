@@ -2326,17 +2326,43 @@ function render() {
   // Очистка контейнера ответов
   answersDiv.innerHTML = "";
 
-  // ---- РЕНДЕР ИЗОБРАЖЕНИЯ (если есть) ----
-  // удаляем старую картинку, если была
-  const existingImg = document.querySelector('.question-image');
-  if (existingImg && existingImg.parentNode) existingImg.parentNode.removeChild(existingImg);
+  // ---- РЕМОВАЛ ВСЕХ СТАРЫХ КАРТИНОК/ОБЁРТОК ----
+  const oldWrappers = document.querySelectorAll('.question-image-wrapper');
+  oldWrappers.forEach(n => n.parentNode && n.parentNode.removeChild(n));
 
+  // ---- РЕНДЕР ИЗОБРАЖЕНИЯ (если есть) ----
   if (q.image) {
-    // Нормализуем путь: убираем ведущий слеш, чтобы относительный путь работал на GitHub project pages
-    let imgSrc = q.image;
-    if (typeof imgSrc === 'string' && imgSrc.startsWith('/')) {
-      imgSrc = imgSrc.slice(1);
+    let imgSrc = String(q.image || '').trim();
+
+    // Если передана ссылка на github.com/blob/... — преобразуем в raw.githubusercontent
+    if (imgSrc.includes('github.com') && imgSrc.includes('/blob/')) {
+      imgSrc = imgSrc
+        .replace('https://github.com/', 'https://raw.githubusercontent.com/')
+        .replace('/blob/', '/');
     }
+
+    // Нормализуем путь:
+    // - если начинается с '/', считаем это абсолютным от корня сайта → делаем location.origin + path
+    // - если начинается с 'http' или '//' — оставляем как есть
+    // - иначе — оставляем как относительный путь (например "photos/parazitizm.jpeg")
+    if (/^\/[^/]/.test(imgSrc)) {
+      // абсолютный путь от корня хоста
+      imgSrc = location.origin + imgSrc;
+    } else if (/^\/\/|^https?:\/\//.test(imgSrc)) {
+      // полный URL — ничего не делаем
+    } else {
+      // относительный — оставляем (браузер разрешит относительно текущего location.pathname)
+      // ничего
+    }
+
+    // Кодируем URI (корректно для кириллицы и пробелов)
+    try {
+      imgSrc = encodeURI(imgSrc);
+    } catch (e) {
+      console.warn('encodeURI failed for', imgSrc, e);
+    }
+
+    console.log('Загружаю изображение:', imgSrc);
 
     const imgWrapper = document.createElement('div');
     imgWrapper.className = 'question-image-wrapper';
@@ -2349,32 +2375,33 @@ function render() {
     img.loading = 'lazy';
     img.src = imgSrc;
 
-    // Подсказка/обработчик ошибки загрузки
+    // fallback при ошибке загрузки
     img.onerror = () => {
       img.style.display = 'none';
-      // Можно показать заглушку или просто лог
       console.warn('Не удалось загрузить изображение:', imgSrc);
+      // можно вставить заглушку: imgWrapper.innerText = 'Изображение недоступно';
     };
 
-    // Дополнительно: можно открыть изображение в новой вкладке по клику
     img.style.cursor = 'zoom-in';
     img.onclick = () => {
-      window.open(img.src, '_blank');
+      // откроем исходный URL в новой вкладке (если src корректен)
+      try { window.open(img.src, '_blank'); } catch(e){ console.warn(e); }
     };
 
     imgWrapper.appendChild(img);
 
-    // Вставляем изображение перед текстом вопроса (если qText в DOM одна строка)
+    // Вставляем картинку перед qText
     if (qText.parentNode) {
       qText.parentNode.insertBefore(imgWrapper, qText);
     } else {
-      // fallback: если нет специального контейнера — просто добавим в answersDiv
       answersDiv.parentNode?.insertBefore(imgWrapper, answersDiv);
     }
   }
 
   // ---- ТЕКСТ ВОПРОСА ----
-  qText.innerText = q.text || q.question || '';
+  // очищаем и добавляем текст безопасно (без удаления вставленной картинки)
+  qText.innerHTML = '';
+  qText.appendChild(document.createTextNode(q.text || q.question || ''));
 
   // показываем/скрываем кнопку submit для мультивыбора
   if (submitBtn) {
@@ -2613,4 +2640,5 @@ function render() {
     }
   };
 }
+
 
