@@ -2276,102 +2276,155 @@ async function saveState(forceSave = false) {
   }
 
   // Render question
-  function render() {
-    if (!questionsLoaded || questions.length === 0) {
-      console.log('⏳ Вопросы еще не загружены...');
-      return;
-    }
-
-    const queue = currentQueue();
-    if (exitErrorsBtn) exitErrorsBtn.style.display = state.queueType === "errors" ? "inline-block" : "none";
-
-    if (!qText || !answersDiv) return;
-
-    if (queue.length === 0) {
-      qText.innerText = "Вопросов нет 😎";
-      answersDiv.innerHTML = "";
-      if (submitBtn) submitBtn.style.display = nextBtn.style.display = "none";
-      return;
-    }
-
-    if (state.index >= queue.length) {
-      if (state.queueType === "errors") {
-        exitErrorsBtn.click();
-        return;
-      }
-      showResult();
-      return;
-    }
-
-    const qId = queue[state.index];
-    const q = questions[qId];
-
-    if (!q) {
-      console.error(`❌ Вопрос с индексом ${qId} не найден`);
-      qText.innerText = `Ошибка загрузки вопроса. Попробуйте обновить страницу.`;
-      answersDiv.innerHTML = "";
-      return;
-    }
-
-    const multi = Array.isArray(q.correct);
-
-    qText.classList.remove("fade");
-    answersDiv.classList.remove("fade");
-    setTimeout(() => {
-      qText.classList.add("fade");
-      answersDiv.classList.add("fade");
-    }, 10);
-
-    qText.innerText = q.text;
-    answersDiv.innerHTML = "";
-    if (submitBtn) {
-      submitBtn.style.display = multi ? "inline-block" : "none";
-      submitBtn.disabled = false;
-    }
-
-    renderQuestionPanel();
-
-    if (nextBtn) nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
-    checked = !!state.history[qId]?.checked;
-    selected = new Set(state.history[qId]?.selected || []);
-
-    q.answers.forEach((text, i) => {
-      const el = document.createElement("div");
-      el.className = "answer";
-      el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
-      if (selected.has(i)) el.classList.add("selected");
-
-      el.onclick = () => {
-        if (state.queueType === "errors" || checked) return;
-
-        if (!multi) {
-          selected.clear();
-          selected.add(i);
-          saveSelectedAnswers(qId);
-          checkAnswers();
-          render();
-        } else {
-          if (selected.has(i)) {
-            selected.delete(i);
-            el.classList.remove("selected");
-            el.classList.remove("highlight");
-          } else {
-            selected.add(i);
-            el.classList.add("selected");
-            el.classList.add("highlight");
-          }
-
-          saveSelectedAnswers(qId);
-        }
-      };
-
-      answersDiv.appendChild(el);
-    });
-
-    if (checked || state.queueType === "errors") highlightAnswers(qId);
-    if (submitBtn) submitBtn.disabled = checked;
-    updateUI();
+function render() {
+  if (!questionsLoaded || questions.length === 0) {
+    console.log('⏳ Вопросы еще не загружены...');
+    return;
   }
+
+  const queue = currentQueue();
+  if (exitErrorsBtn) exitErrorsBtn.style.display = state.queueType === "errors" ? "inline-block" : "none";
+
+  if (!qText || !answersDiv) return;
+
+  if (queue.length === 0) {
+    qText.innerText = "Вопросов нет 😎";
+    answersDiv.innerHTML = "";
+    if (submitBtn) submitBtn.style.display = nextBtn.style.display = "none";
+    return;
+  }
+
+  if (state.index >= queue.length) {
+    if (state.queueType === "errors") {
+      exitErrorsBtn.click();
+      return;
+    }
+    showResult();
+    return;
+  }
+
+  const qId = queue[state.index];
+  const q = questions[qId];
+
+  if (!q) {
+    console.error(`❌ Вопрос с индексом ${qId} не найден`);
+    qText.innerText = `Ошибка загрузки вопроса. Попробуйте обновить страницу.`;
+    answersDiv.innerHTML = "";
+    return;
+  }
+
+  const multi = Array.isArray(q.correct);
+
+  // анимация смены
+  qText.classList.remove("fade");
+  answersDiv.classList.remove("fade");
+  setTimeout(() => {
+    qText.classList.add("fade");
+    answersDiv.classList.add("fade");
+  }, 10);
+
+  // Очистка контейнера ответов
+  answersDiv.innerHTML = "";
+
+  // ---- РЕНДЕР ИЗОБРАЖЕНИЯ (если есть) ----
+  // удаляем старую картинку, если была
+  const existingImg = document.querySelector('.question-image');
+  if (existingImg && existingImg.parentNode) existingImg.parentNode.removeChild(existingImg);
+
+  if (q.image) {
+    // Нормализуем путь: убираем ведущий слеш, чтобы относительный путь работал на GitHub project pages
+    let imgSrc = q.image;
+    if (typeof imgSrc === 'string' && imgSrc.startsWith('/')) {
+      imgSrc = imgSrc.slice(1);
+    }
+
+    const imgWrapper = document.createElement('div');
+    imgWrapper.className = 'question-image-wrapper';
+    imgWrapper.style.textAlign = 'center';
+    imgWrapper.style.marginBottom = '12px';
+
+    const img = document.createElement('img');
+    img.className = 'question-image';
+    img.alt = q.text ? q.text.substring(0, 80) : 'Изображение к вопросу';
+    img.loading = 'lazy';
+    img.src = imgSrc;
+
+    // Подсказка/обработчик ошибки загрузки
+    img.onerror = () => {
+      img.style.display = 'none';
+      // Можно показать заглушку или просто лог
+      console.warn('Не удалось загрузить изображение:', imgSrc);
+    };
+
+    // Дополнительно: можно открыть изображение в новой вкладке по клику
+    img.style.cursor = 'zoom-in';
+    img.onclick = () => {
+      window.open(img.src, '_blank');
+    };
+
+    imgWrapper.appendChild(img);
+
+    // Вставляем изображение перед текстом вопроса (если qText в DOM одна строка)
+    if (qText.parentNode) {
+      qText.parentNode.insertBefore(imgWrapper, qText);
+    } else {
+      // fallback: если нет специального контейнера — просто добавим в answersDiv
+      answersDiv.parentNode?.insertBefore(imgWrapper, answersDiv);
+    }
+  }
+
+  // ---- ТЕКСТ ВОПРОСА ----
+  qText.innerText = q.text || q.question || '';
+
+  // показываем/скрываем кнопку submit для мультивыбора
+  if (submitBtn) {
+    submitBtn.style.display = multi ? "inline-block" : "none";
+    submitBtn.disabled = false;
+  }
+
+  renderQuestionPanel();
+
+  if (nextBtn) nextBtn.innerText = allChecked() ? "Следующий" : "Следующий (пропустить)";
+  checked = !!state.history[qId]?.checked;
+  selected = new Set(state.history[qId]?.selected || []);
+
+  // ---- РЕНДЕР ВАРИАНТОВ ОТВЕТОВ ----
+  q.answers.forEach((text, i) => {
+    const el = document.createElement("div");
+    el.className = "answer";
+    el.innerHTML = `<span>${text}</span><span class="icon"></span>`;
+    if (selected.has(i)) el.classList.add("selected");
+
+    el.onclick = () => {
+      if (state.queueType === "errors" || checked) return;
+
+      if (!multi) {
+        selected.clear();
+        selected.add(i);
+        saveSelectedAnswers(qId);
+        checkAnswers();
+        render();
+      } else {
+        if (selected.has(i)) {
+          selected.delete(i);
+          el.classList.remove("selected");
+          el.classList.remove("highlight");
+        } else {
+          selected.add(i);
+          el.classList.add("selected");
+          el.classList.add("highlight");
+        }
+        saveSelectedAnswers(qId);
+      }
+    };
+
+    answersDiv.appendChild(el);
+  });
+
+  if (checked || state.queueType === "errors") highlightAnswers(qId);
+  if (submitBtn) submitBtn.disabled = checked;
+  updateUI();
+}
 
   // Check answers
   if (submitBtn) submitBtn.onclick = () => {
@@ -2560,3 +2613,4 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
