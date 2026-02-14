@@ -1833,12 +1833,13 @@ async function saveState(forceSave = false) {
 
       const data = validation.data;
 
-      questions = data.map((q, index) => ({
-        id: q.id || `q_${index}_${hashString(q.text || '')}`,
-        text: q.text || `Вопрос ${index + 1}`,
-        answers: Array.isArray(q.answers) ? [...q.answers] : ["Нет ответов"],
-        correct: Array.isArray(q.correct) ? [...q.correct] : (q.correct !== undefined ? q.correct : 0)
-      }));
+questions = data.map((q, index) => ({
+  id: q.id || `q_${index}_${hashString(q.text || '')}`,
+  text: q.text || `Вопрос ${index + 1}`,
+  answers: Array.isArray(q.answers) ? [...q.answers] : ["Нет ответов"],
+  correct: Array.isArray(q.correct) ? [...q.correct] : (q.correct !== undefined ? q.correct : 0),
+  image: q.image ? String(q.image).trim() : null
+}));
 
       console.log(`📚 Загружено ${questions.length} вопросов`);
 
@@ -2340,7 +2341,16 @@ if (q.image) {
   const img = document.createElement('img');
   img.className = 'question-image';
   img.alt = q.text ? q.text.substring(0, 80) : 'Изображение к вопросу';
-  img.src = q.image;
+
+  let imgSrc = q.image || '';
+  // если путь абсолютный от корня сайта — конвертируем в полный URL
+  if (imgSrc.startsWith('/')) imgSrc = location.origin + imgSrc;
+  // кодируем URI (на случай кириллицы/пробелов)
+  try { imgSrc = encodeURI(imgSrc); } catch(e) {}
+
+  img.src = imgSrc;  // ← используем только нормализованный путь
+  console.log('Загружаю изображение:', img.src);
+
   img.loading = 'lazy';
   img.style.cursor = 'zoom-in';
   img.onclick = () => window.open(img.src, '_blank');
@@ -2594,6 +2604,7 @@ if (q.image) {
     }
   };
 }
+
 
 
 
