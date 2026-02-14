@@ -1820,12 +1820,13 @@ async function saveState(forceSave = false) {
       
       const data = validation.data;
       
-      questions = data.map((q, index) => ({
-        id: q.id || `q_${index}_${hashString(q.text || '')}`,
-        text: q.text || `Вопрос ${index + 1}`,
-        answers: Array.isArray(q.answers) ? [...q.answers] : ["Нет ответов"],
-        correct: Array.isArray(q.correct) ? [...q.correct] : (q.correct !== undefined ? q.correct : 0)
-      }));
+questions = data.map((q, index) => ({
+  id: q.id || `q_${index}_${hashString(q.text || '')}`,
+  text: q.text || `Вопрос ${index + 1}`,
+  answers: Array.isArray(q.answers) ? [...q.answers] : ["Нет ответов"],
+  correct: Array.isArray(q.correct) ? [...q.correct] : (q.correct !== undefined ? q.correct : 0),
+  image: q.image || null   // ← добавляем поле image, если есть
+}));
 
       console.log(`📚 Загружено ${questions.length} вопросов`);
 
@@ -2302,6 +2303,30 @@ async function saveState(forceSave = false) {
     
     const multi = Array.isArray(q.correct);
 
+    // Пример: создаём или находим контейнер для картинки
+let imageContainer = document.getElementById('questionImage');
+if (!imageContainer) {
+  imageContainer = document.createElement('div');
+  imageContainer.id = 'questionImage';
+  imageContainer.style.marginBottom = '15px';
+  imageContainer.style.textAlign = 'center';
+  // Вставляем перед текстом вопроса
+  qText.parentNode.insertBefore(imageContainer, qText);
+}
+
+// Очищаем и, если есть image, добавляем <img>
+imageContainer.innerHTML = '';
+if (q.image) {
+  const img = document.createElement('img');
+  img.src = q.image;
+  img.alt = 'Иллюстрация к вопросу';
+  img.style.maxWidth = '100%';
+  img.style.maxHeight = '300px';
+  img.style.borderRadius = '8px';
+  img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)';
+  imageContainer.appendChild(img);
+}
+    
     qText.classList.remove("fade");
     answersDiv.classList.remove("fade");
     setTimeout(() => {
@@ -2547,6 +2572,7 @@ async function saveState(forceSave = false) {
     }
   };
 }
+
 
 
 
