@@ -276,22 +276,23 @@ button.secondary { background: #81c784; }
   transition: width 0.3s ease;
 }
 
-/* ==== Поддержка изображений в вопросах (Только добавить) ==== */
+/* Общий стиль для изображений вопросов */
 .question-image {
   display: block;
-  max-width: 100%;
-  height: auto;
+  width: 100%;        /* занимает всю ширину контейнера */
+  max-width: 800px;   /* ограничение на ПК */
+  height: auto;       /* сохраняем пропорции */
   margin: 0 auto 12px;
   border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0,0,0,0.10);
   object-fit: contain;
-  max-height: 360px; /* десктоп */
 }
 
-@media (max-width: 600px) {
+/* Мобильные устройства */
+@media (max-width: 768px) {
   .question-image {
-    max-height: 220px; /* мобильные */
-    margin-bottom: 10px;
+    max-width: 95%;   /* почти вся ширина экрана */
+    max-height: none; /* убираем прежнее ограничение */
   }
 }
 
@@ -508,6 +509,7 @@ button.secondary { background: #81c784; }
   .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
 }
+
 
 
 
