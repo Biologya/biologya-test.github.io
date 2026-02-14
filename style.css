@@ -276,18 +276,24 @@ button.secondary { background: #81c784; }
   transition: width 0.3s ease;
 }
 
+/* ==== Поддержка изображений в вопросах (Только добавить) ==== */
 .question-image {
+  display: block;
   max-width: 100%;
   height: auto;
+  margin: 0 auto 12px;
   border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
-  transition: transform .18s ease, box-shadow .18s ease;
-  display: inline-block;
-  max-height: 360px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.10);
   object-fit: contain;
+  max-height: 360px; /* десктоп */
 }
-.question-image:hover { transform: scale(1.02); box-shadow: 0 10px 28px rgba(0,0,0,0.16); }
-.question-image-wrapper { margin-bottom: 12px; }
+
+@media (max-width: 600px) {
+  .question-image {
+    max-height: 220px; /* мобильные */
+    margin-bottom: 10px;
+  }
+}
 
 /* ====== Ответы ====== */
 #answers {
@@ -502,6 +508,7 @@ button.secondary { background: #81c784; }
   .answer { font-size: 14px; padding: 10px 12px; }
   .authCard { padding: 18px; width: 92%; }
 }
+
 
 
 
