@@ -2343,16 +2343,23 @@ if (q.image) {
   img.alt = q.text ? q.text.substring(0, 80) : 'Изображение к вопросу';
 
   let imgSrc = q.image || '';
-  // если путь абсолютный от корня сайта — конвертируем в полный URL
   if (imgSrc.startsWith('/')) imgSrc = location.origin + imgSrc;
-  // кодируем URI (на случай кириллицы/пробелов)
   try { imgSrc = encodeURI(imgSrc); } catch(e) {}
-
-  img.src = imgSrc;  // ← используем только нормализованный путь
-  console.log('Загружаю изображение:', img.src);
-
+  img.src = imgSrc;
   img.loading = 'lazy';
   img.style.cursor = 'zoom-in';
+
+  // Универсальный стиль для всех устройств
+  img.style.maxWidth = '90%';  // не выходит за пределы экрана
+  img.style.height = 'auto';
+  img.style.borderRadius = '6px';
+  img.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+
+  // Увеличение для мобильных (телефонов)
+  if (window.innerWidth <= 768) {  // <= 768px — типичная ширина планшета/телефона
+    img.style.maxWidth = '100%';
+  }
+
   img.onclick = () => window.open(img.src, '_blank');
 
   imgWrapper.appendChild(img);
@@ -2604,6 +2611,7 @@ if (q.image) {
     }
   };
 }
+
 
 
 
