@@ -2326,7 +2326,7 @@ function render() {
   // Очистка контейнера ответов
   answersDiv.innerHTML = "";
 
-  // ---- РЕМОВАЛ ВСЕХ СТАРЫХ КАРТИНОК/ОБЁРТОК ----
+  // ---- УДАЛЯЕМ ВСЕ СТАРЫЕ КАРТИНКИ/ОБЁРТКИ ----
   const oldWrappers = document.querySelectorAll('.question-image-wrapper');
   oldWrappers.forEach(n => n.parentNode && n.parentNode.removeChild(n));
 
@@ -2341,26 +2341,18 @@ function render() {
         .replace('/blob/', '/');
     }
 
-    // Нормализуем путь:
-    // - если начинается с '/', считаем это абсолютным от корня сайта → делаем location.origin + path
-    // - если начинается с 'http' или '//' — оставляем как есть
-    // - иначе — оставляем как относительный путь (например "photos/parazitizm.jpeg")
+    // Если начинается с '/', считаем абсолютным от корня сайта
     if (/^\/[^/]/.test(imgSrc)) {
-      // абсолютный путь от корня хоста
       imgSrc = location.origin + imgSrc;
     } else if (/^\/\/|^https?:\/\//.test(imgSrc)) {
-      // полный URL — ничего не делаем
+      // полный URL — оставляем как есть
     } else {
-      // относительный — оставляем (браузер разрешит относительно текущего location.pathname)
-      // ничего
+      // относительный путь — оставляем как есть (например "photos/parazitizm.jpeg")
+      // при размещении на GitHub Pages относительный путь от корня страницы (если index в корне) будет работать
     }
 
-    // Кодируем URI (корректно для кириллицы и пробелов)
-    try {
-      imgSrc = encodeURI(imgSrc);
-    } catch (e) {
-      console.warn('encodeURI failed for', imgSrc, e);
-    }
+    // Кодируем URI для безопасных символов в имени файла
+    try { imgSrc = encodeURI(imgSrc); } catch (e) { console.warn('encodeURI failed', e); }
 
     console.log('Загружаю изображение:', imgSrc);
 
@@ -2375,18 +2367,13 @@ function render() {
     img.loading = 'lazy';
     img.src = imgSrc;
 
-    // fallback при ошибке загрузки
     img.onerror = () => {
       img.style.display = 'none';
       console.warn('Не удалось загрузить изображение:', imgSrc);
-      // можно вставить заглушку: imgWrapper.innerText = 'Изображение недоступно';
     };
 
     img.style.cursor = 'zoom-in';
-    img.onclick = () => {
-      // откроем исходный URL в новой вкладке (если src корректен)
-      try { window.open(img.src, '_blank'); } catch(e){ console.warn(e); }
-    };
+    img.onclick = () => { try { window.open(img.src, '_blank'); } catch(e) { /* noop */ } };
 
     imgWrapper.appendChild(img);
 
@@ -2399,7 +2386,6 @@ function render() {
   }
 
   // ---- ТЕКСТ ВОПРОСА ----
-  // очищаем и добавляем текст безопасно (без удаления вставленной картинки)
   qText.innerHTML = '';
   qText.appendChild(document.createTextNode(q.text || q.question || ''));
 
@@ -2640,5 +2626,6 @@ function render() {
     }
   };
 }
+
 
 
